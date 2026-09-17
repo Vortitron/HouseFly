@@ -46,7 +46,11 @@ Pick 1-3 sensors to start (examples):
 - **Tick interval:** 10 seconds (default)
 - **Intensity:** 0.55 (default)
 - **Seed:** 42 (default)
-- **⚠️ Whole house mode:** **LEAVE OFF** for first-time use
+- **⚠️ Whole house mode:** **LEAVE OFF** for first-time use!
+  - This auto-selects ALL lights/switches/covers/fans (up to 32)
+  - Requires scary confirmation dialogue
+  - Forces safer limits (tick ≥15s, intensity ≤0.4)
+  - **Do NOT enable until you've tested with 1-2 devices first!**
 
 Click **Submit**.
 
@@ -160,12 +164,19 @@ Now you get live ASCII art that changes with brain activity:
 
 ### Expanding safely:
 1. Watch the one lamp for 30 minutes
-2. Add 1-2 more lights if behaviour is reasonable
+2. Add 1-2 more lights if behaviour is reasonable (via Configure)
 3. Increase intensity gradually (0.55 → 0.65 → 0.75)
 4. Only enable whole house mode if:
-   - You've tested extensively
-   - You're filming for content
-   - You understand the chaos
+   - You've tested with 3-5 devices first
+   - You're prepared for ALL lights/switches/covers (up to 32) to be controlled
+   - You read and confirm the scary warning (shows exact device count)
+   - You're filming for content or truly understand the chaos
+
+**Whole house mode behavior:**
+- Auto-scans and selects ALL available controllable entities
+- Caps at 32 max (lights prioritised)
+- Forces tick ≥15s, intensity ≤0.4 for safety
+- Static snapshot (new devices won't auto-add until you reconfigure)
 
 ---
 

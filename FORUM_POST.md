@@ -49,6 +49,14 @@ Do not:
 
 The "whole house mode" toggle exists for brave souls and content creators. Intensity exists for a reason. The config flow now supports multi-select so you can pick exactly what the fly sees and controls (up to 32 each).
 
+**Whole house mode** is real and scary:
+- Enable the toggle → confirmation step appears
+- Shows exact device count (e.g. "43 lights/switches/covers/fans")
+- Must check "I understand this can thrash my house" to proceed
+- Auto-selects up to 32 controllable entities
+- Forces safety: tick ≥15s, intensity ≤0.4
+- Static snapshot (reconfigure to refresh entity list)
+
 ### Install
 
 HACS custom repository → Integration → `https://github.com/Vortitron/HouseFly` → restart → Add Integration → HouseFly.  

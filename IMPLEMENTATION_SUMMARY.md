@@ -50,13 +50,29 @@ Successfully created and pushed a complete Home Assistant Custom Component (HACS
 
 ## ⚠️ Whole House Mode
 
-### Safety Features
+### Real Implementation
 - ✅ **`whole_house` config option** — Boolean toggle in config flow
-- ✅ **Scary warnings** in multiple places:
-  - Config flow description: "⚠️ WHOLE HOUSE MODE (pretty insane — read docs!)"
-  - README dedicated section with 💀 emoji and warnings
-  - FORUM_POST expanded safety section
-  - Strings.json: "⚠️ WHOLE HOUSE MODE (danger zone!)"
+- ✅ **Confirmation step** (`confirm_whole_house`) — REQUIRED to proceed:
+  - Shows exact count of devices that will be controlled
+  - User must check "I understand this can thrash lights/covers/switches"
+  - Cannot proceed without confirmation
+- ✅ **Auto-entity selection**:
+  - Scans `hass.states` for `light`, `switch`, `cover`, `fan` domains
+  - Filters out unavailable/unknown entities
+  - Prioritises: lights → switches → covers → fans
+  - Caps at MAX_OUTPUT_ENTITIES (32)
+  - Auto-fills default inputs if empty (sun, motion sensors, time)
+- ✅ **Safety constraints** when whole house enabled:
+  - Minimum tick interval: **15 seconds** (enforced)
+  - Maximum intensity: **0.4** (capped at 40%)
+  - Applied automatically on confirmation
+- ✅ **Static snapshot** — Entity list captured at config time (not dynamic)
+- ✅ **Options flow support** — Enabling whole house in options also requires confirmation
+- ✅ **Scary warnings** everywhere:
+  - Config flow description with device count
+  - Confirmation dialogue with bold warnings
+  - README section explaining exact behavior
+  - FORUM_POST, QUICK_START updated to match
 
 ### Documentation
 - ✅ README section explaining risks:

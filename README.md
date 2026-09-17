@@ -148,19 +148,48 @@ data:
 
 **DO NOT enable this unless you know what you're doing.**
 
-Whole house mode is an optional config toggle that lets you give the fly control over 20+ devices simultaneously. This can result in:
-- All your lights flickering like a rave
-- Covers opening/closing randomly
-- Fans cycling on and off
-- General household pandemonium
+### What It Does
 
-**Recommended approach:**
-1. Start with **ONE spare lamp** in a corner
-2. Watch it for a day
-3. Add 1-2 more devices if you're brave
-4. Only enable whole house mode if you're absolutely certain (or filming content)
+When you enable whole house mode, HouseFly will:
 
-When whole house mode is enabled, the integration will show extra warnings in the config flow. You've been warned. 💀
+1. **Auto-scan** your Home Assistant for ALL available `light`, `switch`, `cover`, and `fan` entities
+2. **Auto-select up to 32** of them (prioritising lights → switches → covers → fans)
+3. **Require confirmation** with a scary warning dialogue showing exact device count
+4. **Apply safety limits:**
+   - Minimum tick interval: **15 seconds** (slower updates)
+   - Maximum intensity: **0.4** (capped at 40% chaos)
+5. **Give the fly control** over all selected devices simultaneously
+
+This is a **static snapshot** at configuration time — newly added devices won't auto-appear (reconfigure to refresh).
+
+### What This Means
+
+The fruit fly will:
+- Flicker all your lights like a rave 💡✨
+- Toggle switches on/off randomly 🔌
+- Open/close covers based on neural activity 🪟
+- Cycle fans based on spike patterns 🌀
+- Operate **all of this simultaneously** every 15+ seconds
+
+### Recommended Approach
+
+1. **Start with ONE spare lamp** (seriously!)
+2. Watch it for a day ⏰
+3. Add 1-2 more devices if brave 🎯
+4. **ONLY enable whole house mode if:**
+   - You've tested extensively with 3-5 devices
+   - You're filming content for the chaos 🎥
+   - You understand the pandemonium 💀
+   - You're prepared to quickly disable it
+
+### Confirmation Required
+
+You **cannot** enable whole house mode without:
+- Reading the scary warning dialogue
+- Seeing the exact count of devices (e.g. "47 devices")
+- Checking the box: _"I understand this can thrash lights/covers/switches and I'm ready for the chaos"_
+
+If you're not 100% sure, **go back and leave it disabled**. 🚫
 
 ---
 

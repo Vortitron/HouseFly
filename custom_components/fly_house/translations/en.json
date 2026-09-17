@@ -10,7 +10,14 @@
           "tick_interval": "Tick interval (seconds)",
           "intensity": "Intensity (0–1)",
           "seed": "Random seed",
-          "whole_house": "⚠️ WHOLE HOUSE MODE (pretty insane — read docs!)"
+          "whole_house": "⚠️ WHOLE HOUSE MODE (auto-selects ALL lights/switches/covers — confirmation required!)"
+        }
+      },
+      "confirm_whole_house": {
+        "title": "⚠️ WHOLE HOUSE MODE — ARE YOU SURE?!",
+        "description": "This will give the fruit fly control over **{output_count} devices** (lights, switches, covers, fans) across your home. The fly will randomly flicker, toggle, open, and close things based on a 256-neuron toy reservoir. **This is pretty insane.** Safety limits: tick ≥15s, intensity ≤0.4. Capped at {max_outputs} max outputs.\n\n**Recommended:** Start with 1-2 spare lamps, NOT this.\n\n**Still want chaos?** Check the box below.",
+        "data": {
+          "confirm_chaos": "☑️ I understand this can thrash lights/covers/switches and I'm ready for the chaos"
         }
       }
     },
@@ -21,7 +28,8 @@
       "no_inputs": "Select at least one input entity (the fly needs to sense something!).",
       "no_outputs": "Select at least one output entity (what should the fly control?).",
       "too_many_inputs": "At most 32 input entities (the fly brain is only 256 neurons!).",
-      "too_many_outputs": "At most 32 output entities (leave some for you to control!)."
+      "too_many_outputs": "At most 32 output entities (leave some for you to control!).",
+      "must_confirm_chaos": "You must check the confirmation box to enable whole house mode. If you're not sure, go back and disable whole house mode."
     }
   },
   "options": {
@@ -34,7 +42,14 @@
           "tick_interval": "Tick interval (seconds)",
           "intensity": "Intensity (0–1)",
           "seed": "Random seed",
-          "whole_house": "⚠️ WHOLE HOUSE MODE (danger zone!)"
+          "whole_house": "⚠️ WHOLE HOUSE MODE (auto-selects ALL controllable devices!)"
+        }
+      },
+      "confirm_whole_house": {
+        "title": "⚠️ ENABLE WHOLE HOUSE MODE?!",
+        "description": "This will give the fruit fly control over **{output_count} devices** (lights, switches, covers, fans). The fly will randomly control these based on its toy reservoir brain. **Pretty insane.** Safety limits: tick ≥15s, intensity ≤0.4. Max {max_outputs} outputs.\n\n**Recommended:** DON'T do this. Use 1-2 spare lamps instead.\n\n**Still sure?** Check the box.",
+        "data": {
+          "confirm_chaos": "☑️ I understand this can thrash my house and I'm ready"
         }
       }
     },
@@ -42,7 +57,8 @@
       "no_inputs": "Select at least one input entity (the fly needs to sense something!).",
       "no_outputs": "Select at least one output entity (what should the fly control?).",
       "too_many_inputs": "At most 32 input entities (the fly brain is only 256 neurons!).",
-      "too_many_outputs": "At most 32 output entities (leave some for you to control!)."
+      "too_many_outputs": "At most 32 output entities (leave some for you to control!).",
+      "must_confirm_chaos": "You must check the confirmation box to enable whole house mode. If you're not sure, go back and disable whole house mode."
     }
   },
   "entity": {
