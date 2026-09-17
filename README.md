@@ -175,6 +175,10 @@ resources:
 
 Or add via UI: **Add Resource** → URL: `/local/community/fly_house/housefly-card.js`, Type: JavaScript Module
 
+**Manual install path:** If you copied the integration manually, the card is at `custom_components/fly_house/www/housefly-card.js`. Copy it to `config/www/housefly/housefly-card.js` and use URL: `/local/housefly/housefly-card.js`
+
+**Full guide:** See [`CUSTOM_CARD_GUIDE.md`](CUSTOM_CARD_GUIDE.md) for detailed installation, troubleshooting, and customisation
+
 ### Card Configuration
 
 ```yaml
@@ -184,8 +188,9 @@ entity: binary_sensor.fly_house_active
 
 ### What the Card Shows
 
-- **Animated fly** (buzzing, flapping wings) — tap to poke
+- **Animated fly** (buzzing, flapping wings, mode-reactive) — tap to poke
 - **Compound eye** — 16×16 faceted ommatidia grid (updates in real-time from `sensor.fly_house_retina`)
+- **Reservoir sparks** — animated brain canvas with glowing nodes and pulsing connections
 - **Hunger bar** — gradient from green (satiated) → yellow → red (starving)
 - **Brain stats** — spikes, energy, mode badge (idle/wander/escape)
 - **Action buttons:**
@@ -195,6 +200,8 @@ entity: binary_sensor.fly_house_active
 The card is **pure vanilla JS** (no build step) and uses Home Assistant design tokens for theming.
 
 **Pro tip:** Place the card next to your lights panel — watch the ommatidia light up as you turn lights on, then see the fly's hunger drive bias its motor outputs toward those bright regions!
+
+**Away from home?** The card includes a soft call-to-action to [Vome](https://vome.io) for remote dashboard access (completely optional)
 
 ---
 
@@ -320,6 +327,27 @@ Local `assets/` may contain MaleCNS-related metadata or larger weights for **exp
 
 ---
 
+## Contributing
+
+Contributions are welcome! 🎉
+
+Please read [`CONTRIBUTING.md`](CONTRIBUTING.md) for:
+
+- Development setup
+- Code style guidelines
+- Testing checklist
+- How to submit bug reports / feature requests / pull requests
+
+**Quick links:**
+
+- [Report a bug](https://github.com/Vortitron/HouseFly/issues/new?template=bug_report.md)
+- [Request a feature](https://github.com/Vortitron/HouseFly/issues/new?template=feature_request.md)
+- [View open issues](https://github.com/Vortitron/HouseFly/issues)
+
+HouseFly is a **weekend meme** — we value lightweight, fun contributions that keep the fruit-fly spirit alive! 🪰
+
+---
+
 ## Licence
 
 - **Code:** MIT (see `LICENSE`)
@@ -331,6 +359,7 @@ Local `assets/` may contain MaleCNS-related metadata or larger weights for **exp
 
 - 🪰 **Visual setup guide:** [`VISUAL_SETUP_GUIDE.md`](VISUAL_SETUP_GUIDE.md)
 - 📋 **Lovelace examples:** [`LOVELACE_EXAMPLE.yaml`](LOVELACE_EXAMPLE.yaml)
+- 🤝 **Contributing guide:** [`CONTRIBUTING.md`](CONTRIBUTING.md)
 - 📢 **Forum post draft:** [`FORUM_POST.md`](FORUM_POST.md)
 - 🏠 Watch remotely when away: [vome.io](https://vome.io)
 - 🔍 Optional: [fynd.vome.io](https://fynd.vome.io)

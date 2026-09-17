@@ -1,0 +1,43 @@
+name: Python Syntax Check
+
+on:
+  pull_request:
+    paths:
+      - 'custom_components/**/*.py'
+      - '.github/workflows/python-syntax.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'custom_components/**/*.py'
+      - '.github/workflows/python-syntax.yml'
+
+jobs:
+  syntax-check:
+    name: Check Python syntax
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Check Python syntax
+        run: |
+          python -m py_compile custom_components/fly_house/*.py
+          echo "✅ Python syntax check passed"
+      
+      - name: Install Pillow (optional dependency)
+        run: |
+          pip install Pillow>=10.0.0
+      
+      - name: Import test
+        run: |
+          cd custom_components/fly_house
+          python -c "import const; print('✅ const.py imports successfully')"
+          python -c "import brain; print('✅ brain.py imports successfully')"
+          echo "✅ All imports successful"

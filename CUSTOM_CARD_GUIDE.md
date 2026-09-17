@@ -1,346 +1,189 @@
-# 🎴 HouseFly Custom Card Guide
+# HouseFly Custom Card Guide
 
-The **housefly-card** is a custom Lovelace card that displays the full fly experience in one compact panel.
+The HouseFly custom card provides a complete visual interface for your fruit fly:
 
----
-
-## What You Get
-
-- 🪰 **Animated fly** (buzzing wings, tap to poke)
-- 👁️ **Compound eye** (16×16 ommatidia grid, updates in real-time)
-- 📊 **Brain stats** (spikes, energy, mode badge)
-- 🍽️ **Hunger bar** (gradient: green → yellow → red)
-- 🔘 **Action buttons** (Poke / Feed)
-
-All in one card, using Home Assistant design tokens for automatic theming.
-
----
+- 🪰 **Animated fly** (mode-reactive: idle → wander → escape)
+- 👁️ **Compound eye** (16×16 ommatidia grid, live from `sensor.fly_house_retina`)
+- 🧠 **Reservoir sparks** (animated brain canvas with glowing nodes)
+- 📊 **Stats** (spikes, hunger bar, energy)
+- 🎮 **Action buttons** (Poke & Feed)
 
 ## Installation
 
-### Step 1: Add Resource
+### Option 1: HACS Resource Path (Recommended)
 
-**Via UI (Recommended):**
+The card ships bundled with the integration. Add it as a resource:
 
-1. Go to **Settings** → **Dashboards**
-2. Click **⋮** (top right) → **Resources**
-3. Click **Add Resource**
-4. Enter:
-   - **URL:** `/local/community/fly_house/housefly-card.js`
-   - **Resource type:** JavaScript Module
-5. Click **Create**
-6. Hard refresh browser: `Ctrl+Shift+R` (Windows/Linux) or `Cmd+Shift+R` (Mac)
+**Settings → Dashboards → Resources → Add Resource**
 
-**Via `configuration.yaml`:**
+```
+URL: /local/community/fly_house/housefly-card.js
+Type: JavaScript Module
+```
+
+Or in `configuration.yaml`:
 
 ```yaml
 lovelace:
-  mode: yaml  # Or storage with manual resource add
+  mode: yaml
   resources:
     - url: /local/community/fly_house/housefly-card.js
       type: module
 ```
 
-Restart Home Assistant if using YAML mode.
+### Option 2: Local Path (Manual Install)
 
-### Step 2: Add Card
+If you installed HouseFly manually, copy the card to your `www` folder:
 
-1. Edit your dashboard
-2. Click **Add Card**
-3. Search "HouseFly" or scroll to **Manual**
-4. Paste this YAML:
+```bash
+mkdir -p config/www/housefly/
+cp custom_components/fly_house/www/housefly-card.js config/www/housefly/
+```
+
+Then add as a resource:
+
+```
+URL: /local/housefly/housefly-card.js
+Type: JavaScript Module
+```
+
+## Card Configuration
 
 ```yaml
 type: custom:housefly-card
 entity: binary_sensor.fly_house_active
 ```
 
-5. Click **Save**
+That's it! The card auto-discovers related sensors (`sensor.fly_house_*`).
 
----
+## Features
 
-## Card Features
+### Mode-Reactive Fly Animation
 
-### Animated Fly
+The fly's animation changes based on its current mode:
 
-- **Buzzing animation** (body vibrates slightly)
-- **Flapping wings** (CSS keyframe animation, 0.15s cycle)
-- **Tap action** → calls `fly_house.poke` with strength 1.0
-- **Hover** → slight opacity change for feedback
+- **Idle**: Gentle wing flapping (0.35s cycle)
+- **Wander**: Fast flapping + buzzing + drift motion (0.14s cycle)
+- **Escape**: Frantic flapping + erratic panic movement (0.08s cycle)
+
+### Hunger-Reactive Visuals
+
+The fly's appearance changes with hunger level:
+
+- **0–40% (satiated)**: Normal colours
+- **41–70% (peckish)**: Slight saturation boost
+- **71–100% (starving)**: High saturation + hue shift (reddish tint)
 
 ### Compound Eye (Ommatidia Grid)
 
-- **16×16 grid** = 256 facets
-- Each facet represents one "ommatidium" (insect eye unit)
-- **Color mapping:** Brightness 0–15 → RGB gradient (darker → brighter)
-- **Real-time updates** from `sensor.fly_house_retina` ommatidia_hex attribute
-- **Visual effect:** Facets light up as your lights turn on, darken when off
+16×16 faceted grid (256 total) displays the fly's visual field in real-time:
 
-**Example:** Turn on kitchen light → top-right quadrant of grid brightens → fly's phototaxis pathway activates
+- Each facet brightness matches the corresponding `sensor.fly_house_retina` hex value
+- Updates as lights turn on/off or camera snapshots arrive
+- Yellowish tint for warm colour temperature
 
-### Mode Badge
+### Brain Sparks Canvas
 
-- **IDLE** (grey) → Low activity, grooming
-- **WANDER** (teal) → Exploring, foraging
-- **ESCAPE** (red) → High spikes, loom response
+Animated reservoir visualisation with 28 nodes:
 
-Updates from `sensor.fly_house_mode` in real-time.
-
-### Stats Panel
-
-**Spikes:** Raw spike count from reservoir  
-**Hunger:** 0–100% with color-coded bar (green → yellow → red)  
-**Energy:** RMS energy of reservoir state (0.00–1.00)
+- **Nodes glow** based on spike activity + energy
+- **Edges pulse** between nearby nodes (distance-weighted)
+- **Activity increases** with higher spikes and energy
+- Runs at 60 FPS via `requestAnimationFrame`
 
 ### Action Buttons
 
-**💥 Poke:**
-- Calls `fly_house.poke` service
-- Strength: 1.0 (moderate)
-- Effect: Injects sensory jolt → likely triggers escape mode
+- **💥 Poke**: Calls `fly_house.poke` with `strength: 1.0`
+- **🍎 Feed**: Calls `fly_house.feed` with `amount: 0.3, food_type: sugar`
 
-**🍎 Feed:**
-- Calls `fly_house.feed` service
-- Amount: 0.3 (reduces hunger by 30%)
-- Food type: "sugar" (cosmetic)
-- Effect: Hunger bar drops, foraging drive calms
+## Away From Home?
 
----
+The card includes a soft call-to-action footer:
 
-## Configuration Options
+> **Away? Peek via Vome →**
 
-### Basic
+[Vome](https://vome.io) lets you check your Home Assistant dashboards remotely without exposing ports. Completely optional — the card works perfectly without it.
 
-```yaml
-type: custom:housefly-card
-entity: binary_sensor.fly_house_active
-```
+## Styling
 
-**Required:**
-- `entity` — Must be `binary_sensor.fly_house_active` (card auto-discovers related sensors)
+The card uses Home Assistant design tokens for theming:
 
-**That's it!** The card automatically finds:
-- `sensor.fly_house_brain`
-- `sensor.fly_house_hunger`
-- `sensor.fly_house_retina`
-- `sensor.fly_house_spikes`
-- `sensor.fly_house_mode`
+- `--ha-card-background`: Card background (defaults to dark blue-grey)
+- `--primary-text-color`: Text colour (defaults to white)
+- `--primary-color`: Primary accent (used for Poke button)
 
-### Future Options (Not Yet Implemented)
+All animations are pure CSS — no JavaScript manipulation of styles.
 
-```yaml
-type: custom:housefly-card
-entity: binary_sensor.fly_house_active
-poke_strength: 2.0        # Custom poke strength
-feed_amount: 0.5          # Custom feed amount
-hide_eye: false           # Hide ommatidia grid
-hide_buttons: false       # Hide action buttons
-theme: dark               # Force theme (overrides HA theme)
-```
+## Browser Compatibility
 
-Currently v1.0 is intentionally simple — one entity, auto-discovery, no config needed.
+The card uses modern web standards:
 
----
+- **Shadow DOM** for style isolation
+- **CSS Grid** for responsive layout
+- **Canvas API** for brain visualisation
+- **Custom Elements v1**
 
-## Theming
-
-The card uses Home Assistant design tokens:
-
-- `--ha-card-background` → Card background
-- `--primary-text-color` → Text color
-- `--primary-color` → Poke button color
-
-**To customize:**
-
-Add to your theme (`configuration.yaml` or theme file):
-
-```yaml
-my-housefly-theme:
-  ha-card-background: "#1a1a2e"
-  primary-color: "#00ffff"
-  primary-text-color: "#ffffff"
-```
-
-Apply theme → card updates automatically.
-
----
-
-## Technical Details
-
-### Pure Vanilla JS
-
-- **No build step** required
-- **No external dependencies** (React, Vue, etc.)
-- **Web Components API** (`HTMLElement` + Shadow DOM)
-- **File size:** ~8KB unminified
-
-### Browser Compatibility
-
-- Chrome/Edge: ✅ Full support
-- Firefox: ✅ Full support
-- Safari: ✅ Full support (iOS 12+)
-- Home Assistant Companion App: ✅ Works
-
-### Performance
-
-- **Ommatidia updates:** Only when `sensor.fly_house_retina` changes (every tick, default 10s)
-- **Animations:** CSS-only (GPU-accelerated, no JS loop)
-- **DOM updates:** Minimal (only stat values, not structure)
-
-### Accessibility
-
-- **Keyboard navigation:** Buttons are focusable
-- **Screen readers:** Stat labels read aloud
-- **Color contrast:** Uses HA theme tokens (WCAG AA compliant)
-
----
+Tested on:
+- Chrome/Edge 90+
+- Firefox 88+
+- Safari 14+
+- Home Assistant Companion App (iOS/Android)
 
 ## Troubleshooting
 
-### Card Not Showing
+### Card doesn't appear
 
-1. **Check resource loaded:**
-   - Developer Tools → Console
-   - Look for errors mentioning `housefly-card.js`
-   - If 404: restart Home Assistant (resource not registered)
+1. Check Resources are added (Settings → Dashboards → Resources)
+2. Hard refresh your browser (`Ctrl+Shift+R` / `Cmd+Shift+R`)
+3. Clear browser cache
+4. Restart Home Assistant
 
-2. **Hard refresh browser:**
-   - `Ctrl+Shift+R` (Windows/Linux)
-   - `Cmd+Shift+R` (Mac)
-   - Clears cached JS
+### Ommatidia grid shows grey squares
 
-3. **Check entity exists:**
-   - Developer Tools → States
-   - Search `binary_sensor.fly_house_active`
-   - If missing: integration not configured
-
-### Ommatidia Grid Not Updating
-
-1. **Check retina sensor:**
-   - Developer Tools → States → `sensor.fly_house_retina`
-   - Look for `ommatidia_hex` attribute (256-character hex string)
-   - If empty: brain not generating vision data
-
-2. **Turn on lights:**
-   - Ommatidia grid synthesized from lights + sun
-   - All lights off = dark grid (working as intended)
-   - Turn on lamp → facets should brighten within 10s (one tick)
-
-3. **Check console:**
-   - Developer Tools → Console
-   - Look for errors in `updateOmmatidia()` function
-
-### Buttons Not Working
-
-1. **Check services exist:**
-   - Developer Tools → Services
-   - Search `fly_house.poke` and `fly_house.feed`
-   - If missing: integration not loaded
-
-2. **Check browser console:**
-   - Click button → look for errors
-   - Should see Home Assistant service call in network tab
-
-### Hunger Bar Stuck at 0%
-
-1. **Check hunger sensor:**
-   - `sensor.fly_house_hunger` → should be 0–100
-   - If always 0: hunger system not ticking
-
-2. **Wait one tick cycle:**
-   - Hunger rises slowly (~0.2% per tick)
-   - At default 10s tick, reaches 100% in ~8 hours
-
-3. **Feed the fly:**
-   - Click **🍎 Feed** button
-   - Hunger should drop by 30% immediately
-   - Proves card ↔ integration communication works
-
----
-
-## Advanced Usage
-
-### Multiple Cards
-
-You can add multiple instances:
+The `sensor.fly_house_retina` entity needs the `ommatidia_hex` attribute. Check:
 
 ```yaml
-# Living room dashboard
-type: custom:housefly-card
-entity: binary_sensor.fly_house_active
-
-# Mobile dashboard (same card, different layout context)
-type: custom:housefly-card
-entity: binary_sensor.fly_house_active
+Developer Tools → States → sensor.fly_house_retina
 ```
 
-All instances show the same fly (only one integration instance supported).
+Should have attribute: `ommatidia_hex: "0123456789abcdef..."` (256 hex chars)
 
-### Combine with Other Cards
+### Brain canvas is black
 
-**Side-by-side with controlled lights:**
+The canvas animation starts automatically. If it's black:
 
-```yaml
-type: horizontal-stack
-cards:
-  - type: custom:housefly-card
-    entity: binary_sensor.fly_house_active
-  - type: entities
-    title: Controlled Lights
-    entities:
-      - light.living_room
-      - light.kitchen
+1. Check `sensor.fly_house_spikes` and `sensor.fly_house_energy` exist
+2. Try poking the fly to generate activity
+3. Check browser console for JavaScript errors
+
+### Animations stuttering
+
+The card uses `requestAnimationFrame` for smooth 60 FPS. Stuttering can occur:
+
+- On low-power devices (reduce brain node count in future versions)
+- With too many cards on one dashboard
+- During heavy Home Assistant load
+
+## Advanced Customisation
+
+The card is pure vanilla JavaScript — no build step required. To customise:
+
+1. Copy `housefly-card.js` to your local `www` folder
+2. Edit the file directly (change colours, animations, layout)
+3. Update the resource URL to point to your modified version
+
+Example: Change brain node count (line ~293):
+
+```javascript
+const n = 28; // Change to 16 for lighter animation
 ```
 
-Watch the fly's ommatidia track the lights you toggle!
+## Next Steps
 
-### Picture-in-Picture Style
-
-```yaml
-type: picture-elements
-image: /local/your-floorplan.png
-elements:
-  - type: custom:housefly-card
-    entity: binary_sensor.fly_house_active
-    style:
-      top: 10px
-      right: 10px
-      width: 300px
-```
-
-Overlay the fly card on your floorplan.
+- See [`LOVELACE_EXAMPLE.yaml`](LOVELACE_EXAMPLE.yaml) for complete dashboard examples
+- Read [`README.md`](README.md) for integration setup and biology details
+- Join the discussion in [Home Assistant Community Forum](https://community.home-assistant.io)
 
 ---
 
-## Source Code
-
-Located at: `custom_components/fly_house/www/housefly-card.js`
-
-Feel free to fork and customize:
-- Change colors, sizes, layout
-- Add more stats or visualizations
-- Modify button behavior
-
-**Keep it pure vanilla JS** (no build step) to maintain the lightweight toy aesthetic.
-
----
-
-## Future Enhancements
-
-Potential v2 features (not yet implemented):
-
-- **Camera preview:** Show actual camera feed in eye panel (if camera configured)
-- **Phototaxis arrow:** Visual indicator showing which light the fly is tracking
-- **Hunger schedule:** Auto-feed on a timer
-- **Sound effects:** Buzzing audio on poke (optional, off by default)
-- **Mini-game:** "Feed the fly before it reaches 100%" challenge mode
-
----
-
-## Links
-
-- **Main README:** [`README.md`](README.md)
-- **Lovelace examples:** [`LOVELACE_EXAMPLE.yaml`](LOVELACE_EXAMPLE.yaml)
-- **Visual setup:** [`VISUAL_SETUP_GUIDE.md`](VISUAL_SETUP_GUIDE.md)
-
-**Have fun watching the ommatidia flicker!** 👁️🪰
+**Note:** The card's visual upgrade (v0.2.1) adds mode-reactive animations, hunger-reactive colours, and the brain sparks canvas. Previous versions had a static fly SVG.
