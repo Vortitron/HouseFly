@@ -1,10 +1,23 @@
-# HouseFly
+# HouseFly 🪰
 
 > **Let a fruit fly control your house.**
 
 A weekend Home Assistant / [HACS](https://hacs.xyz) custom integration that maps a handful of sensors into a tiny **leaky reservoir** (~256 dims, pure Python) and writes the "motor" channels out to lights, covers, switches, and numbers.
 
+**New in v0.1:** 🎨 Complete visual overhaul with animated fly + brain assets, ASCII art sensors, and picture-perfect Lovelace cards — all the meme-y DNA from chessfly/flyputer demos, zero GPU required!
+
 Soft CTA: when you're away and want to *watch* the chaos (or just check the house), peek at **[vome.io](https://vome.io)**. Optionally try **[fynd.vome.io](https://fynd.vome.io)** for finding stuff around the home.
+
+---
+
+## 🎨 Visual Demo
+
+- 🪰 **Animated buzzing fly** SVG (flapping wings, CSS animations)
+- 🧠 **Sparking brain connectome** SVG (glowing nodes, pulse effects)
+- 📊 **Live ASCII art** brain sensor (💤 idle → ✨ wander → ⚡💥 escape)
+- 📋 **6+ Lovelace examples** ready to copy (see `LOVELACE_EXAMPLE.yaml` + `VISUAL_SETUP_GUIDE.md`)
+
+All assets ship with the integration — no downloads, no external dependencies!
 
 ---
 
@@ -173,6 +186,9 @@ Local `assets/` may contain MaleCNS-related metadata or larger weights for **exp
 
 ## Links
 
-- Watch remotely when away: [vome.io](https://vome.io)
-- Optional: [fynd.vome.io](https://fynd.vome.io)
-- MaleCNS packaging: [huggingface.co/QuixiAI/MaleCNS](https://huggingface.co/QuixiAI/MaleCNS)
+- 🪰 **Visual setup guide:** [`VISUAL_SETUP_GUIDE.md`](VISUAL_SETUP_GUIDE.md)
+- 📋 **Lovelace examples:** [`LOVELACE_EXAMPLE.yaml`](LOVELACE_EXAMPLE.yaml)
+- 📢 **Forum post draft:** [`FORUM_POST.md`](FORUM_POST.md)
+- 🏠 Watch remotely when away: [vome.io](https://vome.io)
+- 🔍 Optional: [fynd.vome.io](https://fynd.vome.io)
+- 🧬 MaleCNS packaging: [huggingface.co/QuixiAI/MaleCNS](https://huggingface.co/QuixiAI/MaleCNS)
