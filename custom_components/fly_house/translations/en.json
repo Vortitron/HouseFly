@@ -76,6 +76,12 @@
       },
       "brain": {
         "name": "Fly House brain"
+      },
+      "hunger": {
+        "name": "Fly House hunger"
+      },
+      "retina": {
+        "name": "Fly House retina"
       }
     }
   },
@@ -87,6 +93,20 @@
         "strength": {
           "name": "Strength",
           "description": "How hard to poke (0.1–5.0)."
+        }
+      }
+    },
+    "feed": {
+      "name": "Feed the fly",
+      "description": "Give the fly food (reduces hunger, affects foraging behavior).",
+      "fields": {
+        "amount": {
+          "name": "Amount",
+          "description": "How much to feed (0.1–1.0)."
+        },
+        "food_type": {
+          "name": "Food type",
+          "description": "Type of food (sugar, yeast, fruit)."
         }
       }
     }

@@ -53,7 +53,7 @@ def _hash_state(value: Any) -> float:
 
 @dataclass
 class FlyBrain:
-    """Leaky tanh reservoir with sparse-ish recurrent weights."""
+    """Leaky tanh reservoir with sparse-ish recurrent weights + hunger + vision."""
 
     size: int = DEFAULT_RESERVOIR_SIZE
     seed: int = 42
@@ -70,9 +70,20 @@ class FlyBrain:
     input_channels: int = 32
     pending_poke: float = 0.0
     tick_count: int = 0
+    # Hunger system
+    hunger: float = 0.0
+    hunger_rate: float = 0.002  # rises per tick
+    # Vision system (ommatidia)
+    retina_grid: list[float] = field(default_factory=list)
+    retina_size: int = 16  # 16x16 grid
+    previous_retina: list[float] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         self.reset(seed=self.seed)
+        # Initialize retina
+        grid_cells = self.retina_size * self.retina_size
+        self.retina_grid = [0.0] * grid_cells
+        self.previous_retina = [0.0] * grid_cells
 
     def reset(self, seed: int | None = None) -> None:
         if seed is not None:
@@ -112,6 +123,10 @@ class FlyBrain:
     def poke(self, strength: float = 1.0) -> None:
         self.pending_poke += max(0.0, float(strength))
 
+    def feed(self, amount: float = 0.3) -> None:
+        """Feed the fly — reduces hunger."""
+        self.hunger = max(0.0, self.hunger - max(0.0, min(1.0, float(amount))))
+
     def sensory_vector(self, input_states: Sequence[Any]) -> list[float]:
         vec = [0.0] * self.input_channels
         for i, st in enumerate(list(input_states)[: self.input_channels]):
@@ -124,19 +139,134 @@ class FlyBrain:
             self.pending_poke = 0.0
         return vec
 
-    def step(self, input_states: Sequence[Any]) -> dict[str, Any]:
+    def update_vision(self, image_data: bytes | None, light_states: dict[str, float] | None = None) -> None:
+        """Update ommatidia grid from camera or synthesized visual field."""
+        grid_cells = self.retina_size * self.retina_size
+        self.previous_retina = list(self.retina_grid)
+        
+        if image_data:
+            # Process actual camera image (simplified: downsample to grid)
+            self.retina_grid = self._process_camera_image(image_data)
+        elif light_states:
+            # Synthesize visual field from lights + sun
+            self.retina_grid = self._synthesize_visual_field(light_states)
+        else:
+            # No vision input — fade to dark
+            self.retina_grid = [max(0.0, v * 0.9) for v in self.retina_grid]
+
+    def _process_camera_image(self, image_data: bytes) -> list[float]:
+        """Downsample camera image to ommatidia grid (luminance only)."""
+        # Simplified: hash image bytes into grid pattern
+        # Real impl would decode image, downsample, extract luminance
+        # For pure Python without PIL/numpy, use hash-based approach
+        grid_cells = self.retina_size * self.retina_size
+        grid = []
+        chunk_size = max(1, len(image_data) // grid_cells)
+        
+        for i in range(grid_cells):
+            start = i * chunk_size
+            end = min(start + chunk_size, len(image_data))
+            chunk = image_data[start:end]
+            if chunk:
+                # Hash chunk to luminance [0, 1]
+                h = sum(chunk) % 256
+                lum = h / 255.0
+            else:
+                lum = 0.0
+            grid.append(lum)
+        
+        return grid
+
+    def _synthesize_visual_field(self, light_states: dict[str, float]) -> list[float]:
+        """Create crude visual field from light brightness + sun."""
+        grid_cells = self.retina_size * self.retina_size
+        grid = [0.0] * grid_cells
+        
+        # Sun elevation → ambient light (top half of grid brighter when sun up)
+        sun_elev = light_states.get("sun_elevation", 0.0)
+        sun_brightness = max(0.0, min(1.0, (sun_elev + 90) / 180.0))
+        
+        # Fill top half with sun ambient
+        for i in range(grid_cells // 2):
+            grid[i] = sun_brightness * 0.3
+        
+        # Scatter light entities across grid as bright spots
+        light_positions = list(light_states.items())
+        for idx, (entity_id, brightness) in enumerate(light_positions[:16]):
+            if brightness > 0:
+                # Place light in grid based on hash
+                h = sum(ord(c) for c in entity_id) % grid_cells
+                grid[h] = min(1.0, grid[h] + brightness)
+        
+        return grid
+
+    def get_retina_display(self) -> str:
+        """Return ASCII representation of ommatidia grid."""
+        chars = " .·:;!=*#@"
+        lines = []
+        for row in range(self.retina_size):
+            line = ""
+            for col in range(self.retina_size):
+                idx = row * self.retina_size + col
+                val = self.retina_grid[idx]
+                char_idx = min(len(chars) - 1, int(val * len(chars)))
+                line += chars[char_idx]
+            lines.append(line)
+        return "\n".join(lines)
+
+    def get_retina_hex(self) -> str:
+        """Return compact hex representation for frontend card."""
+        hex_chars = "0123456789abcdef"
+        result = ""
+        for val in self.retina_grid:
+            hex_idx = min(15, int(val * 16))
+            result += hex_chars[hex_idx]
+        return result
+
+    def step(self, input_states: Sequence[Any], vision_data: dict[str, Any] | None = None) -> dict[str, Any]:
         """One leaky reservoir tick. Returns diagnostics + motor channels."""
+        # Update hunger (rises over time)
+        self.hunger = min(1.0, self.hunger + self.hunger_rate)
+        
+        # Update vision if provided
+        if vision_data:
+            image_bytes = vision_data.get("image_data")
+            light_states = vision_data.get("light_states")
+            self.update_vision(image_bytes, light_states)
+        
         u = self.sensory_vector(input_states)
         n = self.size
         drive = [0.0] * n
+        
+        # Add visual input channels (ommatidia → dedicated reservoir neurons)
+        # Use motion detection (difference from previous frame) for loom response
+        visual_channels = []
+        for i in range(min(16, len(self.retina_grid))):
+            lum = self.retina_grid[i]
+            prev_lum = self.previous_retina[i] if i < len(self.previous_retina) else 0.0
+            motion = abs(lum - prev_lum)
+            # Phototaxis (seek bright), loom (react to motion)
+            visual_channels.append(lum * 0.5 + motion * 0.5)
+        
+        # Hunger modulates exploration drive
+        hunger_bias = self.hunger * 0.3  # More hunger → more variance
 
-        # Win @ u
+        # Win @ u (entity inputs)
         for i in range(n):
             s = 0.0
             row = self.input_proj[i]
             for k in range(min(len(u), self.input_channels)):
                 s += row[k] * u[k]
             drive[i] = s * (0.4 + 0.6 * self.intensity)
+        
+        # Add visual pathway (ommatidia → first 16 neurons)
+        for i, v in enumerate(visual_channels[:min(16, n)]):
+            drive[i] += v * 0.4
+        
+        # Hunger bias (increases variance in middle neurons)
+        if self.hunger > 0.2:
+            for i in range(n // 4, 3 * n // 4):
+                drive[i] += hunger_bias * (0.5 if i % 2 == 0 else -0.5)
 
         # W @ x (sparse)
         for i, j, w in self.edges:
@@ -175,6 +305,10 @@ class FlyBrain:
             "channels": channels,
             "tick": self.tick_count,
             "sensory": u,
+            "hunger": round(self.hunger, 3),
+            "retina_hex": self.get_retina_hex(),
+            "retina_ascii": self.get_retina_display(),
+            "visual_motion": round(sum(visual_channels) / max(1, len(visual_channels)), 3) if visual_channels else 0.0,
         }
 
     def _classify_mode(

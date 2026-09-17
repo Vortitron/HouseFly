@@ -13,29 +13,43 @@ I built a tiny HACS integration for the sole purpose of answering an important r
 
 ### What it actually is
 
-**HouseFly** is a Home Assistant custom component that:
+**HouseFly v1.1** is a Home Assistant custom component with fruit-fly-inspired sensorimotor dynamics:
 
-1. Reads 1–32 sensors you pick (what the fly can "see")
-2. Shoves them into a **~256-dim leaky reservoir** (pure Python, seeded sparse matrix)  
-3. Maps readout channels to lights / covers / switches / numbers (what the fly can "control")
-4. Exposes `binary_sensor.fly_house_active`, `sensor.fly_house_spikes`, `sensor.fly_house_mode` (`idle` / `wander` / `escape`), and `sensor.fly_house_brain` with **ASCII art brain visualisation**
-5. Ships with **animated SVG fly + brain assets** for Lovelace (buzzing wings, sparking connectome nodes — proper meme-y visual DNA)
-6. Offers `fly_house.poke` for when you need to… scientifically perturb the organism
-7. Optional **whole house mode** for maximum chaos (⚠️ not recommended for beginners!)
+1. **Compound eye** (16×16 ommatidia): Synthesizes visual field from your lights + sun position, feeds phototaxis + motion detection pathways
+2. **Hunger drive**: Internal state rises over time, triggers foraging behavior (more exploration + light-seeking when hungry)
+3. **Reservoir brain**: ~256-neuron pure Python leaky-tanh network processes sensory inputs + vision + hunger → motor outputs
+4. **Entities**: `binary_sensor.fly_house_active`, `sensor.fly_house_spikes`, `sensor.fly_house_mode` (`idle` / `wander` / `escape`), `sensor.fly_house_brain`, `sensor.fly_house_hunger`, `sensor.fly_house_retina` (ommatidia hex grid)
+5. **Services**: `fly_house.poke` (sensory jolt) and `fly_house.feed` (reduces hunger, calms foraging)
+6. **Custom Lovelace card**: `housefly-card` — animated fly + faceted compound eye + hunger bar + brain stats + Poke/Feed buttons (pure vanilla JS, no build step)
+7. **Visual assets**: Animated SVG fly + brain connectome sparks (buzzing wings, sparking nodes)
+8. **Whole house mode**: Auto-selects up to 32 devices, requires scary confirmation (⚠️ not recommended for beginners!)
 
-Tick interval defaults to 10 seconds. Intensity and seed are configurable. No cloud required for the fly itself.
+**This is a toy dynamical system**, not an LLM chatbot. It has hunger, sees through a fake compound eye, and exhibits phototaxis. No torch, no numpy, no cloud API calls.
+
+Tick interval defaults to 10 seconds. Intensity and seed are configurable.
 
 ### What it is NOT
 
 - **Not** a real Drosophila brain on your Pi  
+- **Not** an LLM chatbot (no "talk to your fly" nonsense)
 - **Not** downloading MaleCNS / torch / multi-GB weights  
 - **Not** peer-reviewed home automation  
 
-It's inspired by the fun orbit around MaleCNS / fly-llm / "chessfly" / flyputer demos — especially the idea of a connectome as an echo-state reservoir. We cite **QuixiAI/MaleCNS (CC-BY 4.0)** for inspiration only. v1 is a random matrix wearing antennae.
+It's a **toy dynamical system** inspired by fruit-fly sensorimotor motifs (compound eyes, hunger-driven foraging, escape responses) and the fun orbit around MaleCNS / fly-llm / "chessfly" / flyputer demos. We cite **QuixiAI/MaleCNS (CC-BY 4.0)** for inspiration only. Pure Python leaky reservoir + toy vision + hunger drives.
 
-### Why
+### Why (the deeper hook)
 
-Weekend project. Soft chaos. Guests ask what the flickering lamp is doing and you get to say "the fly is escaping." Also a gentle excuse to glance at the house when you're out via [vome.io](https://vome.io) (optional: [fynd.vome.io](https://fynd.vome.io)).
+It's not just "random flickering" — **it gets hungry and sees through a fake compound eye.**
+
+- Watch `sensor.fly_house_hunger` climb from 0% → 100% over ~8 hours
+- Feed it (`fly_house.feed`) and see the foraging drive calm down
+- Turn on a bright light across the room → hungry fly biases motor outputs toward that light (phototaxis)
+- Sudden brightness change → ommatidia detect motion → escape mode triggered
+- Use the custom card to see the 16×16 faceted eye light up in real-time
+
+Guests ask what the flickering lamp is doing and you get to say "the fly is hungry and tracking the kitchen light."
+
+Also a gentle excuse to glance at the house when you're out via [vome.io](https://vome.io) (optional: [fynd.vome.io](https://fynd.vome.io)).
 
 ### Safety ⚠️
 
@@ -64,12 +78,24 @@ Or drop `custom_components/fly_house` into your config folder.
 
 ### Visual setup
 
-After installing, add the Lovelace cards from the repo's `LOVELACE_EXAMPLE.yaml`. The animated fly SVG and brain sparks are automatically available at:
+After installing, add the **custom Lovelace card** for the full experience:
+
+1. Add resource: `/local/community/fly_house/housefly-card.js` (Settings → Dashboards → Resources)
+2. Add card: `type: custom:housefly-card` with `entity: binary_sensor.fly_house_active`
+
+**Card shows:**
+- Animated fly (tap to poke)
+- 16×16 faceted compound eye (ommatidia grid, updates in real-time)
+- Hunger bar (green → yellow → red as hunger rises)
+- Brain stats (spikes, energy, mode)
+- Poke + Feed buttons
+
+Or use the basic Lovelace cards from `LOVELACE_EXAMPLE.yaml`. Assets:
 - `/local/community/fly_house/fly-animated.svg`
 - `/local/community/fly_house/brain-sparks.svg`
 
-The `sensor.fly_house_brain` entity shows live ASCII art of neural activity. All the visual DNA from chessfly/flyputer demos, zero GPU required.
+The `sensor.fly_house_brain` entity shows live ASCII art. The `sensor.fly_house_retina` has ommatidia hex data. All the visual DNA from chessfly/flyputer demos, zero GPU, pure Python.
 
-Happy buzzing. If your `mode` stuck on `escape`, try poking less. Or more. Science is messy. 🪰⚡
+Happy buzzing. If your `mode` stuck on `escape`, try feeding the fly. Or poke less. Or more. Science is messy. 🪰⚡🍎
 
 — a responsible adult who definitely reviewed the brightness mapping twice

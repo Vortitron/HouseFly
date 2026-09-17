@@ -11,9 +11,13 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall
 from .const import (
+    ATTR_AMOUNT,
+    ATTR_FOOD_TYPE,
     ATTR_STRENGTH,
+    DEFAULT_FEED_AMOUNT,
     DEFAULT_POKE_STRENGTH,
     DOMAIN,
+    SERVICE_FEED,
     SERVICE_POKE,
 )
 from .coordinator import FlyHouseCoordinator
@@ -25,6 +29,15 @@ POKE_SCHEMA = vol.Schema(
         vol.Optional(ATTR_STRENGTH, default=DEFAULT_POKE_STRENGTH): vol.All(
             vol.Coerce(float), vol.Range(min=0.1, max=5.0)
         ),
+    }
+)
+
+FEED_SCHEMA = vol.Schema(
+    {
+        vol.Optional(ATTR_AMOUNT, default=DEFAULT_FEED_AMOUNT): vol.All(
+            vol.Coerce(float), vol.Range(min=0.1, max=1.0)
+        ),
+        vol.Optional(ATTR_FOOD_TYPE, default="sugar"): str,
     }
 )
 
@@ -54,10 +67,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 await coord.async_request_refresh()
         _LOGGER.info("Fly House poked with strength=%s", strength)
 
-    # Register once
+    async def async_feed(call: ServiceCall) -> None:
+        amount = call.data.get(ATTR_AMOUNT, DEFAULT_FEED_AMOUNT)
+        food_type = call.data.get(ATTR_FOOD_TYPE, "sugar")
+        for coord in hass.data[DOMAIN].values():
+            if isinstance(coord, FlyHouseCoordinator):
+                coord.feed(float(amount))
+                await coord.async_request_refresh()
+        _LOGGER.info("Fly House fed %s (amount=%s)", food_type, amount)
+
+    # Register services once
     if not hass.services.has_service(DOMAIN, SERVICE_POKE):
         hass.services.async_register(
             DOMAIN, SERVICE_POKE, async_poke, schema=POKE_SCHEMA
+        )
+    if not hass.services.has_service(DOMAIN, SERVICE_FEED):
+        hass.services.async_register(
+            DOMAIN, SERVICE_FEED, async_feed, schema=FEED_SCHEMA
         )
 
     return True
@@ -76,6 +102,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id, None)
-        if not hass.data[DOMAIN] and hass.services.has_service(DOMAIN, SERVICE_POKE):
-            hass.services.async_remove(DOMAIN, SERVICE_POKE)
+        if not hass.data[DOMAIN]:
+            if hass.services.has_service(DOMAIN, SERVICE_POKE):
+                hass.services.async_remove(DOMAIN, SERVICE_POKE)
+            if hass.services.has_service(DOMAIN, SERVICE_FEED):
+                hass.services.async_remove(DOMAIN, SERVICE_FEED)
     return unload_ok

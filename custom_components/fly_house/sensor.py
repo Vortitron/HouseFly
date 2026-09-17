@@ -23,6 +23,8 @@ async def async_setup_entry(
             FlyHouseSpikesSensor(coordinator, entry),
             FlyHouseModeSensor(coordinator, entry),
             FlyHouseBrainSensor(coordinator, entry),
+            FlyHouseHungerSensor(coordinator, entry),
+            FlyHouseRetinaSensor(coordinator, entry),
         ]
     )
 
@@ -164,3 +166,93 @@ class FlyHouseBrainSensor(CoordinatorEntity[FlyHouseCoordinator], SensorEntity):
  ○─┼─○─○  💤
   ╰─○─╯
 """
+
+
+class FlyHouseHungerSensor(CoordinatorEntity[FlyHouseCoordinator], SensorEntity):
+    """Hunger level sensor (0-100%)."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Hunger"
+    _attr_translation_key = "hunger"
+    _attr_native_unit_of_measurement = "%"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_icon = "mdi:food-apple"
+
+    def __init__(self, coordinator: FlyHouseCoordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{entry.entry_id}_hunger"
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, entry.entry_id)},
+            "name": "Fly House",
+            "manufacturer": "Vome (weekend meme)",
+            "model": "Leaky reservoir v0.1",
+        }
+
+    @property
+    def native_value(self) -> int:
+        """Return hunger as percentage."""
+        data = self.coordinator.data or {}
+        hunger = float(data.get("hunger", 0.0))
+        return int(hunger * 100)
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return hunger state icon."""
+        data = self.coordinator.data or {}
+        hunger = float(data.get("hunger", 0.0))
+        
+        if hunger > 0.8:
+            state_icon = "🍽️ STARVING"
+        elif hunger > 0.5:
+            state_icon = "😋 Hungry"
+        elif hunger > 0.2:
+            state_icon = "🙂 Peckish"
+        else:
+            state_icon = "😌 Satiated"
+        
+        return {
+            "hunger_state": state_icon,
+            "foraging_drive": round(hunger * 0.3, 3),
+        }
+
+
+class FlyHouseRetinaSensor(CoordinatorEntity[FlyHouseCoordinator], SensorEntity):
+    """Compound eye / ommatidia grid sensor."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Retina"
+    _attr_translation_key = "retina"
+    _attr_icon = "mdi:eye-outline"
+
+    def __init__(self, coordinator: FlyHouseCoordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{entry.entry_id}_retina"
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, entry.entry_id)},
+            "name": "Fly House",
+            "manufacturer": "Vome (weekend meme)",
+            "model": "Leaky reservoir v0.1",
+        }
+
+    @property
+    def native_value(self) -> str:
+        """Return compact state."""
+        data = self.coordinator.data or {}
+        motion = data.get("visual_motion", 0.0)
+        if motion > 0.3:
+            return "👁️ MOTION"
+        elif motion > 0.1:
+            return "👁️ tracking"
+        else:
+            return "👁️ idle"
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return ommatidia grid for rendering."""
+        data = self.coordinator.data or {}
+        return {
+            "ommatidia_hex": data.get("retina_hex", ""),
+            "ommatidia_ascii": data.get("retina_ascii", ""),
+            "visual_motion": data.get("visual_motion", 0.0),
+            "grid_size": 16,
+        }

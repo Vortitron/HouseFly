@@ -63,6 +63,9 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def poke(self, strength: float = 1.0) -> None:
         self.brain.poke(strength)
 
+    def feed(self, amount: float = 0.3) -> None:
+        self.brain.feed(amount)
+
     async def _async_update_data(self) -> dict[str, Any]:
         try:
             states = [
@@ -70,7 +73,13 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 for eid in self.input_entities
             ]
             values = [st.state if st is not None else None for st in states]
-            result = await self.hass.async_add_executor_job(self.brain.step, values)
+            
+            # Prepare vision data (synthesized from lights for now)
+            vision_data = await self._async_prepare_vision()
+            
+            result = await self.hass.async_add_executor_job(
+                self.brain.step, values, vision_data
+            )
 
             if self._apply_outputs:
                 await self._async_drive_outputs(result.get("channels", []))
@@ -82,9 +91,33 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "energy": result.get("energy", 0.0),
                 "tick": result.get("tick", 0),
                 "channels": result.get("channels", []),
+                "hunger": result.get("hunger", 0.0),
+                "retina_hex": result.get("retina_hex", ""),
+                "retina_ascii": result.get("retina_ascii", ""),
+                "visual_motion": result.get("visual_motion", 0.0),
             }
         except Exception as err:  # noqa: BLE001 — surface as UpdateFailed
             raise UpdateFailed(f"Fly brain tick failed: {err}") from err
+
+    async def _async_prepare_vision(self) -> dict[str, Any]:
+        """Prepare vision data from camera or synthesized light field."""
+        # TODO: Add camera support via camera_entity config
+        # For now, synthesize visual field from light entities
+        light_states = {}
+        
+        # Get sun elevation
+        sun = self.hass.states.get("sun.sun")
+        if sun:
+            light_states["sun_elevation"] = float(sun.attributes.get("elevation", 0))
+        
+        # Get light brightness
+        for state in self.hass.states.async_all():
+            if state.domain == "light" and state.state == "on":
+                brightness = state.attributes.get("brightness", 255)
+                # Normalize to 0-1
+                light_states[state.entity_id] = brightness / 255.0
+        
+        return {"light_states": light_states}
 
     async def _async_drive_outputs(self, channels: list[float]) -> None:
         for idx, entity_id in enumerate(self.output_entities):
