@@ -327,6 +327,27 @@ Local `assets/` may contain MaleCNS-related metadata or larger weights for **exp
 
 ---
 
+## Contributing
+
+Contributions are welcome! 🎉
+
+Please read [`CONTRIBUTING.md`](CONTRIBUTING.md) for:
+
+- Development setup
+- Code style guidelines
+- Testing checklist
+- How to submit bug reports / feature requests / pull requests
+
+**Quick links:**
+
+- [Report a bug](https://github.com/Vortitron/HouseFly/issues/new?template=bug_report.md)
+- [Request a feature](https://github.com/Vortitron/HouseFly/issues/new?template=feature_request.md)
+- [View open issues](https://github.com/Vortitron/HouseFly/issues)
+
+HouseFly is a **weekend meme** — we value lightweight, fun contributions that keep the fruit-fly spirit alive! 🪰
+
+---
+
 ## Licence
 
 - **Code:** MIT (see `LICENSE`)
@@ -338,6 +359,7 @@ Local `assets/` may contain MaleCNS-related metadata or larger weights for **exp
 
 - 🪰 **Visual setup guide:** [`VISUAL_SETUP_GUIDE.md`](VISUAL_SETUP_GUIDE.md)
 - 📋 **Lovelace examples:** [`LOVELACE_EXAMPLE.yaml`](LOVELACE_EXAMPLE.yaml)
+- 🤝 **Contributing guide:** [`CONTRIBUTING.md`](CONTRIBUTING.md)
 - 📢 **Forum post draft:** [`FORUM_POST.md`](FORUM_POST.md)
 - 🏠 Watch remotely when away: [vome.io](https://vome.io)
 - 🔍 Optional: [fynd.vome.io](https://fynd.vome.io)
