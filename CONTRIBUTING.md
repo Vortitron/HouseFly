@@ -4,7 +4,7 @@ Thank you for your interest in contributing to HouseFly! 🪰
 
 ## Code of Conduct
 
-Please read and follow our [Code of Conduct](CODE_OF_CONDUCT.md) (coming soon).
+Please read and follow our [Code of Conduct](CODE_OF_CONDUCT.md). We are committed to providing a welcoming and inclusive environment for all contributors.
 
 ## Getting Started
 
