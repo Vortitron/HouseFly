@@ -53,11 +53,15 @@ Supported **outputs**: `light` (brightness %), `cover` (position), `switch` (thr
 
 ## Install (HACS)
 
+**Quick start:** See [`QUICK_START.md`](QUICK_START.md) for step-by-step instructions with safety tips.
+
+**Summary:**
 1. HACS → **Integrations** → ⋮ → **Custom repositories**
 2. Add `https://github.com/Vortitron/HouseFly` as category **Integration**
 3. Install **HouseFly**, restart Home Assistant
 4. Settings → Devices & services → **Add integration** → **HouseFly**
-5. Pick inputs / outputs / tick / intensity / seed
+5. Pick inputs (1-32 sensors) / outputs (1-32 entities) / tick / intensity / seed
+6. ⚠️ **Start with ONE spare lamp** — do NOT enable whole house mode on first run!
 
 ### Manual install
 
