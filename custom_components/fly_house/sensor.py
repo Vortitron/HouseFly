@@ -46,7 +46,7 @@ class FlyHouseSpikesSensor(CoordinatorEntity[FlyHouseCoordinator], SensorEntity)
             "identifiers": {(DOMAIN, entry.entry_id)},
             "name": "Fly House",
             "manufacturer": "Vome (weekend meme)",
-            "model": "Leaky reservoir v0.1",
+            "model": "Leaky reservoir v0.2",
         }
 
     @property
@@ -70,7 +70,7 @@ class FlyHouseModeSensor(CoordinatorEntity[FlyHouseCoordinator], SensorEntity):
             "identifiers": {(DOMAIN, entry.entry_id)},
             "name": "Fly House",
             "manufacturer": "Vome (weekend meme)",
-            "model": "Leaky reservoir v0.1",
+            "model": "Leaky reservoir v0.2",
         }
 
     @property
@@ -94,7 +94,7 @@ class FlyHouseBrainSensor(CoordinatorEntity[FlyHouseCoordinator], SensorEntity):
             "identifiers": {(DOMAIN, entry.entry_id)},
             "name": "Fly House",
             "manufacturer": "Vome (weekend meme)",
-            "model": "Leaky reservoir v0.1",
+            "model": "Leaky reservoir v0.2",
         }
 
     @property
@@ -185,7 +185,7 @@ class FlyHouseHungerSensor(CoordinatorEntity[FlyHouseCoordinator], SensorEntity)
             "identifiers": {(DOMAIN, entry.entry_id)},
             "name": "Fly House",
             "manufacturer": "Vome (weekend meme)",
-            "model": "Leaky reservoir v0.1",
+            "model": "Leaky reservoir v0.2",
         }
 
     @property
@@ -231,7 +231,7 @@ class FlyHouseRetinaSensor(CoordinatorEntity[FlyHouseCoordinator], SensorEntity)
             "identifiers": {(DOMAIN, entry.entry_id)},
             "name": "Fly House",
             "manufacturer": "Vome (weekend meme)",
-            "model": "Leaky reservoir v0.1",
+            "model": "Leaky reservoir v0.2",
         }
 
     @property
@@ -255,4 +255,6 @@ class FlyHouseRetinaSensor(CoordinatorEntity[FlyHouseCoordinator], SensorEntity)
             "ommatidia_ascii": data.get("retina_ascii", ""),
             "visual_motion": data.get("visual_motion", 0.0),
             "grid_size": 16,
+            "vision_source": data.get("vision_source", "none"),
+            "camera_entity": data.get("camera_entity"),
         }

@@ -39,7 +39,7 @@ class FlyHouseActiveBinarySensor(CoordinatorEntity[FlyHouseCoordinator], BinaryS
             "identifiers": {(DOMAIN, entry.entry_id)},
             "name": "Fly House",
             "manufacturer": "Vome (weekend meme)",
-            "model": "Leaky reservoir v0.1",
+            "model": "Leaky reservoir v0.2",
         }
 
     @property

@@ -141,41 +141,50 @@ class FlyBrain:
 
     def update_vision(self, image_data: bytes | None, light_states: dict[str, float] | None = None) -> None:
         """Update ommatidia grid from camera or synthesized visual field."""
-        grid_cells = self.retina_size * self.retina_size
         self.previous_retina = list(self.retina_grid)
-        
+
         if image_data:
-            # Process actual camera image (simplified: downsample to grid)
-            self.retina_grid = self._process_camera_image(image_data)
-        elif light_states:
-            # Synthesize visual field from lights + sun
+            grid = self._process_camera_image(image_data)
+            if grid is not None:
+                self.retina_grid = grid
+                return
+            # Decode/Pillow failed — fall through to lights+sun if available
+
+        if light_states:
             self.retina_grid = self._synthesize_visual_field(light_states)
         else:
             # No vision input — fade to dark
             self.retina_grid = [max(0.0, v * 0.9) for v in self.retina_grid]
 
-    def _process_camera_image(self, image_data: bytes) -> list[float]:
-        """Downsample camera image to ommatidia grid (luminance only)."""
-        # Simplified: hash image bytes into grid pattern
-        # Real impl would decode image, downsample, extract luminance
-        # For pure Python without PIL/numpy, use hash-based approach
-        grid_cells = self.retina_size * self.retina_size
-        grid = []
-        chunk_size = max(1, len(image_data) // grid_cells)
-        
-        for i in range(grid_cells):
-            start = i * chunk_size
-            end = min(start + chunk_size, len(image_data))
-            chunk = image_data[start:end]
-            if chunk:
-                # Hash chunk to luminance [0, 1]
-                h = sum(chunk) % 256
-                lum = h / 255.0
-            else:
-                lum = 0.0
-            grid.append(lum)
-        
-        return grid
+    def _process_camera_image(self, image_data: bytes) -> list[float] | None:
+        """Downsample camera image to ommatidia grid (luminance only).
+
+        Prefer Pillow (listed in manifest requirements). On ImportError or
+        decode failure return None so the coordinator/brain can fall back to
+        lights+sun synthesis.
+        """
+        try:
+            import io
+
+            from PIL import Image as PILImage
+        except ImportError:
+            return None
+
+        try:
+            img = PILImage.open(io.BytesIO(image_data))
+            # RGB → luma, then nearest/bilinear resize to ommatidia grid
+            img = img.convert("L")
+            try:
+                resample = PILImage.Resampling.BILINEAR
+            except AttributeError:  # Pillow < 9.1
+                resample = getattr(PILImage, "BILINEAR", 2)
+            img = img.resize((self.retina_size, self.retina_size), resample)
+            pixels = list(img.getdata())
+            if len(pixels) != self.retina_size * self.retina_size:
+                return None
+            return [max(0.0, min(1.0, float(p) / 255.0)) for p in pixels]
+        except Exception:  # noqa: BLE001 — corrupt JPEG / unsupported format
+            return None
 
     def _synthesize_visual_field(self, light_states: dict[str, float]) -> list[float]:
         """Create crude visual field from light brightness + sun."""

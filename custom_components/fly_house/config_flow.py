@@ -12,15 +12,18 @@ from homeassistant.core import callback
 from homeassistant.helpers import selector
 
 from .const import (
+    CONF_CAMERA_ENTITY,
     CONF_INPUT_ENTITIES,
     CONF_INTENSITY,
     CONF_OUTPUT_ENTITIES,
     CONF_SEED,
     CONF_TICK_INTERVAL,
+    CONF_VISION_TICK_INTERVAL,
     CONF_WHOLE_HOUSE,
     DEFAULT_INTENSITY,
     DEFAULT_SEED,
     DEFAULT_TICK_INTERVAL,
+    DEFAULT_VISION_TICK_INTERVAL,
     DOMAIN,
     MAX_INPUT_ENTITIES,
     MAX_OUTPUT_ENTITIES,
@@ -32,6 +35,10 @@ INPUT_SELECTOR = selector.EntitySelector(
 
 OUTPUT_SELECTOR = selector.EntitySelector(
     selector.EntitySelectorConfig(multiple=True, domain=["light", "cover", "switch", "number", "input_number", "fan"])
+)
+
+CAMERA_SELECTOR = selector.EntitySelector(
+    selector.EntitySelectorConfig(domain="camera", multiple=False)
 )
 
 
@@ -66,9 +73,31 @@ def _schema(defaults: dict[str, Any] | None = None, *, show_whole_house: bool = 
         ),
     }
     
+    # Optional compound-eye camera (snapshot → 16×16 ommatidia)
+    cam_default = d.get(CONF_CAMERA_ENTITY)
+    if cam_default:
+        schema_dict[vol.Optional(CONF_CAMERA_ENTITY, default=cam_default)] = CAMERA_SELECTOR
+    else:
+        schema_dict[vol.Optional(CONF_CAMERA_ENTITY)] = CAMERA_SELECTOR
+
+    schema_dict[
+        vol.Optional(
+            CONF_VISION_TICK_INTERVAL,
+            default=d.get(CONF_VISION_TICK_INTERVAL, DEFAULT_VISION_TICK_INTERVAL),
+        )
+    ] = selector.NumberSelector(
+        selector.NumberSelectorConfig(
+            min=5,
+            max=300,
+            step=5,
+            mode=selector.NumberSelectorMode.BOX,
+            unit_of_measurement="s",
+        )
+    )
+
     if show_whole_house:
         schema_dict[vol.Optional(CONF_WHOLE_HOUSE, default=d.get(CONF_WHOLE_HOUSE, False))] = selector.BooleanSelector()
-    
+
     return vol.Schema(schema_dict)
 
 
@@ -118,6 +147,10 @@ class FlyHouseConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     CONF_TICK_INTERVAL: int(user_input[CONF_TICK_INTERVAL]),
                     CONF_INTENSITY: float(user_input[CONF_INTENSITY]),
                     CONF_SEED: int(user_input[CONF_SEED]),
+                    CONF_CAMERA_ENTITY: user_input.get(CONF_CAMERA_ENTITY) or None,
+                    CONF_VISION_TICK_INTERVAL: int(
+                        user_input.get(CONF_VISION_TICK_INTERVAL, DEFAULT_VISION_TICK_INTERVAL)
+                    ),
                     CONF_WHOLE_HOUSE: False,
                     CONF_NAME: "HouseFly",
                 }
@@ -160,10 +193,14 @@ class FlyHouseConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     CONF_TICK_INTERVAL: tick_interval,
                     CONF_INTENSITY: intensity,
                     CONF_SEED: int(original_input.get(CONF_SEED, DEFAULT_SEED)),
+                    CONF_CAMERA_ENTITY: original_input.get(CONF_CAMERA_ENTITY) or None,
+                    CONF_VISION_TICK_INTERVAL: int(
+                        original_input.get(CONF_VISION_TICK_INTERVAL, DEFAULT_VISION_TICK_INTERVAL)
+                    ),
                     CONF_WHOLE_HOUSE: True,
                     CONF_NAME: "HouseFly",
                 }
-                
+
                 return self.async_create_entry(title="HouseFly (Whole House)", data=data)
         
         # Show count of entities that will be controlled
@@ -268,6 +305,10 @@ class FlyHouseOptionsFlow(config_entries.OptionsFlow):
                     CONF_TICK_INTERVAL: int(user_input[CONF_TICK_INTERVAL]),
                     CONF_INTENSITY: float(user_input[CONF_INTENSITY]),
                     CONF_SEED: int(user_input[CONF_SEED]),
+                    CONF_CAMERA_ENTITY: user_input.get(CONF_CAMERA_ENTITY) or None,
+                    CONF_VISION_TICK_INTERVAL: int(
+                        user_input.get(CONF_VISION_TICK_INTERVAL, DEFAULT_VISION_TICK_INTERVAL)
+                    ),
                     CONF_WHOLE_HOUSE: bool(user_input.get(CONF_WHOLE_HOUSE, False)),
                 }
                 return self.async_create_entry(title="", data=data)
@@ -309,9 +350,13 @@ class FlyHouseOptionsFlow(config_entries.OptionsFlow):
                     CONF_TICK_INTERVAL: tick_interval,
                     CONF_INTENSITY: intensity,
                     CONF_SEED: int(original_input.get(CONF_SEED, DEFAULT_SEED)),
+                    CONF_CAMERA_ENTITY: original_input.get(CONF_CAMERA_ENTITY) or None,
+                    CONF_VISION_TICK_INTERVAL: int(
+                        original_input.get(CONF_VISION_TICK_INTERVAL, DEFAULT_VISION_TICK_INTERVAL)
+                    ),
                     CONF_WHOLE_HOUSE: True,
                 }
-                
+
                 return self.async_create_entry(title="", data=data)
         
         # Show count of entities that will be controlled

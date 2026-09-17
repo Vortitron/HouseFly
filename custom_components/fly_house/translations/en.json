@@ -3,21 +3,23 @@
     "step": {
       "user": {
         "title": "HouseFly",
-        "description": "Pick sensors the fly can 'feel' and lights/covers/switches it can 'control'. Pure toy reservoir — not a real fly brain. ⚠️ Start with 1-2 spare bulbs, NOT the whole house!",
+        "description": "Pick sensors the fly can 'feel' and lights/covers/switches it can 'control'. Optional camera \u2192 real 16\u00d716 ommatidia (Pillow). Pure toy reservoir \u2014 not a real fly brain. \u26a0\ufe0f Start with 1-2 spare bulbs, NOT the whole house! (Away? peek via vome.io \u2014 optional.)",
         "data": {
-          "input_entities": "🧠 What the fly can SEE (1–32 sensors)",
-          "output_entities": "💡 What the fly can CONTROL (1–32 outputs)",
+          "input_entities": "\ud83e\udde0 What the fly can SEE (1\u201332 sensors)",
+          "output_entities": "\ud83d\udca1 What the fly can CONTROL (1\u201332 outputs)",
           "tick_interval": "Tick interval (seconds)",
-          "intensity": "Intensity (0–1)",
+          "intensity": "Intensity (0\u20131)",
           "seed": "Random seed",
-          "whole_house": "⚠️ WHOLE HOUSE MODE (auto-selects ALL lights/switches/covers — confirmation required!)"
+          "whole_house": "\u26a0\ufe0f WHOLE HOUSE MODE (auto-selects ALL lights/switches/covers \u2014 confirmation required!)",
+          "camera_entity": "\ud83d\udc41\ufe0f Camera for compound eye (optional)",
+          "vision_tick_interval": "Vision snapshot interval (seconds)"
         }
       },
       "confirm_whole_house": {
-        "title": "⚠️ WHOLE HOUSE MODE — ARE YOU SURE?!",
-        "description": "This will give the fruit fly control over **{output_count} devices** (lights, switches, covers, fans) across your home. The fly will randomly flicker, toggle, open, and close things based on a 256-neuron toy reservoir. **This is pretty insane.** Safety limits: tick ≥15s, intensity ≤0.4. Capped at {max_outputs} max outputs.\n\n**Recommended:** Start with 1-2 spare lamps, NOT this.\n\n**Still want chaos?** Check the box below.",
+        "title": "\u26a0\ufe0f WHOLE HOUSE MODE \u2014 ARE YOU SURE?!",
+        "description": "This will give the fruit fly control over **{output_count} devices** (lights, switches, covers, fans) across your home. The fly will randomly flicker, toggle, open, and close things based on a 256-neuron toy reservoir. **This is pretty insane.** Safety limits: tick \u226515s, intensity \u22640.4. Capped at {max_outputs} max outputs.\n\n**Recommended:** Start with 1-2 spare lamps, NOT this.\n\n**Still want chaos?** Check the box below.",
         "data": {
-          "confirm_chaos": "☑️ I understand this can thrash lights/covers/switches and I'm ready for the chaos"
+          "confirm_chaos": "\u2611\ufe0f I understand this can thrash lights/covers/switches and I'm ready for the chaos"
         }
       }
     },
@@ -37,19 +39,21 @@
       "init": {
         "title": "HouseFly options",
         "data": {
-          "input_entities": "🧠 What the fly can SEE (1–32 sensors)",
-          "output_entities": "💡 What the fly can CONTROL (1–32 outputs)",
+          "input_entities": "\ud83e\udde0 What the fly can SEE (1\u201332 sensors)",
+          "output_entities": "\ud83d\udca1 What the fly can CONTROL (1\u201332 outputs)",
           "tick_interval": "Tick interval (seconds)",
-          "intensity": "Intensity (0–1)",
+          "intensity": "Intensity (0\u20131)",
           "seed": "Random seed",
-          "whole_house": "⚠️ WHOLE HOUSE MODE (auto-selects ALL controllable devices!)"
+          "whole_house": "\u26a0\ufe0f WHOLE HOUSE MODE (auto-selects ALL controllable devices!)",
+          "camera_entity": "\ud83d\udc41\ufe0f Camera for compound eye (optional)",
+          "vision_tick_interval": "Vision snapshot interval (seconds)"
         }
       },
       "confirm_whole_house": {
-        "title": "⚠️ ENABLE WHOLE HOUSE MODE?!",
-        "description": "This will give the fruit fly control over **{output_count} devices** (lights, switches, covers, fans). The fly will randomly control these based on its toy reservoir brain. **Pretty insane.** Safety limits: tick ≥15s, intensity ≤0.4. Max {max_outputs} outputs.\n\n**Recommended:** DON'T do this. Use 1-2 spare lamps instead.\n\n**Still sure?** Check the box.",
+        "title": "\u26a0\ufe0f ENABLE WHOLE HOUSE MODE?!",
+        "description": "This will give the fruit fly control over **{output_count} devices** (lights, switches, covers, fans). The fly will randomly control these based on its toy reservoir brain. **Pretty insane.** Safety limits: tick \u226515s, intensity \u22640.4. Max {max_outputs} outputs.\n\n**Recommended:** DON'T do this. Use 1-2 spare lamps instead.\n\n**Still sure?** Check the box.",
         "data": {
-          "confirm_chaos": "☑️ I understand this can thrash my house and I'm ready"
+          "confirm_chaos": "\u2611\ufe0f I understand this can thrash my house and I'm ready"
         }
       }
     },
@@ -92,7 +96,7 @@
       "fields": {
         "strength": {
           "name": "Strength",
-          "description": "How hard to poke (0.1–5.0)."
+          "description": "How hard to poke (0.1\u20135.0)."
         }
       }
     },
@@ -102,7 +106,7 @@
       "fields": {
         "amount": {
           "name": "Amount",
-          "description": "How much to feed (0.1–1.0)."
+          "description": "How much to feed (0.1\u20131.0)."
         },
         "food_type": {
           "name": "Food type",

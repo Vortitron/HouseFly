@@ -4,7 +4,7 @@
 
 A weekend Home Assistant / [HACS](https://hacs.xyz) custom integration that maps a handful of sensors into a tiny **leaky reservoir** (~256 dims, pure Python) and writes the "motor" channels out to lights, covers, switches, and numbers.
 
-**New in v0.1:** 🎨 Complete visual overhaul with animated fly + brain assets, ASCII art sensors, and picture-perfect Lovelace cards — all the meme-y DNA from chessfly/flyputer demos, zero GPU required!
+**New in v1.2:** 👁️ Real camera → ommatidia (optional `camera.*` snapshot via Pillow), hunger phototaxis bias on light outputs, soft remote peek via [vome.io](https://vome.io). Still a weekend meme — zero GPU.
 
 Soft CTA: when you're away and want to *watch* the chaos (or just check the house), peek at **[vome.io](https://vome.io)**. Optionally try **[fynd.vome.io](https://fynd.vome.io)** for finding stuff around the home.
 
@@ -28,7 +28,7 @@ This is a **toy dynamical system**, not a scientific instrument or AI agent.
 - **Inspired by** fruit-fly sensorimotor motifs: compound eyes, hunger-driven foraging, escape responses
 - **Architecture:** Leaky reservoir (256 neurons, seeded sparse matrix) + fruit-fly-inspired drives (phototaxis, hunger, motion detection)
 - **NOT** an LLM chatbot, NOT MaleCNS running in Home Assistant, NOT downloading multi-GB neural network weights
-- **Pure Python** — no torch, no numpy, no external dependencies (runs entirely in Home Assistant core)
+- **Pure Python** — no torch, no numpy; optional **Pillow** for camera→ommatidia (falls back to lights+sun if missing)
 - **Inspired by** the spirit of [QuixiAI/MaleCNS](https://huggingface.co/QuixiAI/MaleCNS) (CC-BY 4.0), [ngxson/fly-llm-hf](https://huggingface.co/ngxson/fly-llm-hf), and "chessfly" / flyputer demos
 - Any resemblance to actual *Drosophila melanogaster* neuroscience is **comedic and superficial**
 
@@ -50,12 +50,12 @@ If you wire this to real actuators, use common sense: start with a spare lamp, n
 
 ---
 
-## Features (v1.1)
+## Features (v1.2)
 
 | Piece | What it does |
 |-------|----------------|
 | Config flow | Pick 1–32 input entities (what the fly can SEE), 1–32 outputs (what it can CONTROL), tick interval (default 10s), intensity 0–1, seed |
-| **Compound eye** | 16×16 ommatidia grid synthesized from lights + sun, or camera snapshots; phototaxis + motion detection |
+| **Compound eye** | 16×16 ommatidia from optional camera snapshot (Pillow luma downsample) or lights+sun synthesis; phototaxis + motion detection |
 | **Hunger system** | Internal drive (0–100%) rises over time, reduces on `fly_house.feed`; hungry fly explores more + seeks brighter lights |
 | Brain | Pure Python leaky reservoir (~256), sensory hash → visual pathway → hunger modulation → motor channels |
 | Entities | `binary_sensor.fly_house_active`, `sensor.fly_house_spikes`, `sensor.fly_house_mode` (`idle` / `wander` / `escape`), `sensor.fly_house_brain`, `sensor.fly_house_hunger`, `sensor.fly_house_retina` (ommatidia hex grid) |

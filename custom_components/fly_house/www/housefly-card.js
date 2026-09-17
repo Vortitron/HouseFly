@@ -158,6 +158,21 @@ class HouseFlyCard extends HTMLElement {
 				.feed-button {
 					background: #10b981;
 				}
+				.vome-footer {
+					margin-top: 12px;
+					text-align: center;
+					font-size: 11px;
+					opacity: 0.4;
+					letter-spacing: 0.02em;
+				}
+				.vome-footer a {
+					color: inherit;
+					text-decoration: none;
+				}
+				.vome-footer a:hover {
+					opacity: 0.85;
+					text-decoration: underline;
+				}
 			</style>
 			<div class="housefly-card">
 				<div class="header">
@@ -194,6 +209,9 @@ class HouseFlyCard extends HTMLElement {
 				<div class="actions">
 					<button class="action-button" id="poke-button">💥 Poke</button>
 					<button class="action-button feed-button" id="feed-button">🍎 Feed</button>
+				</div>
+				<div class="vome-footer">
+					<a href="https://vome.io" target="_blank" rel="noopener noreferrer">Away? Peek via Vome →</a>
 				</div>
 			</div>
 		`;
