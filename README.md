@@ -2,9 +2,9 @@
 
 > **Let a fruit fly control your house.**
 
-A weekend Home Assistant / [HACS](https://hacs.xyz) custom integration that maps a handful of sensors into a tiny **leaky reservoir** (~256 dims, pure Python) and writes the "motor" channels out to lights, covers, switches, and numbers.
+A Home Assistant / [HACS](https://hacs.xyz) custom integration exploring what happens when you map sensors into a tiny **leaky reservoir** (~256 dims, pure Python) and write the "motor" channels out to lights, covers, switches, and numbers.
 
-**New in v1.2:** 👁️ Real camera → ommatidia (optional `camera.*` snapshot via Pillow), hunger phototaxis bias on light outputs, soft remote peek via [vome.io](https://vome.io). Still a weekend meme — zero GPU.
+**Current release (v1.0):** 👁️ Real camera → ommatidia (optional `camera.*` snapshot via Pillow), hunger phototaxis bias on light outputs, persistent fly state across restarts, richer lifecycle tracking. Soft remote peek via [vome.io](https://vome.io). Pure Python — zero GPU, zero torch.
 
 Soft CTA: when you're away and want to *watch* the chaos (or just check the house), peek at **[vome.io](https://vome.io)**. Optionally try **[fynd.vome.io](https://fynd.vome.io)** for finding stuff around the home.
 
@@ -36,27 +36,29 @@ This is a **toy dynamical system**, not a scientific instrument or AI agent.
 
 A **toy dynamical system** with fruit-fly-inspired components:
 
-1. **Compound eye** (ommatidia grid): Synthesizes a 16×16 visual field from your lights + sun position, or can process camera snapshots
-2. **Hunger drive**: Internal state that rises over time, affects foraging behavior (more exploration when hungry)
+1. **Compound eye** (ommatidia grid): Synthesises a 16×16 visual field from your lights + sun position, or can process camera snapshots
+2. **Hunger drive**: Internal state that rises over time, affects foraging behaviour (more exploration when hungry)
 3. **Reservoir brain**: 256-neuron leaky-tanh network processes sensory inputs → motor outputs
-4. **Phototaxis**: Biases motor outputs toward brighter lights when hungry
+4. **Phototaxis**: Biases motor outputs towards brighter lights when hungry
 5. **Motion detection**: Responds to changes in visual field (loom response)
+6. **State persistence**: Fly remembers its hunger and lifecycle across Home Assistant restarts
 
-This is **not neuroscience** — it's a weekend toy that maps dynamical systems concepts onto home automation as a meme.
+This is **not neuroscience** — it's an exploratory project mapping dynamical systems concepts onto home automation as a playful experiment.
 
-**Inspiration citation:** QuixiAI/MaleCNS packaging of the MaleCNS connectome is licensed **CC-BY 4.0**. We cite it for inspiration only; this integration does not redistribute those weights.
+**Inspiration citation:** QuixiAI/MaleCNS packaging of the MaleCNS connectome is licenced **CC-BY 4.0**. We cite it for inspiration only; this integration does not redistribute those weights.
 
 If you wire this to real actuators, use common sense: start with a spare lamp, not the garage door whilst you're out.
 
 ---
 
-## Features (v1.2)
+## Features (v1.0)
 
 | Piece | What it does |
 |-------|----------------|
 | Config flow | Pick 1–32 input entities (what the fly can SEE), 1–32 outputs (what it can CONTROL), tick interval (default 10s), intensity 0–1, seed |
 | **Compound eye** | 16×16 ommatidia from optional camera snapshot (Pillow luma downsample) or lights+sun synthesis; phototaxis + motion detection |
 | **Hunger system** | Internal drive (0–100%) rises over time, reduces on `fly_house.feed`; hungry fly explores more + seeks brighter lights |
+| **Persistence** | Hunger, mode, and lifecycle metadata (birth time, last poke/feed) survive Home Assistant restarts — fly feels continuous |
 | Brain | Pure Python leaky reservoir (~256), sensory hash → visual pathway → hunger modulation → motor channels |
 | Entities | `binary_sensor.fly_house_active`, `sensor.fly_house_spikes`, `sensor.fly_house_mode` (`idle` / `wander` / `escape`), `sensor.fly_house_brain`, `sensor.fly_house_hunger`, `sensor.fly_house_retina` (ommatidia hex grid) |
 | Services | `fly_house.poke` (strength 0.1–5.0), `fly_house.feed` (amount 0.1–1.0, reduces hunger) |
@@ -68,12 +70,13 @@ Supported **outputs**: `light` (brightness %), `cover` (position), `switch` (thr
 
 ### Fly Biology (Non-Superficial)
 
-- **Compound eye**: 16×16 grid = 256 "ommatidia" (facets). Downsamples camera images or synthesizes visual field from lights.
-- **Phototaxis**: When hungry, biases motor outputs toward brighter regions of visual field.
+- **Compound eye**: 16×16 grid = 256 "ommatidia" (facets). Downsamples camera images or synthesises visual field from lights.
+- **Phototaxis**: When hungry, biases motor outputs towards brighter regions of visual field.
 - **Motion detection**: Compares current vs previous frame, triggers loom response (escape mode).
 - **Hunger drive**: Rises at ~0.2% per tick (reaches 100% in ~8 hours). Feed via service or automation when `sensor.fly_house_hunger > 50`.
 - **Foraging**: High hunger → more output variance (wander mode), seeks light sources.
 - **Grooming/idle**: Low hunger → calmer reservoir state, less motor activity.
+- **Lifecycle tracking**: Birth time, time alive, last poke/feed timestamps exposed as sensor attributes.
 
 ---
 
@@ -199,7 +202,7 @@ entity: binary_sensor.fly_house_active
 
 The card is **pure vanilla JS** (no build step) and uses Home Assistant design tokens for theming.
 
-**Pro tip:** Place the card next to your lights panel — watch the ommatidia light up as you turn lights on, then see the fly's hunger drive bias its motor outputs toward those bright regions!
+**Pro tip:** Place the card next to your lights panel — watch the ommatidia light up as you turn lights on, then see the fly's hunger drive bias its motor outputs towards those bright regions!
 
 **Away from home?** The card includes a soft call-to-action to [Vome](https://vome.io) for remote dashboard access (completely optional)
 
@@ -276,20 +279,20 @@ HouseFly follows a **layered architecture**:
 2. **HACS Frontend Card** (bundled, `housefly-card`): Visual UI for compound eye + hunger + controls
 3. **Optional Add-on** (future, not shipped): Heavy lifting (MaleCNS weights, camera processing, GPU acceleration)
 
-**Current v1.1 = Integration + Card.** No add-on required. No torch. No GPU. Runs entirely in HA core.
+**Current v1.0 = Integration + Card.** No add-on required. No torch. No GPU. Runs entirely in HA core.
 
 ### Brain Pipeline
 
 1. **Sensory inputs** (entity states) → hashed into 32-channel vector
 2. **Visual pathway** (ommatidia grid):
-   - Synthesize 16×16 grid from lights + sun elevation
-   - Or downsample camera snapshot (simplified hash-based for pure Python)
+   - Synthesise 16×16 grid from lights + sun elevation
+   - Or downsample camera snapshot (Pillow luma conversion + bilinear resize)
    - Compute motion (difference from previous frame)
    - Feed phototaxis + loom channels into first 16 reservoir neurons
 3. **Hunger modulation**:
    - Internal hunger state rises at ~0.2% per tick
    - Hungry → inject variance into middle reservoir neurons (foraging drive)
-   - Hungry + phototaxis → bias motor outputs toward bright lights
+   - Hungry + phototaxis → bias motor outputs towards bright lights
 4. **Reservoir update**:
    - Seeded sparse recurrent matrix (256 neurons, leaky-tanh)
    - Win @ sensory + visual + hunger → drive
@@ -297,8 +300,9 @@ HouseFly follows a **layered architecture**:
    - Leaky integrate: `x ← (1-α)x + α·tanh(drive)`
 5. **Readout channels** (0–1) → map to output entity service calls
 6. **Mode classification** (energy + spikes + sensory magnitude) → `idle` / `wander` / `escape`
+7. **State persistence**: Hunger, mode, lifecycle metadata saved to HA storage every ~50 ticks
 
-No numpy, no torch, no model download. Requirements list in `manifest.json` is empty on purpose.
+No numpy, no torch, no model download. Requirements list in `manifest.json` has only Pillow for optional camera vision.
 
 ### Why Not an LLM?
 
@@ -321,9 +325,9 @@ For users who want heavier processing:
 
 ---
 
-## v2 (optional add-on path — not shipped here)
+## v2 Exploration (optional add-on path — not shipped here)
 
-Local `assets/` may contain MaleCNS-related metadata or larger weights for **experiments**. Those are **not** bundled into this HACS integration (multi‑GB, torch, etc.). A future add-on could swap the toy matrix for a connectome-derived reservoir; see `MVP.md`. Until then, enjoy the fruit fly cosplay.
+Local `assets/` may contain MaleCNS-related metadata or larger weights for **experiments**. Those are **not** bundled into this HACS integration (multi‑GB, torch, etc.). A future add-on could swap the toy matrix for a connectome-derived reservoir; see notes in repo. Until then, enjoy the fruit fly cosplay.
 
 ---
 
@@ -352,6 +356,20 @@ HouseFly is a **weekend meme** — we value lightweight, fun contributions that 
 
 - **Code:** MIT (see `LICENSE`)
 - **Inspiration / MaleCNS data (not included):** QuixiAI/MaleCNS — CC-BY 4.0
+
+---
+
+## Contributing
+
+HouseFly started as an experiment in mapping dynamical systems onto home automation. Contributions that preserve the founding spirit are welcome:
+
+- Keep it **playful but intentional** — this is toy science done with care
+- Maintain **pure Python core** (no numpy/torch in the integration)
+- Preserve the **honest science disclaimer** (comedic resemblance to real neuroscience)
+- Test thoroughly with actual Home Assistant installations
+- Document changes clearly
+
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) for detailed guidelines.
 
 ---
 

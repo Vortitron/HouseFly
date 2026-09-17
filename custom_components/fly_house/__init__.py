@@ -50,6 +50,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Fly House from a config entry."""
     hass.data.setdefault(DOMAIN, {})
     coordinator = FlyHouseCoordinator(hass, _merged_entry_data(entry), entry.entry_id)
+    
+    # Restore persisted state (hunger, mode, lifecycle metadata)
+    await coordinator.async_restore_state()
+    
     await coordinator.async_config_entry_first_refresh()
     hass.data[DOMAIN][entry.entry_id] = coordinator
 
@@ -97,6 +101,11 @@ async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> Non
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
+    # Persist state before unload
+    coordinator: FlyHouseCoordinator = hass.data[DOMAIN].get(entry.entry_id)
+    if coordinator:
+        await coordinator.async_save_state()
+    
     unload_ok = await hass.config_entries.async_unload_platforms(
         entry, [Platform.BINARY_SENSOR, Platform.SENSOR]
     )
