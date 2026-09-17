@@ -45,8 +45,8 @@ class FlyHouseSpikesSensor(CoordinatorEntity[FlyHouseCoordinator], SensorEntity)
         self._attr_device_info = {
             "identifiers": {(DOMAIN, entry.entry_id)},
             "name": "Fly House",
-            "manufacturer": "Vome (weekend meme)",
-            "model": "Leaky reservoir v0.2",
+            "manufacturer": "Vortitron",
+            "model": "Leaky reservoir v1.0",
         }
 
     @property
@@ -69,8 +69,8 @@ class FlyHouseModeSensor(CoordinatorEntity[FlyHouseCoordinator], SensorEntity):
         self._attr_device_info = {
             "identifiers": {(DOMAIN, entry.entry_id)},
             "name": "Fly House",
-            "manufacturer": "Vome (weekend meme)",
-            "model": "Leaky reservoir v0.2",
+            "manufacturer": "Vortitron",
+            "model": "Leaky reservoir v1.0",
         }
 
     @property
@@ -93,8 +93,8 @@ class FlyHouseBrainSensor(CoordinatorEntity[FlyHouseCoordinator], SensorEntity):
         self._attr_device_info = {
             "identifiers": {(DOMAIN, entry.entry_id)},
             "name": "Fly House",
-            "manufacturer": "Vome (weekend meme)",
-            "model": "Leaky reservoir v0.2",
+            "manufacturer": "Vortitron",
+            "model": "Leaky reservoir v1.0",
         }
 
     @property
@@ -184,8 +184,8 @@ class FlyHouseHungerSensor(CoordinatorEntity[FlyHouseCoordinator], SensorEntity)
         self._attr_device_info = {
             "identifiers": {(DOMAIN, entry.entry_id)},
             "name": "Fly House",
-            "manufacturer": "Vome (weekend meme)",
-            "model": "Leaky reservoir v0.2",
+            "manufacturer": "Vortitron",
+            "model": "Leaky reservoir v1.0",
         }
 
     @property
@@ -197,7 +197,7 @@ class FlyHouseHungerSensor(CoordinatorEntity[FlyHouseCoordinator], SensorEntity)
 
     @property
     def extra_state_attributes(self) -> dict:
-        """Return hunger state icon."""
+        """Return hunger state and lifecycle metadata."""
         data = self.coordinator.data or {}
         hunger = float(data.get("hunger", 0.0))
         
@@ -210,10 +210,19 @@ class FlyHouseHungerSensor(CoordinatorEntity[FlyHouseCoordinator], SensorEntity)
         else:
             state_icon = "😌 Satiated"
         
-        return {
+        attrs = {
             "hunger_state": state_icon,
             "foraging_drive": round(hunger * 0.3, 3),
+            "birth_time": data.get("birth_time"),
+            "time_alive_seconds": data.get("time_alive_seconds", 0),
         }
+        
+        if data.get("last_poke_time"):
+            attrs["last_poke_time"] = data["last_poke_time"]
+        if data.get("last_feed_time"):
+            attrs["last_feed_time"] = data["last_feed_time"]
+        
+        return attrs
 
 
 class FlyHouseRetinaSensor(CoordinatorEntity[FlyHouseCoordinator], SensorEntity):
@@ -230,8 +239,8 @@ class FlyHouseRetinaSensor(CoordinatorEntity[FlyHouseCoordinator], SensorEntity)
         self._attr_device_info = {
             "identifiers": {(DOMAIN, entry.entry_id)},
             "name": "Fly House",
-            "manufacturer": "Vome (weekend meme)",
-            "model": "Leaky reservoir v0.2",
+            "manufacturer": "Vortitron",
+            "model": "Leaky reservoir v1.0",
         }
 
     @property

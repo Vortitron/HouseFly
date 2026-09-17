@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import logging
 import time
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.util import dt as dt_util
 
 from .brain import FlyBrain, map_channel_to_output
 from .const import (
@@ -28,6 +30,9 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+STORAGE_VERSION = 1
+STORAGE_KEY = f"{DOMAIN}_state"
 
 
 class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
@@ -51,6 +56,15 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._last_image_data: bytes | None = None
         self._last_light_states: dict[str, float] = {}
         self._vision_source: str = "none"
+        
+        # Lifecycle metadata
+        self._birth_time: datetime = dt_util.utcnow()
+        self._last_poke_time: datetime | None = None
+        self._last_feed_time: datetime | None = None
+        self._last_mode: str = MODE_IDLE
+        
+        # Storage for persistence
+        self._store = Store(hass, STORAGE_VERSION, f"{STORAGE_KEY}_{entry_id}")
 
         super().__init__(
             hass,
@@ -80,9 +94,55 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     def poke(self, strength: float = 1.0) -> None:
         self.brain.poke(strength)
+        self._last_poke_time = dt_util.utcnow()
 
     def feed(self, amount: float = 0.3) -> None:
         self.brain.feed(amount)
+        self._last_feed_time = dt_util.utcnow()
+    
+    async def async_save_state(self) -> None:
+        """Persist fly state to storage."""
+        try:
+            state_data = {
+                "hunger": float(self.brain.hunger),
+                "mode": self._last_mode,
+                "birth_time": self._birth_time.isoformat(),
+                "last_poke_time": self._last_poke_time.isoformat() if self._last_poke_time else None,
+                "last_feed_time": self._last_feed_time.isoformat() if self._last_feed_time else None,
+            }
+            await self._store.async_save(state_data)
+            _LOGGER.debug("HouseFly state saved: hunger=%s, mode=%s", state_data["hunger"], state_data["mode"])
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("Failed to save HouseFly state: %s", err)
+    
+    async def async_restore_state(self) -> None:
+        """Restore fly state from storage."""
+        try:
+            state_data = await self._store.async_load()
+            if state_data:
+                self.brain.hunger = float(state_data.get("hunger", 0.0))
+                self._last_mode = state_data.get("mode", MODE_IDLE)
+                
+                birth_iso = state_data.get("birth_time")
+                if birth_iso:
+                    self._birth_time = dt_util.parse_datetime(birth_iso) or dt_util.utcnow()
+                
+                poke_iso = state_data.get("last_poke_time")
+                if poke_iso:
+                    self._last_poke_time = dt_util.parse_datetime(poke_iso)
+                
+                feed_iso = state_data.get("last_feed_time")
+                if feed_iso:
+                    self._last_feed_time = dt_util.parse_datetime(feed_iso)
+                
+                _LOGGER.info(
+                    "HouseFly state restored: hunger=%s, mode=%s, age=%s",
+                    self.brain.hunger,
+                    self._last_mode,
+                    dt_util.utcnow() - self._birth_time,
+                )
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.debug("No previous HouseFly state to restore: %s", err)
 
     async def _async_update_data(self) -> dict[str, Any]:
         try:
@@ -98,12 +158,23 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if self._apply_outputs:
                 await self._async_drive_outputs(result.get("channels", []))
 
+            mode = result.get("mode", MODE_IDLE)
+            self._last_mode = mode
+            
+            # Periodically save state (every ~50 ticks, about 8 minutes at default 10s)
+            tick = result.get("tick", 0)
+            if tick > 0 and tick % 50 == 0:
+                await self.async_save_state()
+
+            # Calculate time alive
+            time_alive_seconds = int((dt_util.utcnow() - self._birth_time).total_seconds())
+
             return {
                 "active": True,
                 "spikes": int(result.get("spikes", 0)),
-                "mode": result.get("mode", MODE_IDLE),
+                "mode": mode,
                 "energy": result.get("energy", 0.0),
-                "tick": result.get("tick", 0),
+                "tick": tick,
                 "channels": result.get("channels", []),
                 "hunger": result.get("hunger", 0.0),
                 "retina_hex": result.get("retina_hex", ""),
@@ -111,6 +182,10 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "visual_motion": result.get("visual_motion", 0.0),
                 "vision_source": self._vision_source,
                 "camera_entity": self.camera_entity,
+                "birth_time": self._birth_time.isoformat(),
+                "last_poke_time": self._last_poke_time.isoformat() if self._last_poke_time else None,
+                "last_feed_time": self._last_feed_time.isoformat() if self._last_feed_time else None,
+                "time_alive_seconds": time_alive_seconds,
             }
         except Exception as err:  # noqa: BLE001 — surface as UpdateFailed
             raise UpdateFailed(f"Fly brain tick failed: {err}") from err

@@ -38,8 +38,8 @@ class FlyHouseActiveBinarySensor(CoordinatorEntity[FlyHouseCoordinator], BinaryS
         self._attr_device_info = {
             "identifiers": {(DOMAIN, entry.entry_id)},
             "name": "Fly House",
-            "manufacturer": "Vome (weekend meme)",
-            "model": "Leaky reservoir v0.2",
+            "manufacturer": "Vortitron",
+            "model": "Leaky reservoir v1.0",
         }
 
     @property
