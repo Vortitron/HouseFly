@@ -1,0 +1,222 @@
+# HouseFly Lovelace Dashboard Examples
+# Copy these cards to your dashboard to see the fly in action!
+
+# ═══════════════════════════════════════════════════════════════════
+# Example 1: Simple Status Card with Fly Animation
+# ═══════════════════════════════════════════════════════════════════
+type: vertical-stack
+title: 🪰 HouseFly Control
+cards:
+  - type: picture
+    image: /local/community/fly_house/fly-animated.svg
+    tap_action:
+      action: call-service
+      service: fly_house.poke
+      data:
+        strength: 1.5
+    hold_action:
+      action: none
+  - type: entities
+    entities:
+      - entity: binary_sensor.fly_house_active
+      - entity: sensor.fly_house_mode
+      - entity: sensor.fly_house_spikes
+      - entity: sensor.fly_house_brain
+  - type: button
+    name: 💥 POKE THE FLY
+    icon: mdi:hand-pointing-right
+    tap_action:
+      action: call-service
+      service: fly_house.poke
+      data:
+        strength: 1.0
+
+# ═══════════════════════════════════════════════════════════════════
+# Example 2: Brain Visualization Card (with ASCII art)
+# ═══════════════════════════════════════════════════════════════════
+type: markdown
+content: |
+  ## 🧠 Fly Brain Activity
+  
+  **Mode:** {{ states('sensor.fly_house_mode') | upper }}
+  **Spikes:** {{ states('sensor.fly_house_spikes') }}
+  **Energy:** {{ state_attr('binary_sensor.fly_house_active', 'energy') }}
+  
+  ### Connectome State:
+  ```
+  {{ state_attr('sensor.fly_house_brain', 'ascii_brain') }}
+  ```
+  
+  **Activity Bar:**
+  {{ states('sensor.fly_house_brain') }}
+
+# ═══════════════════════════════════════════════════════════════════
+# Example 3: Side-by-Side Brain + Fly
+# ═══════════════════════════════════════════════════════════════════
+type: horizontal-stack
+cards:
+  - type: picture
+    image: /local/community/fly_house/fly-animated.svg
+    tap_action:
+      action: call-service
+      service: fly_house.poke
+  - type: picture
+    image: /local/community/fly_house/brain-sparks.svg
+    tap_action:
+      action: more-info
+      entity: sensor.fly_house_brain
+
+# ═══════════════════════════════════════════════════════════════════
+# Example 4: Glance Card (compact view)
+# ═══════════════════════════════════════════════════════════════════
+type: glance
+title: 🪰 HouseFly
+entities:
+  - entity: binary_sensor.fly_house_active
+    name: Active
+  - entity: sensor.fly_house_mode
+    name: Mode
+  - entity: sensor.fly_house_spikes
+    name: Spikes
+show_name: true
+show_state: true
+
+# ═══════════════════════════════════════════════════════════════════
+# Example 5: Picture Elements (Advanced - Fly moves!)
+# Note: Requires input_number helper for fly position
+# ═══════════════════════════════════════════════════════════════════
+# First create helper: input_number.fly_x_position (0-100)
+# Then use this card:
+
+type: picture-elements
+image: https://via.placeholder.com/600x400/1a1a1a/ffffff?text=Your+House
+elements:
+  # Animated fly that moves based on brain activity
+  - type: image
+    entity: binary_sensor.fly_house_active
+    image: /local/community/fly_house/fly-animated.svg
+    style:
+      left: >
+        {% set channels = state_attr('sensor.fly_house_brain', 'channels') %}
+        {{ (channels[0] * 90 + 5) if channels else 50 }}%
+      top: >
+        {% set channels = state_attr('sensor.fly_house_brain', 'channels') %}
+        {{ (channels[1] * 80 + 10) if channels and channels|length > 1 else 50 }}%
+      width: 60px
+      transform: translate(-50%, -50%)
+      transition: all 0.3s ease-in-out
+  
+  # Brain indicator
+  - type: state-label
+    entity: sensor.fly_house_mode
+    style:
+      top: 10px
+      left: 10px
+      color: '#00ffff'
+      font-size: 18px
+      font-weight: bold
+  
+  # Spike counter
+  - type: state-label
+    entity: sensor.fly_house_spikes
+    prefix: '⚡ '
+    style:
+      top: 10px
+      right: 10px
+      color: '#ffaa00'
+      font-size: 16px
+
+# ═══════════════════════════════════════════════════════════════════
+# Example 6: Full Dashboard Panel (Copy this for complete setup)
+# ═══════════════════════════════════════════════════════════════════
+type: vertical-stack
+title: 🪰 HouseFly — Fruit Fly Home Control
+cards:
+  # Header with warning
+  - type: markdown
+    content: |
+      ### ⚠️ Live Fly Brain Running
+      A fruit fly (leaky reservoir) is controlling selected lights/devices.
+      **Mode: {{ states('sensor.fly_house_mode') | upper }}**
+  
+  # Fly + Brain visualisation
+  - type: horizontal-stack
+    cards:
+      - type: picture
+        image: /local/community/fly_house/fly-animated.svg
+        title: "🪰 The Fly"
+      - type: picture
+        image: /local/community/fly_house/brain-sparks.svg
+        title: "🧠 Neural Activity"
+  
+  # Status sensors
+  - type: entities
+    title: Fly Status
+    entities:
+      - entity: binary_sensor.fly_house_active
+        name: Reservoir Active
+      - entity: sensor.fly_house_mode
+        name: Behavioral Mode
+      - entity: sensor.fly_house_spikes
+        name: Neural Spikes
+      - entity: sensor.fly_house_brain
+        name: Brain State
+  
+  # Brain details
+  - type: markdown
+    content: |
+      ### Brain Visualisation
+      ```
+      {{ state_attr('sensor.fly_house_brain', 'ascii_brain') }}
+      ```
+      **Spark Intensity:** {{ state_attr('sensor.fly_house_brain', 'spark_intensity') }}%
+      **Energy:** {{ state_attr('binary_sensor.fly_house_active', 'energy') }}
+      **Tick:** #{{ state_attr('binary_sensor.fly_house_active', 'tick') }}
+  
+  # Controls
+  - type: horizontal-stack
+    cards:
+      - type: button
+        name: Gentle Poke
+        icon: mdi:hand-wave
+        tap_action:
+          action: call-service
+          service: fly_house.poke
+          data:
+            strength: 0.5
+      - type: button
+        name: Standard Poke
+        icon: mdi:hand-pointing-right
+        tap_action:
+          action: call-service
+          service: fly_house.poke
+          data:
+            strength: 1.0
+      - type: button
+        name: HARD POKE! 💥
+        icon: mdi:lightning-bolt
+        tap_action:
+          action: call-service
+          service: fly_house.poke
+          data:
+            strength: 3.0
+
+# ═══════════════════════════════════════════════════════════════════
+# INSTALLATION NOTES:
+# ═══════════════════════════════════════════════════════════════════
+# 
+# The SVG assets are automatically available after installing HouseFly.
+# 
+# For Home Assistant to serve them:
+# 1. The integration installs assets to: custom_components/fly_house/www/
+# 2. Access them via: /local/community/fly_house/filename.svg
+# 3. If images don't load, restart Home Assistant after first install
+# 
+# Available assets:
+# - /local/community/fly_house/fly-animated.svg (buzzing fly with wings)
+# - /local/community/fly_house/brain-sparks.svg (animated connectome)
+#
+# For advanced picture-elements examples, you may need to create helper entities
+# (Settings → Devices & Services → Helpers → Create Helper → Number)
+#
+# ═══════════════════════════════════════════════════════════════════

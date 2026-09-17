@@ -1,0 +1,78 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "HouseFly",
+        "description": "Pick sensors the fly can 'feel' and lights/covers/switches it can 'control'. Pure toy reservoir — not a real fly brain. ⚠️ Start with 1-2 spare bulbs, NOT the whole house!",
+        "data": {
+          "input_entities": "🧠 What the fly can SEE (1–32 sensors)",
+          "output_entities": "💡 What the fly can CONTROL (1–32 outputs)",
+          "tick_interval": "Tick interval (seconds)",
+          "intensity": "Intensity (0–1)",
+          "seed": "Random seed",
+          "whole_house": "⚠️ WHOLE HOUSE MODE (pretty insane — read docs!)"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "HouseFly is already configured (one fly per home is enough chaos)."
+    },
+    "error": {
+      "no_inputs": "Select at least one input entity (the fly needs to sense something!).",
+      "no_outputs": "Select at least one output entity (what should the fly control?).",
+      "too_many_inputs": "At most 32 input entities (the fly brain is only 256 neurons!).",
+      "too_many_outputs": "At most 32 output entities (leave some for you to control!)."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "HouseFly options",
+        "data": {
+          "input_entities": "🧠 What the fly can SEE (1–32 sensors)",
+          "output_entities": "💡 What the fly can CONTROL (1–32 outputs)",
+          "tick_interval": "Tick interval (seconds)",
+          "intensity": "Intensity (0–1)",
+          "seed": "Random seed",
+          "whole_house": "⚠️ WHOLE HOUSE MODE (danger zone!)"
+        }
+      }
+    },
+    "error": {
+      "no_inputs": "Select at least one input entity (the fly needs to sense something!).",
+      "no_outputs": "Select at least one output entity (what should the fly control?).",
+      "too_many_inputs": "At most 32 input entities (the fly brain is only 256 neurons!).",
+      "too_many_outputs": "At most 32 output entities (leave some for you to control!)."
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "active": {
+        "name": "Fly House active"
+      }
+    },
+    "sensor": {
+      "spikes": {
+        "name": "Fly House spikes"
+      },
+      "mode": {
+        "name": "Fly House mode"
+      },
+      "brain": {
+        "name": "Fly House brain"
+      }
+    }
+  },
+  "services": {
+    "poke": {
+      "name": "Poke the fly",
+      "description": "Inject a sensory jolt into the reservoir.",
+      "fields": {
+        "strength": {
+          "name": "Strength",
+          "description": "How hard to poke (0.1–5.0)."
+        }
+      }
+    }
+  }
+}

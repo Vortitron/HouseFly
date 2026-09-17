@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 80" width="120" height="80">
+	<defs>
+		<style>
+			@keyframes wingFlap {
+				0%, 100% { transform: rotate(0deg); opacity: 0.6; }
+				50% { transform: rotate(-25deg); opacity: 0.9; }
+			}
+			@keyframes buzz {
+				0%, 100% { transform: translate(0, 0); }
+				25% { transform: translate(1px, -1px); }
+				50% { transform: translate(-1px, 1px); }
+				75% { transform: translate(1px, 1px); }
+			}
+			.wing-left { animation: wingFlap 0.15s infinite; transform-origin: 55px 35px; }
+			.wing-right { animation: wingFlap 0.15s infinite 0.075s; transform-origin: 65px 35px; }
+			.fly-body { animation: buzz 0.3s infinite; }
+		</style>
+	</defs>
+	
+	<g class="fly-body">
+		<!-- Body segments -->
+		<ellipse cx="60" cy="40" rx="8" ry="12" fill="#2a2a2a"/>
+		<ellipse cx="60" cy="28" rx="6" ry="8" fill="#1a1a1a"/>
+		
+		<!-- Head -->
+		<circle cx="60" cy="20" r="5" fill="#2a2a2a"/>
+		
+		<!-- Eyes (compound) -->
+		<circle cx="57" cy="19" r="2.5" fill="#8b0000" opacity="0.8"/>
+		<circle cx="63" cy="19" r="2.5" fill="#8b0000" opacity="0.8"/>
+		<circle cx="56.5" cy="18.5" r="0.8" fill="#ff4444"/>
+		<circle cx="62.5" cy="18.5" r="0.8" fill="#ff4444"/>
+		
+		<!-- Antennae -->
+		<line x1="58" y1="16" x2="55" y2="12" stroke="#333" stroke-width="0.8"/>
+		<line x1="62" y1="16" x2="65" y2="12" stroke="#333" stroke-width="0.8"/>
+		<circle cx="55" cy="12" r="1" fill="#444"/>
+		<circle cx="65" cy="12" r="1" fill="#444"/>
+		
+		<!-- Wings -->
+		<g class="wing-left">
+			<ellipse cx="50" cy="32" rx="18" ry="10" fill="#e0e0ff" opacity="0.7" stroke="#9999cc" stroke-width="0.5"/>
+		</g>
+		<g class="wing-right">
+			<ellipse cx="70" cy="32" rx="18" ry="10" fill="#e0e0ff" opacity="0.7" stroke="#9999cc" stroke-width="0.5"/>
+		</g>
+		
+		<!-- Legs (simplified) -->
+		<line x1="56" y1="45" x2="50" y2="52" stroke="#333" stroke-width="1"/>
+		<line x1="60" y1="46" x2="58" y2="54" stroke="#333" stroke-width="1"/>
+		<line x1="64" y1="45" x2="70" y2="52" stroke="#333" stroke-width="1"/>
+	</g>
+</svg>
