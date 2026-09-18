@@ -43,7 +43,8 @@ was noise.
 - **`tools/validate.py`** — 17 checks against the shipped brain covering every
   claim in the README.
 - **`testbed/`** — a throwaway Home Assistant with a fake ten-room house, plus
-  six entities that exist to demonstrate the safety refusals.
+  six entities that exist to demonstrate the safety refusals. Verified against
+  Home Assistant 2026.9.2: 92 entities register and every trap is refused.
 - Learned synaptic weights persist across restarts.
 
 ### Changed
@@ -77,6 +78,15 @@ was noise.
 - Measuring bump rotation by unwrapping a coarsely sampled heading aliased past
   180° and certified a backwards compass as correct. Now measured as summed
   wrapped per-step deltas.
+- The testbed generator emitted the long-removed `light: - platform: template`
+  form. It is valid YAML, so it passed every check short of actually starting
+  Home Assistant, which rejects it. The generator now builds Python structures
+  and dumps them with PyYAML instead of concatenating strings, and emits the
+  modern `template:` schema.
+- `testbed/up.sh` now falls back to `sudo docker` and pulls Home Assistant
+  through a throwaway client config: a stale `ghcr.io` login is offered for what
+  is a public image, and the registry answers `denied: denied`, which reads like
+  a missing image rather than a credentials problem.
 
 ## 1.0.1 and earlier
 

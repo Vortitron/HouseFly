@@ -276,13 +276,13 @@ so you can watch the safety layer refuse them.
 cd testbed && ./up.sh        # http://localhost:8124
 ```
 
-The dashboard is generated from the entities the generator actually made, so it
-cannot drift into a wall of "entity not found". Safe to hand to other people.
+The dashboard is generated from the same entity list as the house, so it cannot
+drift into a wall of "entity not found". Safe to hand to other people.
 
-*Not yet booted end to end* — it was built in an environment without access to
-the Docker daemon, so the compose file, the generated package and the dashboard
-are validated as YAML and cross-checked for entity references, but nobody has
-watched Home Assistant start with them. Expect to fix something on first run.
+Booted and verified against Home Assistant 2026.9.2: 92 entities register
+cleanly (24 lights, 23 switches, 30 drifting sensors, 15 binary sensors), and
+all six trap entities are refused by name — `boiler`, `freezer`, `network`,
+`pump`, `door`, `heater`.
 
 ---
 
