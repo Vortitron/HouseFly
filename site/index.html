@@ -1,0 +1,345 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HouseFly — a real fly brain, running your house</title>
+<meta name="description" content="HouseFly runs a rate model of 4,724 identified Drosophila neurons wired by 126,108 measured synapses inside Home Assistant. The ring attractor isn't written anywhere — it falls out of the connectome.">
+<meta property="og:title" content="HouseFly — a real fly brain, running your house">
+<meta property="og:description" content="4,724 identified Drosophila neurons, 126,108 measured synapses, living in Home Assistant.">
+<meta property="og:type" content="article">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🪰</text></svg>">
+<style>
+  :root{
+    --bg:#070b14; --bg-2:#0b1120; --panel:#111a2c; --line:rgba(120,190,255,.14);
+    --ink:#e6f2ff; --ink-2:#a8c4de; --ink-3:#6f90ad;
+    --cyan:#5ad7ff; --amber:#ffbe5a; --coral:#ff6b5a; --green:#7ee3a8;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.65 var(--sans);
+       -webkit-font-smoothing:antialiased}
+  .wrap{max-width:860px;margin:0 auto;padding:0 24px}
+  a{color:var(--cyan);text-decoration:none}
+  a:hover{text-decoration:underline}
+  h1,h2,h3{line-height:1.2;margin:0}
+  h2{font-size:clamp(23px,3.4vw,31px);margin:64px 0 8px;letter-spacing:-.02em}
+  h3{font-size:19px;margin:34px 0 6px;color:var(--ink)}
+  p{margin:14px 0}
+  code{font-family:var(--mono);font-size:.9em;background:rgba(120,190,255,.09);
+       padding:.14em .42em;border-radius:4px;color:#bfe6ff}
+  pre{background:#050810;border:1px solid var(--line);border-radius:10px;padding:16px 18px;
+      overflow-x:auto;font-family:var(--mono);font-size:13px;line-height:1.6;color:#bfe6ff}
+  pre code{background:none;padding:0}
+  .lede{font-size:19px;color:var(--ink-2)}
+  .muted{color:var(--ink-3)}
+
+  /* ---- hero ---- */
+  header.hero{position:relative;overflow:hidden;border-bottom:1px solid var(--line);
+    background:radial-gradient(900px 420px at 72% -10%,rgba(90,215,255,.13),transparent 60%),var(--bg)}
+  .grid-bg{position:absolute;inset:0;opacity:.5;
+    background-image:linear-gradient(var(--line) 1px,transparent 1px),
+                     linear-gradient(90deg,var(--line) 1px,transparent 1px);
+    background-size:34px 34px;mask-image:linear-gradient(180deg,#000,transparent 85%)}
+  .hero .wrap{position:relative;padding-top:74px;padding-bottom:58px}
+  .eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.16em;text-transform:uppercase;
+           color:var(--cyan);opacity:.85}
+  h1{font-size:clamp(34px,6.2vw,56px);letter-spacing:-.03em;margin:14px 0 0}
+  h1 em{font-style:normal;color:var(--cyan)}
+  .sub{margin-top:16px;font-size:clamp(17px,2.3vw,20px);color:var(--ink-2);max-width:62ch}
+  .stats{display:flex;flex-wrap:wrap;gap:10px;margin-top:30px}
+  .stat{border:1px solid var(--line);background:rgba(17,26,44,.6);border-radius:10px;
+        padding:11px 15px;min-width:120px}
+  .stat b{display:block;font-family:var(--mono);font-size:21px;color:var(--ink)}
+  .stat span{font-size:11.5px;color:var(--ink-3);letter-spacing:.04em}
+  .cta{display:flex;flex-wrap:wrap;gap:12px;margin-top:32px}
+  .btn{display:inline-block;padding:11px 20px;border-radius:9px;font-weight:600;font-size:15px;
+       border:1px solid var(--cyan);color:#041018;background:var(--cyan)}
+  .btn:hover{text-decoration:none;filter:brightness(1.09)}
+  .btn.ghost{background:transparent;color:var(--cyan)}
+
+  /* ---- blocks ---- */
+  .panel{border:1px solid var(--line);background:var(--panel);border-radius:12px;padding:20px 22px;margin:22px 0}
+  .panel h3{margin-top:0}
+  .rule{border:0;border-top:1px solid var(--line);margin:0}
+  figure{margin:24px 0}
+  figcaption{font-size:13px;color:var(--ink-3);margin-top:9px}
+  .bars{font-family:var(--mono);font-size:12.5px;line-height:1.75;color:var(--ink-2)}
+  .bars .bar{color:var(--cyan)}
+  .bars .peak{color:var(--amber)}
+  table{width:100%;border-collapse:collapse;margin:18px 0;font-size:14.5px;display:block;overflow-x:auto}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);font-weight:600}
+  td:first-child{font-family:var(--mono);font-size:13px;color:var(--cyan);white-space:nowrap}
+  .pass{color:var(--green);font-family:var(--mono)}
+  .warn{color:var(--amber)}
+  blockquote{margin:20px 0;padding:2px 0 2px 18px;border-left:3px solid var(--line);color:var(--ink-2)}
+  ul{padding-left:20px}
+  li{margin:8px 0}
+  footer{border-top:1px solid var(--line);margin-top:80px;padding:34px 0 60px;color:var(--ink-3);font-size:14px}
+  .toc{font-family:var(--mono);font-size:13px;display:flex;flex-wrap:wrap;gap:6px 20px;
+       padding:16px 0;border-bottom:1px solid var(--line)}
+  .badge{display:inline-block;font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:99px;
+         border:1px solid var(--line);color:var(--ink-3);margin-left:8px;vertical-align:middle}
+  @media(max-width:560px){.stat{flex:1 1 44%}}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="grid-bg"></div>
+  <div class="wrap">
+    <div class="eyebrow">Home Assistant · Drosophila melanogaster · connectomics</div>
+    <h1>A <em>real fly brain</em>,<br>running your house.</h1>
+    <p class="sub">HouseFly runs a rate model of 4,724 identified <em>Drosophila</em> neurons,
+      wired together by 126,108 measured synapses, inside Home Assistant. Your sensors go to the
+      neurons that carry that kind of information in the animal. It walks across your dashboard.
+      It learns which rooms it likes.</p>
+    <div class="stats">
+      <div class="stat"><b>4,724</b><span>NEURONS</span></div>
+      <div class="stat"><b>126,108</b><span>SYNAPSES</span></div>
+      <div class="stat"><b>20,391</b><span>PLASTIC SYNAPSES</span></div>
+      <div class="stat"><b>432&nbsp;KB</b><span>DATA PACK</span></div>
+      <div class="stat"><b>0</b><span>GPUS</span></div>
+    </div>
+    <div class="cta">
+      <a class="btn" href="#install">Install it</a>
+      <a class="btn ghost" href="https://github.com/Vortitron/HouseFly">Source on GitHub</a>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+<nav class="toc">
+  <a href="#why">Why it was rewritten</a>
+  <a href="#circuits">The circuits</a>
+  <a href="#ringattractor">The ring attractor</a>
+  <a href="#memory">Memory</a>
+  <a href="#notthere">What isn't in the connectome</a>
+  <a href="#limits">Honest limits</a>
+  <a href="#install">Install</a>
+  <a href="#safety">Safety</a>
+</nav>
+
+<h2 id="why">Why this was rewritten</h2>
+<p>HouseFly v1 described itself as a “leaky reservoir inspired by fruit-fly motifs”. That framing was
+doing a lot of work. The brain was a 256-unit reservoir whose recurrent weights, input projections
+and readouts were all drawn from <code>rng.gauss</code> — and none of which ever changed.</p>
+
+<p>So every motor channel was a fixed random projection of a random projection of your sensors:
+statistically, a smoothed Gaussian hovering near 0.5. Nothing the fly did depended on anything.
+Every behaviour you could actually <em>observe</em> — the mode classifier, hunger, phototaxis — was a
+hand-written <code>if</code> sitting <em>beside</em> the reservoir rather than emerging from it. You could
+have deleted the reservoir without changing what the integration appeared to do.</p>
+
+<p>It also named the connectome in its docstring and then explicitly declined to use it. And it
+fired a service call at every configured output every ten seconds with a value that was noise —
+<code>cover</code> was a supported output domain, so the documented configuration surface included your
+garage door.</p>
+
+<blockquote>The question was never how to improve the reservoir. It was why there is one.</blockquote>
+
+<h2 id="circuits">Give each circuit the input it actually carries</h2>
+<p>The replacement is not a bigger network. It is a set of circuits that have a known function,
+each receiving the kind of signal it receives in the animal.</p>
+
+<table>
+  <thead><tr><th>Circuit</th><th>What it does in the fly</th><th>What it gets from your house</th></tr></thead>
+  <tbody>
+    <tr><td>EPG / PEN / PEG / Δ7</td><td>Ring attractor holding heading</td><td>Integrates the fly's own turns into a compass</td></tr>
+    <tr><td>ER ring neurons</td><td>Visual bearing into the ellipsoid body</td><td>Bearing to every card on your dashboard</td></tr>
+    <tr><td>PFL3</td><td>Compares heading to goal, commands a turn</td><td>Steering (see the caveat below)</td></tr>
+    <tr><td>KC → MBON</td><td>Associative memory, real plasticity</td><td>Learns which parts of the house are good</td></tr>
+    <tr><td>PAM / PPL1</td><td>Reward and punishment teaching signals</td><td>Feeding it, and swatting at it</td></tr>
+    <tr><td>LPLC2 → DNp09/10</td><td>Looming detection → escape</td><td>Motion sensors firing; your cursor</td></tr>
+    <tr><td>Projection neurons</td><td>Odour identity</td><td>The state of your house, as a smell</td></tr>
+    <tr><td>s-LNv / LNd / DN1</td><td>Circadian morning + evening oscillators</td><td>Real local time</td></tr>
+  </tbody>
+</table>
+
+<p>There is no rule anywhere that says <em>be active at dawn</em>. The morning cells are driven by
+morning, the evening cells by evening, and arousal is read off their firing rate. The fly is
+crepuscular because the circuit is.</p>
+
+<h2 id="ringattractor">The ring attractor is in the wiring, not in the code</h2>
+<p>This is the part worth showing people. Nobody wrote a ring attractor. The connectome contains one.</p>
+
+<p>Take the effective EPG → Δ7 → EPG coupling — using only measured synapse counts and the
+protocerebral bridge glomerulus labels — and bin it by heading offset:</p>
+
+<figure>
+<div class="panel bars">
+  <div>  0°&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;89&nbsp;&nbsp;<span class="bar">▉</span></div>
+  <div> 45°&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;181&nbsp;&nbsp;<span class="bar">▉▉▉</span></div>
+  <div> 90°&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;919&nbsp;&nbsp;<span class="bar">▉▉▉▉▉▉▉▉▉▉▉▉▉▉▉▉▉</span></div>
+  <div>135°&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;1791&nbsp;&nbsp;<span class="bar">▉▉▉▉▉▉▉▉▉▉▉▉▉▉▉▉▉▉▉▉▉▉▉▉▉▉▉▉▉▉▉▉▉</span></div>
+  <div class="peak">180°&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;2025&nbsp;&nbsp;▉▉▉▉▉▉▉▉▉▉▉▉▉▉▉▉▉▉▉▉▉▉▉▉▉▉▉▉▉▉▉▉▉▉▉▉▉ ← peak</div>
+  <div>225°&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;1827&nbsp;&nbsp;<span class="bar">▉▉▉▉▉▉▉▉▉▉▉▉▉▉▉▉▉▉▉▉▉▉▉▉▉▉▉▉▉▉▉▉▉▉</span></div>
+  <div>270°&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;921&nbsp;&nbsp;<span class="bar">▉▉▉▉▉▉▉▉▉▉▉▉▉▉▉▉▉</span></div>
+  <div>315°&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;208&nbsp;&nbsp;<span class="bar">▉▉▉</span></div>
+</div>
+<figcaption>Δ7 is inhibitory, so this is local excitation with long-range inhibition — a Mexican hat,
+23:1. That is exactly, and only, what a ring attractor needs. Run
+<code>python3 tools/build_connectome.py</code> and it prints this from the raw data.</figcaption>
+</figure>
+
+<h3>The data caught a mistake before the simulation did</h3>
+<p>The first version of this gave both halves of the protocerebral bridge the same angular order.
+That produced a much weaker 2.7:1 profile, and a compass that held a heading perfectly well but
+would only ever turn one way.</p>
+<p>The real bridge is a <em>mirror-symmetric</em> double map. Correcting it sharpened the signature
+from 2.7:1 to 23:1. The connectome said the anatomy was wrong before a single neuron was simulated.</p>
+
+<h3>Which way does a turn push the bump? Measure it.</h3>
+<p>You do not have to assume. It is readable straight out of the synapse counts:</p>
+<pre><code>EPG → LEFT  PEN1 → EPG loop shift:  +12.5°
+EPG → RIGHT PEN1 → EPG loop shift:  −11.5°
+EPG → LEFT  PEG   → EPG loop shift:   −5.6°
+EPG → RIGHT PEG   → EPG loop shift:   +0.9°</code></pre>
+<p>PEN loops shift the bump in opposite directions per hemisphere. PEG loops do not shift it at all.
+That is the textbook split between the loop that <em>moves</em> the bump and the loop that
+<em>holds</em> it — and it fell out of the data.</p>
+
+<h2 id="memory">It has a memory, and the memory is synapses</h2>
+<p>Learning in <em>Drosophila</em> happens at Kenyon cell → MBON synapses. A Kenyon cell active at the
+same moment as a dopaminergic neuron in that MBON's compartment gets <strong>depressed</strong>. That is
+the whole rule. It is anti-Hebbian, and it is why a fly stops approaching things that turned out
+to be bad.</p>
+<p>HouseFly implements exactly that, on 20,391 real KC→MBON connections. Each MBON's compartment
+valence is <em>derived</em> from which dopaminergic class dominates its input, rather than hard-coded.
+Those gains are what persists across restarts — the fly does not forget your house when Home
+Assistant updates.</p>
+
+<h2 id="notthere">What the connectome does <em>not</em> contain</h2>
+<p>Two things were expected to fall out of the wiring and did not. Both are worth stating plainly,
+because “we tried to derive it and could not” is a result.</p>
+
+<div class="panel">
+<h3>The map of your house</h3>
+<p>The plan was to read the landmark-bearing → heading mapping off the ER → EPG connectivity. It
+isn't there: that projection is near-uniform, about 7% modulation depth, with no consistent phase.</p>
+<p>This is not a gap in the data. In the real animal that map is <strong>learned</strong>, in plastic
+ER→EPG synapses (Fisher et al. 2019; Kim et al. 2019). A naive fly does not have one. So HouseFly
+doesn't fake it — the compass integrates the fly's own turns, exactly as a real one does in the
+dark, and it drifts when it cannot see.</p>
+</div>
+
+<div class="panel">
+<h3>PFL3's steering computation</h3>
+<p>In the animal, PFL3's left-right imbalance is the turn command, because each cell's fan-shaped-body
+arbor sits about a quarter turn from its bridge arbor, in opposite directions per hemisphere.</p>
+<p>We tried it both ways — feeding the goal into the fan-shaped body and letting the connectome do
+the rest, and imposing the quarter-turn offset explicitly. Neither gave reliable goal-following:
+the correlation between turn command and the sine of the heading error ranged from +0.03 to −0.54
+depending on the trajectory, and the closed loop never converged. That offset is <em>where the
+arbors physically sit</em>, and synapse counts between cell types do not carry it.</p>
+<p>So the goal-seeking controller lives in <code>coordinator.py</code> — four lines of proportional
+control, labelled as a controller. The fly holds a heading using a connectome-derived ring
+attractor, which is real, and chooses which heading to hold using arithmetic, which is not.
+Keeping those visibly separate matters more than having one more thing to claim.</p>
+</div>
+
+<h2 id="limits">Honest limits</h2>
+<p>This is a real model of real circuits, and it is still a model.</p>
+<ul>
+<li><strong>4,724 neurons of roughly 25,000</strong> in the central brain, and no body, no muscles, no
+proprioception. Most of the input these cells really receive comes from neurons that aren't in the
+subnetwork, which is why there is a tonic drive term standing in for the rest of the brain. That
+term is an assumption.</li>
+<li><strong>A rate model, not spikes.</strong> One leaky rate unit per neuron, following Shiu et al. 2024.
+No dendrites, no delays, no channel dynamics.</li>
+<li><strong>Synaptic sign comes from predicted transmitter.</strong> Mostly reliable — but FlyWire's
+classifier returns acetylcholine for most ring neurons, which is wrong; they are GABAergic. Where
+the literature is settled it overrides the prediction, and every override is listed in the build tool.</li>
+<li><strong>Two circuits needed a static gain constant.</strong> The fan-shaped body and the Kenyon cells
+are large and almost entirely excitatory with no matching inhibitory population inside the modelled
+subnetwork, so without it they flood.</li>
+<li><strong>Two brains, spliced.</strong> Connectivity is hemibrain; positions and transmitters are
+FlyWire — a different fly. Joined by cell type, which is standard practice and still an approximation.</li>
+</ul>
+<p>It is not conscious, it is not an agent, it does not understand your house, and it is not a
+scientific instrument. It is a small animal's wiring diagram with your sensors plugged into it.</p>
+
+<h3>Everything above is checkable</h3>
+<p><code>python3 tools/validate.py</code> runs the shipped brain and checks all twenty claims,
+printing the numbers — including the marginal ones.</p>
+<pre><code>a bump forms                               peak 0.223, trough 0.000     <span class="pass">PASS</span>
+it holds still with no self-motion         0 deg of drift               <span class="pass">PASS</span>
+turning rotates the bump, right direction  correlation +0.99            <span class="pass">PASS</span>
+punishment depresses KC→MBON synapses      20,391 plastic synapses      <span class="pass">PASS</span>
+looming raises descending drive            0.0000 → 0.2452              <span class="pass">PASS</span>
+  ...and the escape is transient           fell back to 0.0000          <span class="pass">PASS</span>
+PFL3 cells are not all at the same rate    spread 0.0038                <span class="pass">PASS</span>
+arousal  03:00 0.17  06:00 1.00  12:00 0.08  18:45 1.00  23:00 0.10     <span class="pass">PASS</span></code></pre>
+
+<h2 id="install">Installing it</h2>
+<p>HouseFly is a HACS custom repository. In Home Assistant:</p>
+<ol>
+<li>HACS → ⋮ → <strong>Custom repositories</strong></li>
+<li>Repository <code>https://github.com/Vortitron/HouseFly</code>, type <strong>Integration</strong></li>
+<li>Install <strong>HouseFly</strong>, then restart Home Assistant</li>
+<li>Settings → Devices &amp; Services → <strong>Add Integration</strong> → HouseFly</li>
+</ol>
+<p>Both Lovelace cards register themselves — no resource setup needed:</p>
+<pre><code># Lets the fly out onto this dashboard. Draws nothing itself: it reports
+# where your cards are and paints the fly over the top of them.
+- type: custom:housefly-overlay
+  show_debug: true
+
+# The connectome, with live activity in it.
+- type: custom:housefly-brain-card</code></pre>
+
+<h3>Somewhere safe to try it</h3>
+<p>The repository ships a <code>testbed/</code> — a throwaway Home Assistant with a fake ten-room house:
+24 lights, 23 switches, 30 drifting sensors, 15 motion detectors, all template helpers with nothing
+behind them, plus six entities that exist purely so you can watch the safety layer refuse them.</p>
+<pre><code>git clone https://github.com/Vortitron/HouseFly
+cd HouseFly/testbed &amp;&amp; ./up.sh     # http://localhost:8124</code></pre>
+<p class="muted">Or skip the setup entirely: <a href="https://vome.io">Vome</a> hosts Home Assistant
+instances you can create in a few seconds, which is where the live demo of this runs.</p>
+
+<h2 id="safety">Safety</h2>
+<p>A fly with write access to your house is a bad idea unless the boundaries are real ones.</p>
+<ul>
+<li><strong>Actuation is off by default.</strong> A fresh install watches and walks; it touches nothing
+until you deliberately turn it on.</li>
+<li><strong>Never, regardless of configuration:</strong> <code>lock</code>, <code>alarm_control_panel</code>,
+<code>cover</code>, <code>climate</code>, <code>water_heater</code>, <code>humidifier</code>, <code>valve</code>,
+<code>vacuum</code>, <code>lawn_mower</code>, <code>script</code>, <code>automation</code>, <code>scene</code>.</li>
+<li><strong>Refused by name</strong> even in an allowed domain: anything containing <code>boiler</code>,
+<code>freezer</code>, <code>pump</code>, <code>oven</code>, <code>server</code>, <code>alarm</code>,
+<code>garage</code>, <code>charger</code>, and about twenty more.</li>
+<li><strong>It has to land on something to touch it.</strong> Actuation is triggered by the fly settling
+on a card, not by a timer — a few interactions an hour, not thousands.</li>
+<li><strong>Hourly budget</strong>, per-entity cooldown, a deadband so a jittering brain cannot produce a
+call storm, and optional quiet hours.</li>
+</ul>
+<p>Start it on a spare lamp.</p>
+
+<h2>Data and credit</h2>
+<p>Both datasets are CC-BY 4.0, and both are fetched at build time rather than vendored.</p>
+<ul>
+<li><strong>Connectivity, cell types, columnar labels</strong> — Janelia hemibrain v1.2. Scheffer, Xu,
+Januszewski, Lu, Takemura, Hayworth et al. (2020), <em>A connectome and analysis of the adult
+Drosophila central brain</em>, eLife 9:e57443.</li>
+<li><strong>Soma positions, transmitter predictions</strong> — FlyWire FAFB. Schlegel, Yin, Bates,
+Dorkenwald, Eichler, Brooks et al. (2024), <em>Whole-brain annotation and multi-connectome cell
+typing of Drosophila</em>, Nature 634:139–152.</li>
+<li><strong>Modelling approach</strong> after Shiu, Sterne, Spiller, Franconville, Sandoval, Zhou et al.
+(2024), <em>A leaky integrate-and-fire computational model based on the connectome of the entire
+adult Drosophila brain</em>, Nature 634:210–219.</li>
+</ul>
+<p>The flies did the hard part.</p>
+
+<footer>
+  <p><strong>HouseFly</strong> is MIT-licensed and lives at
+    <a href="https://github.com/Vortitron/HouseFly">github.com/Vortitron/HouseFly</a>.</p>
+  <p class="muted">Hosted on <a href="https://vome.io">Vome</a> — Home Assistant instances, without the
+    Raspberry Pi in a cupboard.</p>
+</footer>
+</div>
+
+</body>
+</html>
