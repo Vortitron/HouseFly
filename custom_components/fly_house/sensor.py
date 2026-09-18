@@ -1,15 +1,149 @@
-"""Sensors for Fly House."""
+"""Sensors for HouseFly.
+
+These are deliberately slow and meaningful. The fast visual stream goes over a
+websocket, so nothing here needs to update more than once every couple of
+seconds, and everything here is something you might reasonably put on a graph
+or trigger an automation from.
+"""
 
 from __future__ import annotations
 
-from homeassistant.components.sensor import SensorEntity, SensorStateClass
+from dataclasses import dataclass
+from typing import Any, Callable
+
+from homeassistant.components.sensor import (
+    SensorEntity,
+    SensorEntityDescription,
+    SensorStateClass,
+)
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import DEGREE, PERCENTAGE
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN, MODE_IDLE
+from .const import DOMAIN
 from .coordinator import FlyHouseCoordinator
+
+
+@dataclass(frozen=True, kw_only=True)
+class FlySensorDescription(SensorEntityDescription):
+    """A sensor plus how to get its value out of a tick."""
+
+    value: Callable[[dict[str, Any], FlyHouseCoordinator], Any]
+    attrs: Callable[[dict[str, Any], FlyHouseCoordinator], dict[str, Any]] | None = None
+
+
+SENSORS: tuple[FlySensorDescription, ...] = (
+    FlySensorDescription(
+        key="mode",
+        name="Mode",
+        icon="mdi:bee",
+        value=lambda d, c: d.get("mode", "groom"),
+        attrs=lambda d, c: {
+            "goal_entity": d.get("goal_entity"),
+            "landmarks_visible": d.get("landmarks", 0),
+            "age_seconds": d.get("age_seconds", 0),
+        },
+    ),
+    FlySensorDescription(
+        key="heading",
+        name="Heading",
+        icon="mdi:compass-outline",
+        native_unit_of_measurement=DEGREE,
+        state_class=SensorStateClass.MEASUREMENT,
+        value=lambda d, c: round(d.get("heading_deg", 0.0), 1),
+        attrs=lambda d, c: {
+            # How concentrated the activity bump is around a single heading.
+            # Near zero means the compass has lost track of where it is facing.
+            "bump_strength": d.get("bump_strength", 0.0),
+            "turn_command": d.get("turn", 0.0),
+            "compass_profile": c.brain.compass_profile(),
+        },
+    ),
+    FlySensorDescription(
+        key="valence",
+        name="Valence",
+        icon="mdi:emoticon-neutral-outline",
+        state_class=SensorStateClass.MEASUREMENT,
+        value=lambda d, c: round(d.get("valence", 0.0), 3),
+        attrs=lambda d, c: {
+            "mbon_activity": d.get("mbon_activity", 0.0),
+            "explanation": "Positive means the mushroom body output favours "
+                           "approach; negative means avoidance.",
+        },
+    ),
+    FlySensorDescription(
+        key="memory",
+        name="Memory",
+        icon="mdi:brain",
+        native_unit_of_measurement=PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        value=lambda d, c: round(d.get("memory_depression", 0.0) * 100, 2),
+        attrs=lambda d, c: {
+            "plastic_synapses": int(len(c.brain.kc_mbon_gain)),
+            "explanation": "Percentage depression of the Kenyon cell to MBON "
+                           "synapses away from their measured strength. This is "
+                           "everything the fly has learned about your house.",
+        },
+    ),
+    FlySensorDescription(
+        key="arousal",
+        name="Arousal",
+        icon="mdi:sleep-off",
+        state_class=SensorStateClass.MEASUREMENT,
+        value=lambda d, c: round(d.get("arousal", 0.5), 3),
+        attrs=lambda d, c: {
+            "driven_by": "s-LNv / l-LNv morning and LNd / DN1 evening oscillators",
+        },
+    ),
+    FlySensorDescription(
+        key="hunger",
+        name="Hunger",
+        icon="mdi:food-apple-outline",
+        native_unit_of_measurement=PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        value=lambda d, c: round(d.get("hunger", 0.0) * 100),
+    ),
+    FlySensorDescription(
+        key="kenyon_cells",
+        name="Kenyon cells active",
+        icon="mdi:scatter-plot-outline",
+        state_class=SensorStateClass.MEASUREMENT,
+        value=lambda d, c: d.get("kc_active", 0),
+        attrs=lambda d, c: {
+            "kenyon_cells_total": d.get("kc_total", 0),
+            "sparseness": d.get("kc_sparseness", 0.0),
+            "explanation": "Real mushroom bodies keep roughly 5% of Kenyon "
+                           "cells active for any given odour. That sparse code "
+                           "is what makes the memory addressable.",
+        },
+    ),
+    FlySensorDescription(
+        key="network_activity",
+        name="Network activity",
+        icon="mdi:pulse",
+        state_class=SensorStateClass.MEASUREMENT,
+        value=lambda d, c: round(d.get("network_activity", 0.0), 5),
+        attrs=lambda d, c: {
+            "active_neurons": d.get("active_neurons", 0),
+            "neurons": int(c.brain.data.n),
+            "synapses": int(len(c.brain.data.pre)),
+            "tick": d.get("tick", 0),
+        },
+    ),
+    FlySensorDescription(
+        key="actuations",
+        name="Actuations this hour",
+        icon="mdi:gesture-tap-button",
+        state_class=SensorStateClass.MEASUREMENT,
+        value=lambda d, c: d.get("safety", {}).get("calls_last_hour", 0),
+        attrs=lambda d, c: {
+            **d.get("safety", {}),
+            "recent_actions": d.get("recent_actions", []),
+        },
+    ),
+)
 
 
 async def async_setup_entry(
@@ -18,252 +152,38 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     coordinator: FlyHouseCoordinator = hass.data[DOMAIN][entry.entry_id]
-    async_add_entities(
-        [
-            FlyHouseSpikesSensor(coordinator, entry),
-            FlyHouseModeSensor(coordinator, entry),
-            FlyHouseBrainSensor(coordinator, entry),
-            FlyHouseHungerSensor(coordinator, entry),
-            FlyHouseRetinaSensor(coordinator, entry),
-        ]
-    )
+    async_add_entities(FlySensor(coordinator, entry, d) for d in SENSORS)
 
 
-class FlyHouseSpikesSensor(CoordinatorEntity[FlyHouseCoordinator], SensorEntity):
-    """Approximate 'spike' count (units above threshold)."""
+class FlySensor(CoordinatorEntity[FlyHouseCoordinator], SensorEntity):
+    """One reading off the fly."""
 
     _attr_has_entity_name = True
-    _attr_name = "Spikes"
-    _attr_translation_key = "spikes"
-    _attr_native_unit_of_measurement = "spikes"
-    _attr_state_class = SensorStateClass.MEASUREMENT
-    _attr_icon = "mdi:flash"
+    entity_description: FlySensorDescription
 
-    def __init__(self, coordinator: FlyHouseCoordinator, entry: ConfigEntry) -> None:
+    def __init__(
+        self,
+        coordinator: FlyHouseCoordinator,
+        entry: ConfigEntry,
+        description: FlySensorDescription,
+    ) -> None:
         super().__init__(coordinator)
-        self._attr_unique_id = f"{entry.entry_id}_spikes"
+        self.entity_description = description
+        self._attr_unique_id = f"{entry.entry_id}_{description.key}"
         self._attr_device_info = {
             "identifiers": {(DOMAIN, entry.entry_id)},
-            "name": "Fly House",
-            "manufacturer": "Vortitron",
-            "model": "Leaky reservoir v1.0",
+            "name": "HouseFly",
+            "manufacturer": "Drosophila melanogaster",
+            "model": f"hemibrain v1.2 · {coordinator.brain.data.n} neurons",
+            "sw_version": "2.0.0",
         }
 
     @property
-    def native_value(self) -> int:
-        data = self.coordinator.data or {}
-        return int(data.get("spikes", 0))
-
-
-class FlyHouseModeSensor(CoordinatorEntity[FlyHouseCoordinator], SensorEntity):
-    """Behavioral mode: idle / wander / escape."""
-
-    _attr_has_entity_name = True
-    _attr_name = "Mode"
-    _attr_translation_key = "mode"
-    _attr_icon = "mdi:butterfly"
-
-    def __init__(self, coordinator: FlyHouseCoordinator, entry: ConfigEntry) -> None:
-        super().__init__(coordinator)
-        self._attr_unique_id = f"{entry.entry_id}_mode"
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, entry.entry_id)},
-            "name": "Fly House",
-            "manufacturer": "Vortitron",
-            "model": "Leaky reservoir v1.0",
-        }
+    def native_value(self) -> Any:
+        return self.entity_description.value(self.coordinator.data or {}, self.coordinator)
 
     @property
-    def native_value(self) -> str:
-        data = self.coordinator.data or {}
-        return str(data.get("mode", MODE_IDLE))
-
-
-class FlyHouseBrainSensor(CoordinatorEntity[FlyHouseCoordinator], SensorEntity):
-    """Brain visualization sensor with spike art."""
-
-    _attr_has_entity_name = True
-    _attr_name = "Brain"
-    _attr_translation_key = "brain"
-    _attr_icon = "mdi:brain"
-
-    def __init__(self, coordinator: FlyHouseCoordinator, entry: ConfigEntry) -> None:
-        super().__init__(coordinator)
-        self._attr_unique_id = f"{entry.entry_id}_brain"
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, entry.entry_id)},
-            "name": "Fly House",
-            "manufacturer": "Vortitron",
-            "model": "Leaky reservoir v1.0",
-        }
-
-    @property
-    def native_value(self) -> str:
-        """Return ASCII/unicode spark visualization."""
-        data = self.coordinator.data or {}
-        spikes = int(data.get("spikes", 0))
-        energy = float(data.get("energy", 0.0))
-        
-        # Create a simple spark bar based on activity
-        max_size = 10
-        spike_level = min(max_size, int((spikes / 90) * max_size))  # Assuming ~256 neurons, ~35% = 90
-        energy_level = min(max_size, int(energy * 15))
-        
-        spark_bar = "█" * spike_level + "░" * (max_size - spike_level)
-        
-        # Unicode brain activity
-        if spikes > 70:
-            brain_state = "⚡💥🧠"
-        elif spikes > 30:
-            brain_state = "✨🧠"
-        elif spikes > 10:
-            brain_state = "·🧠"
-        else:
-            brain_state = "💤🧠"
-        
-        return f"{brain_state} {spark_bar}"
-
-    @property
-    def extra_state_attributes(self) -> dict:
-        """Return detailed brain state for visualization."""
-        data = self.coordinator.data or {}
-        spikes = int(data.get("spikes", 0))
-        energy = float(data.get("energy", 0.0))
-        channels = data.get("channels", [])
-        
-        return {
-            "spikes": spikes,
-            "energy": energy,
-            "tick": data.get("tick", 0),
-            "channels": channels,
-            "spark_intensity": min(100, int((spikes / 90) * 100)),
-            "ascii_brain": self._generate_ascii_brain(spikes, energy),
-        }
-
-    def _generate_ascii_brain(self, spikes: int, energy: float) -> str:
-        """Generate a small ASCII connectome art."""
-        if spikes > 70:
-            return """
-  ╭─◉─╮
- ◉─╋─◉─◉  ⚡⚡
-  ╰─◉─╯
-"""
-        elif spikes > 30:
-            return """
-  ╭─◉─╮
- ○─╋─◉─○  ✨
-  ╰─○─╯
-"""
-        elif spikes > 10:
-            return """
-  ╭─○─╮
- ○─╋─○─○  ·
-  ╰─○─╯
-"""
-        else:
-            return """
-  ╭─○─╮
- ○─┼─○─○  💤
-  ╰─○─╯
-"""
-
-
-class FlyHouseHungerSensor(CoordinatorEntity[FlyHouseCoordinator], SensorEntity):
-    """Hunger level sensor (0-100%)."""
-
-    _attr_has_entity_name = True
-    _attr_name = "Hunger"
-    _attr_translation_key = "hunger"
-    _attr_native_unit_of_measurement = "%"
-    _attr_state_class = SensorStateClass.MEASUREMENT
-    _attr_icon = "mdi:food-apple"
-
-    def __init__(self, coordinator: FlyHouseCoordinator, entry: ConfigEntry) -> None:
-        super().__init__(coordinator)
-        self._attr_unique_id = f"{entry.entry_id}_hunger"
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, entry.entry_id)},
-            "name": "Fly House",
-            "manufacturer": "Vortitron",
-            "model": "Leaky reservoir v1.0",
-        }
-
-    @property
-    def native_value(self) -> int:
-        """Return hunger as percentage."""
-        data = self.coordinator.data or {}
-        hunger = float(data.get("hunger", 0.0))
-        return int(hunger * 100)
-
-    @property
-    def extra_state_attributes(self) -> dict:
-        """Return hunger state and lifecycle metadata."""
-        data = self.coordinator.data or {}
-        hunger = float(data.get("hunger", 0.0))
-        
-        if hunger > 0.8:
-            state_icon = "🍽️ STARVING"
-        elif hunger > 0.5:
-            state_icon = "😋 Hungry"
-        elif hunger > 0.2:
-            state_icon = "🙂 Peckish"
-        else:
-            state_icon = "😌 Satiated"
-        
-        attrs = {
-            "hunger_state": state_icon,
-            "foraging_drive": round(hunger * 0.3, 3),
-            "birth_time": data.get("birth_time"),
-            "time_alive_seconds": data.get("time_alive_seconds", 0),
-        }
-        
-        if data.get("last_poke_time"):
-            attrs["last_poke_time"] = data["last_poke_time"]
-        if data.get("last_feed_time"):
-            attrs["last_feed_time"] = data["last_feed_time"]
-        
-        return attrs
-
-
-class FlyHouseRetinaSensor(CoordinatorEntity[FlyHouseCoordinator], SensorEntity):
-    """Compound eye / ommatidia grid sensor."""
-
-    _attr_has_entity_name = True
-    _attr_name = "Retina"
-    _attr_translation_key = "retina"
-    _attr_icon = "mdi:eye-outline"
-
-    def __init__(self, coordinator: FlyHouseCoordinator, entry: ConfigEntry) -> None:
-        super().__init__(coordinator)
-        self._attr_unique_id = f"{entry.entry_id}_retina"
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, entry.entry_id)},
-            "name": "Fly House",
-            "manufacturer": "Vortitron",
-            "model": "Leaky reservoir v1.0",
-        }
-
-    @property
-    def native_value(self) -> str:
-        """Return compact state."""
-        data = self.coordinator.data or {}
-        motion = data.get("visual_motion", 0.0)
-        if motion > 0.3:
-            return "👁️ MOTION"
-        elif motion > 0.1:
-            return "👁️ tracking"
-        else:
-            return "👁️ idle"
-
-    @property
-    def extra_state_attributes(self) -> dict:
-        """Return ommatidia grid for rendering."""
-        data = self.coordinator.data or {}
-        return {
-            "ommatidia_hex": data.get("retina_hex", ""),
-            "ommatidia_ascii": data.get("retina_ascii", ""),
-            "visual_motion": data.get("visual_motion", 0.0),
-            "grid_size": 16,
-            "vision_source": data.get("vision_source", "none"),
-            "camera_entity": data.get("camera_entity"),
-        }
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        if self.entity_description.attrs is None:
+            return None
+        return self.entity_description.attrs(self.coordinator.data or {}, self.coordinator)

@@ -3,116 +3,43 @@
     "step": {
       "user": {
         "title": "HouseFly",
-        "description": "Pick sensors the fly can 'feel' and lights/covers/switches it can 'control'. Optional camera \u2192 real 16\u00d716 ommatidia (Pillow). Pure toy reservoir \u2014 not a real fly brain. \u26a0\ufe0f Start with 1-2 spare bulbs, NOT the whole house! (Away? peek via vome.io \u2014 optional.)",
+        "description": "Pick what the fly can sense and, optionally, what it may touch. Actuation is off by default: until you turn it on it only watches and walks.",
         "data": {
-          "input_entities": "\ud83e\udde0 What the fly can SEE (1\u201332 sensors)",
-          "output_entities": "\ud83d\udca1 What the fly can CONTROL (1\u201332 outputs)",
-          "tick_interval": "Tick interval (seconds)",
-          "intensity": "Intensity (0\u20131)",
-          "seed": "Random seed",
-          "whole_house": "\u26a0\ufe0f WHOLE HOUSE MODE (auto-selects ALL lights/switches/covers \u2014 confirmation required!)",
-          "camera_entity": "\ud83d\udc41\ufe0f Camera for compound eye (optional)",
-          "vision_tick_interval": "Vision snapshot interval (seconds)"
-        }
-      },
-      "confirm_whole_house": {
-        "title": "\u26a0\ufe0f WHOLE HOUSE MODE \u2014 ARE YOU SURE?!",
-        "description": "This will give the fruit fly control over **{output_count} devices** (lights, switches, covers, fans) across your home. The fly will randomly flicker, toggle, open, and close things based on a 256-neuron toy reservoir. **This is pretty insane.** Safety limits: tick \u226515s, intensity \u22640.4. Capped at {max_outputs} max outputs.\n\n**Recommended:** Start with 1-2 spare lamps, NOT this.\n\n**Still want chaos?** Check the box below.",
-        "data": {
-          "confirm_chaos": "\u2611\ufe0f I understand this can thrash lights/covers/switches and I'm ready for the chaos"
+          "input_entities": "What it can sense",
+          "output_entities": "What it may touch (optional)",
+          "actuation_enabled": "Let it actually change things",
+          "hourly_budget": "Most actions per hour",
+          "tick_interval": "Seconds between brain updates",
+          "quiet_hours_start": "Quiet hours start",
+          "quiet_hours_end": "Quiet hours end"
         }
       }
     },
-    "abort": {
-      "already_configured": "HouseFly is already configured (one fly per home is enough chaos)."
-    },
     "error": {
-      "no_inputs": "Select at least one input entity (the fly needs to sense something!).",
-      "no_outputs": "Select at least one output entity (what should the fly control?).",
-      "too_many_inputs": "At most 32 input entities (the fly brain is only 256 neurons!).",
-      "too_many_outputs": "At most 32 output entities (leave some for you to control!).",
-      "must_confirm_chaos": "You must check the confirmation box to enable whole house mode. If you're not sure, go back and disable whole house mode."
+      "too_many_inputs": "That is more sensors than the antennal lobe has glomeruli. Pick fewer.",
+      "too_many_outputs": "Too many outputs. A fly lands on a few things, not everything.",
+      "unsafe_output": "One or more of those cannot be fly-controlled. Locks, covers, climate, water heaters and anything named like it matters are refused."
     }
   },
   "options": {
     "step": {
       "init": {
-        "title": "HouseFly options",
+        "title": "HouseFly",
         "data": {
-          "input_entities": "\ud83e\udde0 What the fly can SEE (1\u201332 sensors)",
-          "output_entities": "\ud83d\udca1 What the fly can CONTROL (1\u201332 outputs)",
-          "tick_interval": "Tick interval (seconds)",
-          "intensity": "Intensity (0\u20131)",
-          "seed": "Random seed",
-          "whole_house": "\u26a0\ufe0f WHOLE HOUSE MODE (auto-selects ALL controllable devices!)",
-          "camera_entity": "\ud83d\udc41\ufe0f Camera for compound eye (optional)",
-          "vision_tick_interval": "Vision snapshot interval (seconds)"
-        }
-      },
-      "confirm_whole_house": {
-        "title": "\u26a0\ufe0f ENABLE WHOLE HOUSE MODE?!",
-        "description": "This will give the fruit fly control over **{output_count} devices** (lights, switches, covers, fans). The fly will randomly control these based on its toy reservoir brain. **Pretty insane.** Safety limits: tick \u226515s, intensity \u22640.4. Max {max_outputs} outputs.\n\n**Recommended:** DON'T do this. Use 1-2 spare lamps instead.\n\n**Still sure?** Check the box.",
-        "data": {
-          "confirm_chaos": "\u2611\ufe0f I understand this can thrash my house and I'm ready"
+          "input_entities": "What it can sense",
+          "output_entities": "What it may touch (optional)",
+          "actuation_enabled": "Let it actually change things",
+          "hourly_budget": "Most actions per hour",
+          "tick_interval": "Seconds between brain updates",
+          "quiet_hours_start": "Quiet hours start",
+          "quiet_hours_end": "Quiet hours end"
         }
       }
     },
     "error": {
-      "no_inputs": "Select at least one input entity (the fly needs to sense something!).",
-      "no_outputs": "Select at least one output entity (what should the fly control?).",
-      "too_many_inputs": "At most 32 input entities (the fly brain is only 256 neurons!).",
-      "too_many_outputs": "At most 32 output entities (leave some for you to control!).",
-      "must_confirm_chaos": "You must check the confirmation box to enable whole house mode. If you're not sure, go back and disable whole house mode."
-    }
-  },
-  "entity": {
-    "binary_sensor": {
-      "active": {
-        "name": "Fly House active"
-      }
-    },
-    "sensor": {
-      "spikes": {
-        "name": "Fly House spikes"
-      },
-      "mode": {
-        "name": "Fly House mode"
-      },
-      "brain": {
-        "name": "Fly House brain"
-      },
-      "hunger": {
-        "name": "Fly House hunger"
-      },
-      "retina": {
-        "name": "Fly House retina"
-      }
-    }
-  },
-  "services": {
-    "poke": {
-      "name": "Poke the fly",
-      "description": "Inject a sensory jolt into the reservoir.",
-      "fields": {
-        "strength": {
-          "name": "Strength",
-          "description": "How hard to poke (0.1\u20135.0)."
-        }
-      }
-    },
-    "feed": {
-      "name": "Feed the fly",
-      "description": "Give the fly food (reduces hunger, affects foraging behavior).",
-      "fields": {
-        "amount": {
-          "name": "Amount",
-          "description": "How much to feed (0.1\u20131.0)."
-        },
-        "food_type": {
-          "name": "Food type",
-          "description": "Type of food (sugar, yeast, fruit)."
-        }
-      }
+      "too_many_inputs": "That is more sensors than the antennal lobe has glomeruli. Pick fewer.",
+      "too_many_outputs": "Too many outputs. A fly lands on a few things, not everything.",
+      "unsafe_output": "One or more of those cannot be fly-controlled."
     }
   }
 }

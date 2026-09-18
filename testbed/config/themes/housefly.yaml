@@ -1,0 +1,12 @@
+housefly-dark:
+  primary-color: "#5ad7ff"
+  accent-color: "#ffbe5a"
+  app-header-background-color: "#070b14"
+  primary-background-color: "#0a0f1c"
+  secondary-background-color: "#0e1424"
+  card-background-color: "#111a2c"
+  ha-card-background: "#111a2c"
+  primary-text-color: "#e6f2ff"
+  secondary-text-color: "#7f9ec0"
+  divider-color: "rgba(120,190,255,0.12)"
+  ha-card-border-radius: "12px"

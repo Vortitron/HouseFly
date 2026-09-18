@@ -1,45 +1,43 @@
-"""Constants for Fly House."""
+"""Constants for HouseFly."""
 
 from __future__ import annotations
 
 DOMAIN = "fly_house"
 
+# --- configuration keys --------------------------------------------------
 CONF_INPUT_ENTITIES = "input_entities"
 CONF_OUTPUT_ENTITIES = "output_entities"
 CONF_TICK_INTERVAL = "tick_interval"
-CONF_INTENSITY = "intensity"
-CONF_SEED = "seed"
-CONF_WHOLE_HOUSE = "whole_house"
-CONF_CAMERA_ENTITY = "camera_entity"
-CONF_VISION_TICK_INTERVAL = "vision_tick_interval"
+CONF_ACTUATION_ENABLED = "actuation_enabled"
+CONF_HOURLY_BUDGET = "hourly_budget"
+CONF_QUIET_HOURS_START = "quiet_hours_start"
+CONF_QUIET_HOURS_END = "quiet_hours_end"
 
-DEFAULT_TICK_INTERVAL = 10
-DEFAULT_INTENSITY = 0.55
-DEFAULT_SEED = 42
-DEFAULT_RESERVOIR_SIZE = 256
-MAX_INPUT_ENTITIES = 32
-MAX_OUTPUT_ENTITIES = 32
-DEFAULT_VISION_TICK_INTERVAL = 30
-OMMATIDIA_GRID_SIZE = 16
+DEFAULT_TICK_INTERVAL = 2
+DEFAULT_HOURLY_BUDGET = 30
+MAX_INPUT_ENTITIES = 64
+MAX_OUTPUT_ENTITIES = 16
 
-ATTR_SPIKES = "spikes"
-ATTR_MODE = "mode"
-ATTR_ENERGY = "energy"
+# Actuation is off until someone deliberately turns it on. A fresh install
+# watches the house and walks around the dashboard; it touches nothing.
+DEFAULT_ACTUATION_ENABLED = False
 
-MODE_IDLE = "idle"
-MODE_WANDER = "wander"
+# --- behavioural modes ---------------------------------------------------
+MODE_SLEEP = "sleep"
+MODE_GROOM = "groom"
+MODE_WALK = "walk"
+MODE_FORAGE = "forage"
 MODE_ESCAPE = "escape"
 
-SERVICE_POKE = "poke"
-ATTR_STRENGTH = "strength"
-DEFAULT_POKE_STRENGTH = 1.0
-
+# --- services ------------------------------------------------------------
+SERVICE_LOOM = "loom"
 SERVICE_FEED = "feed"
-ATTR_FOOD_TYPE = "food_type"
-ATTR_AMOUNT = "amount"
-DEFAULT_FEED_AMOUNT = 0.3
+SERVICE_RESET_MEMORY = "reset_memory"
 
-ATTR_HUNGER = "hunger"
-ATTR_RETINA = "retina"
+ATTR_STRENGTH = "strength"
+ATTR_AMOUNT = "amount"
+
+DEFAULT_LOOM_STRENGTH = 1.2
+DEFAULT_FEED_AMOUNT = 1.0
 
 PLATFORMS = ["binary_sensor", "sensor"]

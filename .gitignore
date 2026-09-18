@@ -21,3 +21,17 @@ build/
 # OS
 .DS_Store
 Thumbs.db
+
+# Connectome build cache (46 MB of upstream downloads, refetched on demand)
+.connectome-cache/
+
+# Testbed runtime state -- only the generated config is tracked
+testbed/config/.storage/
+testbed/config/*.db
+testbed/config/*.db-*
+testbed/config/home-assistant.log*
+testbed/config/.HA_VERSION
+testbed/config/.uuid
+testbed/config/deps/
+testbed/config/tts/
+testbed/config/custom_components/

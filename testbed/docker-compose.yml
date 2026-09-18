@@ -1,0 +1,21 @@
+# A throwaway Home Assistant with a fake house in it.
+#
+#   docker compose up -d      then open http://localhost:8124
+#
+# Nothing here touches real hardware: every light and switch is a template
+# helper. That is the point -- it is somewhere to let the fly off the lead and
+# to hand to other people without worrying what they toggle.
+services:
+  homeassistant:
+    image: ghcr.io/home-assistant/home-assistant:stable
+    container_name: housefly-testbed
+    restart: unless-stopped
+    ports:
+      - "8124:8123"
+    volumes:
+      - ./config:/config
+      # The integration is mounted live, so editing it and restarting the
+      # container is the whole development loop.
+      - ../custom_components/fly_house:/config/custom_components/fly_house:ro
+    environment:
+      - TZ=Europe/London

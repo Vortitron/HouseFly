@@ -1,0 +1,37 @@
+# HouseFly testbed. Deliberately minimal: no recorder history worth keeping,
+# no cloud, no real devices.
+default_config:
+
+homeassistant:
+  name: HouseFly Testbed
+  unit_system: metric
+  time_zone: Europe/London
+  packages: !include_dir_named packages
+
+# The fake house generates a state change every 10 seconds per sensor, which
+# would fill a database with nothing of value. Keep almost none of it.
+recorder:
+  purge_keep_days: 1
+  exclude:
+    domains:
+      - sensor
+      - binary_sensor
+      - input_number
+
+logger:
+  default: warning
+  logs:
+    custom_components.fly_house: info
+
+frontend:
+  themes: !include_dir_merge_named themes
+
+lovelace:
+  mode: storage
+  dashboards:
+    housefly-yaml:
+      mode: yaml
+      title: HouseFly
+      icon: mdi:bee
+      show_in_sidebar: true
+      filename: housefly-dashboard.yaml

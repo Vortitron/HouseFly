@@ -1,394 +1,335 @@
 # HouseFly 🪰
 
-> **Let a fruit fly control your house.**
+**A fruit fly lives in your Home Assistant. Its brain is the real one.**
 
-A Home Assistant / [HACS](https://hacs.xyz) custom integration exploring what happens when you map sensors into a tiny **leaky reservoir** (~256 dims, pure Python) and write the "motor" channels out to lights, covers, switches, and numbers.
+HouseFly runs a rate model of 4,724 identified *Drosophila melanogaster* neurons
+wired together by 126,108 measured synaptic connections, taken from the Janelia
+hemibrain reconstruction and the FlyWire whole-brain dataset. Your sensors are
+delivered to the neurons that carry that kind of information in the animal. Its
+motor output moves a fly across your dashboard. It learns which parts of your
+house it likes.
 
-**Current release (v1.0):** 👁️ Real camera → ommatidia (optional `camera.*` snapshot via Pillow), hunger phototaxis bias on light outputs, persistent fly state across restarts, richer lifecycle tracking. Soft remote peek via [vome.io](https://vome.io). Pure Python — zero GPU, zero torch.
-
-Soft CTA: when you're away and want to *watch* the chaos (or just check the house), peek at **[vome.io](https://vome.io)**. Optionally try **[fynd.vome.io](https://fynd.vome.io)** for finding stuff around the home.
-
----
-
-## 🎨 Visual Demo
-
-- 🪰 **Animated buzzing fly** SVG (flapping wings, CSS animations)
-- 🧠 **Sparking brain connectome** SVG (glowing nodes, pulse effects)
-- 📊 **Live ASCII art** brain sensor (💤 idle → ✨ wander → ⚡💥 escape)
-- 📋 **6+ Lovelace examples** ready to copy (see `LOVELACE_EXAMPLE.yaml` + `VISUAL_SETUP_GUIDE.md`)
-
-All assets ship with the integration — no downloads, no external dependencies!
+It is about 450 KB of connectome, a few milliseconds of numpy per tick, and no
+GPU.
 
 ---
 
-## Honest science disclaimer
+## Why this was rewritten
 
-This is a **toy dynamical system**, not a scientific instrument or AI agent.
+The previous version described itself as a "leaky reservoir inspired by
+fruit-fly motifs". Looking at it honestly, that framing was doing a lot of
+work, and three things were wrong at the root.
 
-- **Inspired by** fruit-fly sensorimotor motifs: compound eyes, hunger-driven foraging, escape responses
-- **Architecture:** Leaky reservoir (256 neurons, seeded sparse matrix) + fruit-fly-inspired drives (phototaxis, hunger, motion detection)
-- **NOT** an LLM chatbot, NOT MaleCNS running in Home Assistant, NOT downloading multi-GB neural network weights
-- **Pure Python** — no torch, no numpy; optional **Pillow** for camera→ommatidia (falls back to lights+sun if missing)
-- **Inspired by** the spirit of [QuixiAI/MaleCNS](https://huggingface.co/QuixiAI/MaleCNS) (CC-BY 4.0), [ngxson/fly-llm-hf](https://huggingface.co/ngxson/fly-llm-hf), and "chessfly" / flyputer demos
-- Any resemblance to actual *Drosophila melanogaster* neuroscience is **comedic and superficial**
+**The brain was a random number generator with a theme.** A 256-unit reservoir
+with `rng.gauss` recurrent weights, `rng.gauss` input projections and
+`rng.gauss` readouts, none of which ever changed. Every motor channel was a
+fixed random projection of a random projection of your sensors, so each one was
+a smoothed Gaussian hovering near 0.5. Nothing the fly did depended on anything.
+Every behaviour you could actually observe — the mode classifier, hunger,
+phototaxis — was a hand-written `if` statement sitting *beside* the reservoir,
+not emerging from it. The reservoir was decorative, and could have been deleted
+without changing what the integration appeared to do.
 
-### What It Actually Is
+**It advertised the connectome and then declined to use it.** The docstring
+named MaleCNS and immediately said it wasn't loading it. That was the one
+genuinely interesting thing available, and the data is public, small when
+subset, and runs fine in pure numpy. There was no reason not to.
 
-A **toy dynamical system** with fruit-fly-inspired components:
+**It sprayed service calls at real hardware.** Every configured output got a
+call every tick — 32 entities every 10 seconds, forever, with a value that was
+noise. On a real installation that is continuous Zigbee traffic, measurable
+relay wear, and an unbounded blast radius with no deadband, no rate limit, no
+domain blocklist and no off switch. `cover` was a supported output domain,
+which means the documented configuration surface included your garage door.
 
-1. **Compound eye** (ommatidia grid): Synthesises a 16×16 visual field from your lights + sun position, or can process camera snapshots
-2. **Hunger drive**: Internal state that rises over time, affects foraging behaviour (more exploration when hungry)
-3. **Reservoir brain**: 256-neuron leaky-tanh network processes sensory inputs → motor outputs
-4. **Phototaxis**: Biases motor outputs towards brighter lights when hungry
-5. **Motion detection**: Responds to changes in visual field (loom response)
-6. **State persistence**: Fly remembers its hunger and lifecycle across Home Assistant restarts
+Smaller things that told the same story: the 16×16 compound eye computed 256
+values and fed 16 of them to the brain, discarding 94% of the pipeline; the
+"visual field" placed each light by `sum(ord(c)) % 256`, so two lamps in the
+same room landed in random opposite corners and the word "visual" meant nothing;
+the "spectral radius" was a comment admitting it was a guess; and the card found
+its entities by string-replacing `binary_sensor.fly_house_active`, so renaming
+one entity broke it.
 
-This is **not neuroscience** — it's an exploratory project mapping dynamical systems concepts onto home automation as a playful experiment.
-
-**Inspiration citation:** QuixiAI/MaleCNS packaging of the MaleCNS connectome is licenced **CC-BY 4.0**. We cite it for inspiration only; this integration does not redistribute those weights.
-
-If you wire this to real actuators, use common sense: start with a spare lamp, not the garage door whilst you're out.
-
----
-
-## Features (v1.0)
-
-| Piece | What it does |
-|-------|----------------|
-| Config flow | Pick 1–32 input entities (what the fly can SEE), 1–32 outputs (what it can CONTROL), tick interval (default 10s), intensity 0–1, seed |
-| **Compound eye** | 16×16 ommatidia from optional camera snapshot (Pillow luma downsample) or lights+sun synthesis; phototaxis + motion detection |
-| **Hunger system** | Internal drive (0–100%) rises over time, reduces on `fly_house.feed`; hungry fly explores more + seeks brighter lights |
-| **Persistence** | Hunger, mode, and lifecycle metadata (birth time, last poke/feed) survive Home Assistant restarts — fly feels continuous |
-| Brain | Pure Python leaky reservoir (~256), sensory hash → visual pathway → hunger modulation → motor channels |
-| Entities | `binary_sensor.fly_house_active`, `sensor.fly_house_spikes`, `sensor.fly_house_mode` (`idle` / `wander` / `escape`), `sensor.fly_house_brain`, `sensor.fly_house_hunger`, `sensor.fly_house_retina` (ommatidia hex grid) |
-| Services | `fly_house.poke` (strength 0.1–5.0), `fly_house.feed` (amount 0.1–1.0, reduces hunger) |
-| **Custom card** | `housefly-card` — animated fly + faceted compound eye + hunger bar + brain stats + Poke/Feed buttons |
-| Visual assets | Animated SVG fly + brain connectome sparks for Lovelace dashboards |
-| Whole house mode | ⚠️ **DANGER ZONE** — auto-selects up to 32 devices, requires confirmation (NOT recommended for first-time users!) |
-
-Supported **outputs**: `light` (brightness %), `cover` (position), `switch` (threshold), `number` / `input_number`, `fan` (percentage).
-
-### Fly Biology (Non-Superficial)
-
-- **Compound eye**: 16×16 grid = 256 "ommatidia" (facets). Downsamples camera images or synthesises visual field from lights.
-- **Phototaxis**: When hungry, biases motor outputs towards brighter regions of visual field.
-- **Motion detection**: Compares current vs previous frame, triggers loom response (escape mode).
-- **Hunger drive**: Rises at ~0.2% per tick (reaches 100% in ~8 hours). Feed via service or automation when `sensor.fly_house_hunger > 50`.
-- **Foraging**: High hunger → more output variance (wander mode), seeks light sources.
-- **Grooming/idle**: Low hunger → calmer reservoir state, less motor activity.
-- **Lifecycle tracking**: Birth time, time alive, last poke/feed timestamps exposed as sensor attributes.
+So the question isn't how to improve the reservoir. It's why there is one.
 
 ---
 
-## Install (HACS)
+## What it does instead
 
-**Quick start:** See [`QUICK_START.md`](QUICK_START.md) for step-by-step instructions with safety tips.
+Replace the random matrix with circuits that have a known function, and give
+each one the input it actually carries.
 
-**Summary:**
-1. HACS → **Integrations** → ⋮ → **Custom repositories**
-2. Add `https://github.com/Vortitron/HouseFly` as category **Integration**
-3. Install **HouseFly**, restart Home Assistant
-4. Settings → Devices & services → **Add integration** → **HouseFly**
-5. Pick inputs (1-32 sensors) / outputs (1-32 entities) / tick / intensity / seed
-6. ⚠️ **Start with ONE spare lamp** — do NOT enable whole house mode on first run!
+| Circuit | What it does in the animal | What it gets from your house |
+|---|---|---|
+| **EPG / PEN / PEG / Δ7** | Ring attractor holding heading | Integrates the fly's own turns into a compass |
+| **ER ring neurons** | Visual bearing into the ellipsoid body | Bearing to every card on your dashboard |
+| **PFL3** | Compares heading against goal, commands a turn | Steers it towards whatever it currently wants |
+| **Kenyon cells → MBONs** | Associative memory, with real plasticity | Learns which parts of your house are good |
+| **PAM / PPL1 dopaminergic** | Reward and punishment teaching signals | `fly_house.feed` and swatting at it |
+| **LPLC2 / LC4 → DNp09/10** | Looming detection → escape | Motion sensors firing, or your cursor |
+| **Projection neurons** | Odour identity | The state of your house as a smell |
+| **s-LNv / LNd / DN1** | Morning and evening circadian oscillators | Real local time |
 
-### Manual install
+Everything else follows from those. There is no rule anywhere that says "be
+active at dawn" — the morning cells are driven by morning, and arousal is read
+off their firing rate.
 
-Copy `custom_components/fly_house/` into your HA `config/custom_components/` folder, restart, then add the integration.
+---
 
-```text
-config/
-  custom_components/
-    fly_house/
-      manifest.json
-      __init__.py
-      ...
+## The parts that are genuinely interesting
+
+### The ring attractor is in the wiring, not in the code
+
+Nobody wrote a ring attractor. The connectome contains one. Bin the effective
+EPG → Δ7 → EPG coupling by heading offset, using only measured synapse counts
+and the bridge-glomerulus labels:
+
+```
+  0 deg          89  #
+ 45 deg         181  ###
+ 90 deg         919  #################
+135 deg        1791  #################################
+180 deg        2025  #####################################
+225 deg        1827  ##################################
+270 deg         921  #################
+315 deg         208  ###
 ```
 
+Δ7 is inhibitory, so this is local excitation with long-range inhibition — a
+Mexican hat, 23:1 — and that is exactly and only what a ring attractor needs.
+Run `python3 tools/build_connectome.py` and it prints this from the raw data.
+
+This also caught a mistake. Originally both halves of the protocerebral bridge
+were given the same angular order, which produced a much weaker 2.7:1 profile
+and a compass that held a heading perfectly well but would only ever turn one
+way. The real bridge is a *mirror-symmetric* double map. Correcting it sharpened
+the signature to 23:1 — the data told us the anatomy was wrong before any
+simulation ran.
+
+### The direction of turning is measured, not assumed
+
+Which way does exciting one hemisphere's PEN cells push the bump? You can read
+it straight out of the connectome:
+
+```
+EPG -> LEFT  PEN1 -> EPG loop shift:  +12.5 deg
+EPG -> RIGHT PEN1 -> EPG loop shift:  -11.5 deg
+EPG -> LEFT  PEG  -> EPG loop shift:   -5.6 deg
+EPG -> RIGHT PEG  -> EPG loop shift:   +0.9 deg
+```
+
+PEN loops shift the bump in opposite directions per hemisphere; PEG loops don't
+shift it at all. That is the textbook split between the loop that *moves* the
+bump and the loop that *holds* it, and it fell out of the synapse counts.
+
+### It has a memory, and the memory is synapses
+
+Learning in *Drosophila* happens at Kenyon cell → MBON synapses: a Kenyon cell
+active at the same moment as a dopaminergic neuron in that MBON's compartment
+gets **depressed**. That is the whole rule, it is anti-Hebbian, and it is why a
+fly stops approaching things that turned out to be bad.
+
+HouseFly implements exactly that, on 20,391 real KC→MBON connections, and each
+MBON's compartment valence is derived from which dopaminergic class dominates
+its input rather than hard-coded. Those gains are what gets persisted across
+restarts — the fly does not forget your house when Home Assistant updates.
+
+### What the connectome does not contain
+
+Two things were expected to fall out of the wiring and did not. Both are worth
+stating plainly, because "we tried to derive it and could not" is a result.
+
+**PFL3's steering computation.** In the animal, PFL3 compares the heading bump
+against a goal and its left-right imbalance is the turn command. That works
+because each cell's fan-shaped-body arbor sits about a quarter turn from its
+bridge arbor, in opposite directions per hemisphere. We tried it both ways --
+feeding the goal into the fan-shaped body and letting the connectome do the
+rest, and imposing the quarter-turn offset on PFL3 explicitly. Neither gave
+reliable goal-following: the correlation between turn command and the sine of
+the heading error ranged from +0.03 to -0.54 depending on the trajectory, and
+the closed loop never converged. That offset is *where the arbors physically
+sit*, and synapse counts between cell types do not carry it.
+
+So the goal-seeking controller lives in `coordinator.py`, four lines of
+proportional control, labelled as a controller. The fly holds a heading using a
+connectome-derived ring attractor, which is real, and chooses which heading to
+hold using arithmetic, which is not. Keeping those visibly separate matters more
+than having one more thing to claim.
+
+### The map of your house is *not* in the connectome either
+
+The original plan was to read the landmark-bearing → heading mapping off the
+ER → EPG connectivity. It isn't there: that projection is near-uniform, with
+about 7% modulation depth and no consistent phase. This is not a gap in the
+data. In the real animal that map is **learned**, in plastic ER→EPG synapses
+(Fisher et al. 2019; Kim et al. 2019) — a naive fly does not have one.
+
+So HouseFly doesn't fake it. The compass is driven by integrating the fly's own
+turns, exactly as a real one is in the dark, and it drifts when it cannot see.
+
 ---
 
-## Lovelace visual examples
+## Honest limits
 
-HouseFly ships with **animated SVG assets** — see the fly buzz and the brain spark! 🪰⚡🧠
+This is a real model of real circuits, and it is still a model.
 
-### Quick start card
+- **4,724 neurons of about 25,000** in the central brain, and no body, no
+  muscles, no proprioception. Most of the input these cells really receive comes
+  from neurons that are not here at all, which is why there is a tonic drive
+  term standing in for the rest of the brain. That term is an assumption.
+- **A rate model, not spikes.** One leaky rate unit per neuron, following the
+  approach of Shiu et al. 2024. No dendrites, no delays, no channel dynamics.
+- **Synaptic sign comes from predicted transmitter.** Mostly reliable, but
+  FlyWire's classifier returns acetylcholine for most ring neurons, which is
+  wrong — they are GABAergic. Where the literature is settled it overrides the
+  prediction, and every such override is listed in `tools/build_connectome.py`.
+- **Roughly six free parameters** — global gains, time constants, an
+  excitation/inhibition ratio — tuned so the network sits in a regime where the
+  bump is stable. The *connectivity* is untouched; the operating point is not
+  derived from anything.
+- **Two brains, spliced.** Connectivity is hemibrain (a female fly's central
+  brain); positions and transmitters are FlyWire (a different female fly).
+  Joined by cell type, which is standard practice and still an approximation.
+- **Angular-velocity integration is monotonic and correctly signed** over
+  roughly ±2 rad/s and degrades outside it. `tools/validate.py` reports the
+  measured correlation rather than a claim.
+- **Two circuits needed a static gain constant** (`CIRCUIT_GAIN` in
+  `circuits.py`). The fan-shaped body and the Kenyon cells are large and almost
+  entirely excitatory with no matching inhibitory population inside the modelled
+  subnetwork, so without it they flood. An attempt to have every circuit
+  regulate its own gain homeostatically fixed that but destabilised the compass,
+  and is written up in the changelog rather than quietly dropped.
+- **Adaptation is applied to two circuits, not the network.** Without it the
+  looming and descending pathways latch and the fly flees permanently after one
+  startle; with it applied everywhere, the compass bump decays.
+
+It is not conscious, it is not an agent, it does not understand your house, and
+it is not a scientific instrument. It is a small animal's wiring diagram with
+your sensors plugged into it.
+
+---
+
+## Installation
+
+HACS → Custom repositories → `https://github.com/Vortitron/HouseFly` → Integration.
+Then **Settings → Devices & Services → Add Integration → HouseFly**.
+
+Actuation is **off by default**. A fresh install watches and walks; it touches
+nothing until you deliberately turn it on.
+
+### Cards
+
+Both register themselves, so no resource setup is needed.
 
 ```yaml
-type: vertical-stack
-title: 🪰 HouseFly Control
-cards:
-  - type: picture
-    image: /fly_house/fly-animated.svg
-    tap_action:
-      action: call-service
-      service: fly_house.poke
-  - type: entities
-    entities:
-      - entity: binary_sensor.fly_house_active
-      - entity: sensor.fly_house_mode
-      - entity: sensor.fly_house_spikes
-      - entity: sensor.fly_house_brain
-  - type: button
-    name: 💥 POKE THE FLY
-    icon: mdi:hand-pointing-right
-    tap_action:
-      action: call-service
-      service: fly_house.poke
+# Lets the fly out onto this dashboard. Draws nothing itself: it reports where
+# your cards are and paints the fly over the top of them.
+- type: custom:housefly-overlay
+  show_debug: true      # card outlines and a live brain readout
+
+# The connectome, with live activity in it.
+- type: custom:housefly-brain-card
 ```
 
-### Brain ASCII art card
+### Services
 
-```yaml
-type: markdown
-content: |
-  ## 🧠 Fly Brain Activity
-  **Mode:** {{ states('sensor.fly_house_mode') | upper }}
-  **Spikes:** {{ states('sensor.fly_house_spikes') }}
-  
-  ```
-  {{ state_attr('sensor.fly_house_brain', 'ascii_brain') }}
-  ```
-  {{ states('sensor.fly_house_brain') }}
+| Service | Effect |
+|---|---|
+| `fly_house.loom` | Drives LPLC2 → escape. Also punishment, so it learns to dislike where it was. |
+| `fly_house.feed` | Drives the PAM dopaminergic neurons. Reward, and reduces hunger. |
+| `fly_house.reset_memory` | Every KC→MBON synapse back to its measured strength. |
+
+Clicking the fly on the dashboard calls `loom` with a strength set by how close
+you got.
+
+---
+
+## Safety
+
+The fly can only touch things you allowlisted, and only some of what you
+allowlist. See [`safety.py`](custom_components/fly_house/safety.py).
+
+- **Never, regardless of configuration:** `lock`, `alarm_control_panel`,
+  `cover`, `climate`, `water_heater`, `humidifier`, `valve`, `vacuum`,
+  `lawn_mower`, `script`, `automation`, `scene`, `input_boolean`.
+- **Refused by name** even in an allowed domain: anything containing `boiler`,
+  `freezer`, `pump`, `oven`, `server`, `alarm`, `garage`, `charger`,
+  `irrigation` and about twenty more.
+- **It has to land on something to touch it.** Actuation is triggered by the
+  fly settling on a card, not by a timer — a few interactions an hour.
+- **Hourly budget**, per-entity cooldown, a deadband so a jittering brain
+  cannot produce a call storm, and optional quiet hours.
+- Bad choices are refused in the config flow, while you are still looking at it.
+
+Start it on a spare lamp.
+
+---
+
+## Try it without risking anything
+
+`testbed/` brings up a throwaway Home Assistant containing a fake ten-room
+house — 17 lights, 15 switches, 30 drifting sensors, 13 motion detectors, all
+template helpers with nothing behind them — plus six entities that exist purely
+so you can watch the safety layer refuse them.
+
+```bash
+cd testbed && ./up.sh        # http://localhost:8124
 ```
 
-**Full examples** (including animated fly position, brain sparks, picture-elements) → see [`LOVELACE_EXAMPLE.yaml`](LOVELACE_EXAMPLE.yaml)
+The dashboard is generated from the entities the generator actually made, so it
+cannot drift into a wall of "entity not found". Safe to hand to other people.
 
-**Assets automatically available:**
-- `/fly_house/fly-animated.svg` — buzzing fly with flapping wings (also `/local/community/fly_house/` for HACS)
-- `/fly_house/brain-sparks.svg` — animated connectome with glowing nodes (also `/local/community/fly_house/` for HACS)
-- `/fly_house/housefly-card.js` — custom Lovelace card (auto-registered, no manual resource needed!)
-
-(Restart Home Assistant after first install if images don't load.)
+*Not yet booted end to end* — it was built in an environment without access to
+the Docker daemon, so the compose file, the generated package and the dashboard
+are validated as YAML and cross-checked for entity references, but nobody has
+watched Home Assistant start with them. Expect to fix something on first run.
 
 ---
 
-## Custom Lovelace Card
+## Verifying the claims
 
-HouseFly ships with a **custom card** that displays the full fly experience:
-
-### Installation (Automatic) ✨
-
-**As of v1.0.1, the card auto-registers!** No resource setup required.
-
-1. Install HouseFly via HACS (or manually)
-2. Restart Home Assistant
-3. Add the card to your dashboard
-
-The integration automatically serves the card from `/fly_house/housefly-card.js` and loads it as a frontend module.
-
-### Manual Resource (Legacy / Optional)
-
-For older HA versions or troubleshooting, you can manually add as a resource:
-
-```yaml
-resources:
-  - url: /fly_house/housefly-card.js
-    type: module
+```bash
+python3 tools/validate.py          # runs the shipped brain, checks every claim above
+python3 tools/build_connectome.py  # rebuilds the data pack from the public sources
 ```
 
-Or via UI: **Settings → Dashboards → Resources → Add Resource** → URL: `/fly_house/housefly-card.js`, Type: JavaScript Module
+Twenty checks. Cell counts against the literature; the Mexican hat; PEN
+hemispheres shifting oppositely; the bump forming, holding still and integrating
+turns with the right sign; punishment depressing KC→MBON synapses; looming
+raising descending drive *and then stopping*; PFL3 not being saturated flat; and
+arousal peaking at dawn and dusk. It prints the numbers, including the marginal
+ones. Current output:
 
-**Legacy paths:** If you copied the card to `/local/`, use `/local/community/fly_house/housefly-card.js` (HACS) or `/local/housefly/housefly-card.js` (manual) instead.
-
-**Full guide:** See [`CUSTOM_CARD_GUIDE.md`](CUSTOM_CARD_GUIDE.md) for detailed installation, troubleshooting, and customisation
-
-### Card Configuration
-
-```yaml
-type: custom:housefly-card
-entity: binary_sensor.fly_house_active
+```
+  a bump forms                              peak 0.223, trough 0.000
+  it holds still with no self-motion        0 deg of drift
+  turning rotates the bump, right direction correlation +0.99
+  escape is transient, not a permanent mood escape fell back to 0.0000
+  arousal   03:00 0.17  06:00 1.00  12:00 0.08  18:45 1.00  23:00 0.10
 ```
 
-### What the Card Shows
-
-- **Animated fly** (buzzing, flapping wings, mode-reactive) — tap to poke
-- **Compound eye** — 16×16 faceted ommatidia grid (updates in real-time from `sensor.fly_house_retina`)
-- **Reservoir sparks** — animated brain canvas with glowing nodes and pulsing connections
-- **Hunger bar** — gradient from green (satiated) → yellow → red (starving)
-- **Brain stats** — spikes, energy, mode badge (idle/wander/escape)
-- **Action buttons:**
-  - 💥 **Poke** — calls `fly_house.poke` (strength 1.0)
-  - 🍎 **Feed** — calls `fly_house.feed` (amount 0.3, reduces hunger by 30%)
-
-The card is **pure vanilla JS** (no build step) and uses Home Assistant design tokens for theming.
-
-**Pro tip:** Place the card next to your lights panel — watch the ommatidia light up as you turn lights on, then see the fly's hunger drive bias its motor outputs towards those bright regions!
-
-**Away from home?** The card includes a soft call-to-action to [Vome](https://vome.io) for remote dashboard access (completely optional)
-
 ---
 
-## Service
+## Data and credit
 
-```yaml
-service: fly_house.poke
-data:
-  strength: 1.0   # 0.1 – 5.0 (gentle tap to hard jolt)
-```
+Both datasets are CC-BY 4.0 and are fetched at build time, not vendored.
 
-**Pro tip:** Poke during `escape` mode for maximum chaos. 🔥
+- **Connectivity, cell types, columnar labels** — Janelia hemibrain v1.2.
+  Scheffer, Xu, Januszewski, Lu, Takemura, Hayworth et al. (2020),
+  *A connectome and analysis of the adult Drosophila central brain*, eLife 9:e57443.
+- **Soma positions, transmitter predictions** — FlyWire FAFB.
+  Schlegel, Yin, Bates, Dorkenwald, Eichler, Brooks et al. (2024),
+  *Whole-brain annotation and multi-connectome cell typing of Drosophila*,
+  Nature 634:139–152.
 
----
+Modelling approach after Shiu, Sterne, Spiller, Franconville, Sandoval,
+Zhou et al. (2024), *A leaky integrate-and-fire computational model based on
+the connectome of the entire adult Drosophila brain*, Nature 634:210–219.
 
-## ⚠️ Whole House Mode
-
-**DO NOT enable this unless you know what you're doing.**
-
-### What It Does
-
-When you enable whole house mode, HouseFly will:
-
-1. **Auto-scan** your Home Assistant for ALL available `light`, `switch`, `cover`, and `fan` entities
-2. **Auto-select up to 32** of them (prioritising lights → switches → covers → fans)
-3. **Require confirmation** with a scary warning dialogue showing exact device count
-4. **Apply safety limits:**
-   - Minimum tick interval: **15 seconds** (slower updates)
-   - Maximum intensity: **0.4** (capped at 40% chaos)
-5. **Give the fly control** over all selected devices simultaneously
-
-This is a **static snapshot** at configuration time — newly added devices won't auto-appear (reconfigure to refresh).
-
-### What This Means
-
-The fruit fly will:
-- Flicker all your lights like a rave 💡✨
-- Toggle switches on/off randomly 🔌
-- Open/close covers based on neural activity 🪟
-- Cycle fans based on spike patterns 🌀
-- Operate **all of this simultaneously** every 15+ seconds
-
-### Recommended Approach
-
-1. **Start with ONE spare lamp** (seriously!)
-2. Watch it for a day ⏰
-3. Add 1-2 more devices if brave 🎯
-4. **ONLY enable whole house mode if:**
-   - You've tested extensively with 3-5 devices
-   - You're filming content for the chaos 🎥
-   - You understand the pandemonium 💀
-   - You're prepared to quickly disable it
-
-### Confirmation Required
-
-You **cannot** enable whole house mode without:
-- Reading the scary warning dialogue
-- Seeing the exact count of devices (e.g. "47 devices")
-- Checking the box: _"I understand this can thrash lights/covers/switches and I'm ready for the chaos"_
-
-If you're not 100% sure, **go back and leave it disabled**. 🚫
-
----
-
-## How the brain works (technical)
-
-### Architecture: Integration → Optional Card → Optional Add-on
-
-HouseFly follows a **layered architecture**:
-
-1. **HACS Integration** (this repo, `fly_house`): The brain (pure Python reservoir + drives)
-2. **HACS Frontend Card** (bundled, `housefly-card`): Visual UI for compound eye + hunger + controls
-3. **Optional Add-on** (future, not shipped): Heavy lifting (MaleCNS weights, camera processing, GPU acceleration)
-
-**Current v1.0 = Integration + Card.** No add-on required. No torch. No GPU. Runs entirely in HA core.
-
-### Brain Pipeline
-
-1. **Sensory inputs** (entity states) → hashed into 32-channel vector
-2. **Visual pathway** (ommatidia grid):
-   - Synthesise 16×16 grid from lights + sun elevation
-   - Or downsample camera snapshot (Pillow luma conversion + bilinear resize)
-   - Compute motion (difference from previous frame)
-   - Feed phototaxis + loom channels into first 16 reservoir neurons
-3. **Hunger modulation**:
-   - Internal hunger state rises at ~0.2% per tick
-   - Hungry → inject variance into middle reservoir neurons (foraging drive)
-   - Hungry + phototaxis → bias motor outputs towards bright lights
-4. **Reservoir update**:
-   - Seeded sparse recurrent matrix (256 neurons, leaky-tanh)
-   - Win @ sensory + visual + hunger → drive
-   - W @ x (recurrent) → drive
-   - Leaky integrate: `x ← (1-α)x + α·tanh(drive)`
-5. **Readout channels** (0–1) → map to output entity service calls
-6. **Mode classification** (energy + spikes + sensory magnitude) → `idle` / `wander` / `escape`
-7. **State persistence**: Hunger, mode, lifecycle metadata saved to HA storage every ~50 ticks
-
-No numpy, no torch, no model download. Requirements list in `manifest.json` has only Pillow for optional camera vision.
-
-### Why Not an LLM?
-
-This is **not** a chatbot and should never become one:
-
-- Fruit flies don't have language
-- The point is **sensorimotor dynamics**, not "talk to your house"
-- LLM APIs would add latency, cost, and defeat the pure-Python toy appeal
-- If you want LLM home control, use existing voice assistants — HouseFly is a different vibe
-
-### Add-on Path (Future, Optional)
-
-For users who want heavier processing:
-
-- **MaleCNS weights**: Swap toy reservoir for subset of actual fly connectome (requires torch, ~GB of weights)
-- **Camera vision**: Proper image decoding, downsampling, optical flow (requires OpenCV / PIL)
-- **GPU acceleration**: Run reservoir update on GPU for larger networks
-
-**None of this ships in the integration.** Keep it lightweight. Add-on is for advanced users who want to go deeper.
-
----
-
-## v2 Exploration (optional add-on path — not shipped here)
-
-Local `assets/` may contain MaleCNS-related metadata or larger weights for **experiments**. Those are **not** bundled into this HACS integration (multi‑GB, torch, etc.). A future add-on could swap the toy matrix for a connectome-derived reservoir; see notes in repo. Until then, enjoy the fruit fly cosplay.
-
----
-
-## Contributing
-
-Contributions are welcome! 🎉
-
-Please read [`CONTRIBUTING.md`](CONTRIBUTING.md) for:
-
-- Development setup
-- Code style guidelines
-- Testing checklist
-- How to submit bug reports / feature requests / pull requests
-
-**Quick links:**
-
-- [Report a bug](https://github.com/Vortitron/HouseFly/issues/new?template=bug_report.md)
-- [Request a feature](https://github.com/Vortitron/HouseFly/issues/new?template=feature_request.md)
-- [View open issues](https://github.com/Vortitron/HouseFly/issues)
-
-HouseFly is a **weekend meme** — we value lightweight, fun contributions that keep the fruit-fly spirit alive! 🪰
+The flies did the hard part.
 
 ---
 
 ## Licence
 
-- **Code:** MIT (see `LICENSE`)
-- **Inspiration / MaleCNS data (not included):** QuixiAI/MaleCNS — CC-BY 4.0
-
----
-
-## Contributing
-
-HouseFly started as an experiment in mapping dynamical systems onto home automation. Contributions that preserve the founding spirit are welcome:
-
-- Keep it **playful but intentional** — this is toy science done with care
-- Maintain **pure Python core** (no numpy/torch in the integration)
-- Preserve the **honest science disclaimer** (comedic resemblance to real neuroscience)
-- Test thoroughly with actual Home Assistant installations
-- Document changes clearly
-
-See [`CONTRIBUTING.md`](CONTRIBUTING.md) for detailed guidelines.
-
----
-
-## Links
-
-- 🪰 **Visual setup guide:** [`VISUAL_SETUP_GUIDE.md`](VISUAL_SETUP_GUIDE.md)
-- 📋 **Lovelace examples:** [`LOVELACE_EXAMPLE.yaml`](LOVELACE_EXAMPLE.yaml)
-- 🤝 **Contributing guide:** [`CONTRIBUTING.md`](CONTRIBUTING.md)
-- 📢 **Forum post draft:** [`FORUM_POST.md`](FORUM_POST.md)
-- 🏠 Watch remotely when away: [vome.io](https://vome.io)
-- 🔍 Optional: [fynd.vome.io](https://fynd.vome.io)
-- 🧬 MaleCNS packaging: [huggingface.co/QuixiAI/MaleCNS](https://huggingface.co/QuixiAI/MaleCNS)
+MIT. See [LICENSE](LICENSE).

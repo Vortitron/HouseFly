@@ -1,4 +1,4 @@
-"""Binary sensors for Fly House."""
+"""Binary sensors for HouseFly."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import ATTR_ENERGY, ATTR_MODE, ATTR_SPIKES, DOMAIN
+from .const import DOMAIN, MODE_ESCAPE, MODE_SLEEP
 from .coordinator import FlyHouseCoordinator
 
 
@@ -21,38 +21,58 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     coordinator: FlyHouseCoordinator = hass.data[DOMAIN][entry.entry_id]
-    async_add_entities([FlyHouseActiveBinarySensor(coordinator, entry)])
+    async_add_entities([
+        FlyAwake(coordinator, entry),
+        FlyEscaping(coordinator, entry),
+    ])
 
 
-class FlyHouseActiveBinarySensor(CoordinatorEntity[FlyHouseCoordinator], BinarySensorEntity):
-    """On while the fly brain is ticking successfully."""
-
+class _Base(CoordinatorEntity[FlyHouseCoordinator], BinarySensorEntity):
     _attr_has_entity_name = True
-    _attr_name = "Active"
-    _attr_device_class = BinarySensorDeviceClass.RUNNING
-    _attr_translation_key = "active"
 
-    def __init__(self, coordinator: FlyHouseCoordinator, entry: ConfigEntry) -> None:
+    def __init__(self, coordinator: FlyHouseCoordinator, entry: ConfigEntry, key: str) -> None:
         super().__init__(coordinator)
-        self._attr_unique_id = f"{entry.entry_id}_active"
+        self._attr_unique_id = f"{entry.entry_id}_{key}"
         self._attr_device_info = {
             "identifiers": {(DOMAIN, entry.entry_id)},
-            "name": "Fly House",
-            "manufacturer": "Vortitron",
-            "model": "Leaky reservoir v1.0",
+            "name": "HouseFly",
+            "manufacturer": "Drosophila melanogaster",
+            "model": f"hemibrain v1.2 · {coordinator.brain.data.n} neurons",
         }
+
+
+class FlyAwake(_Base):
+    """Whether the circadian circuit currently says it is daytime for the fly."""
+
+    _attr_name = "Awake"
+    _attr_icon = "mdi:eye-outline"
+
+    def __init__(self, coordinator: FlyHouseCoordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator, entry, "awake")
 
     @property
     def is_on(self) -> bool:
-        data = self.coordinator.data or {}
-        return bool(data.get("active", False))
+        return (self.coordinator.data or {}).get("mode") != MODE_SLEEP
+
+
+class FlyEscaping(_Base):
+    """The giant-fibre-adjacent descending neurons are firing."""
+
+    _attr_name = "Escaping"
+    _attr_icon = "mdi:run-fast"
+    _attr_device_class = BinarySensorDeviceClass.MOTION
+
+    def __init__(self, coordinator: FlyHouseCoordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator, entry, "escaping")
+
+    @property
+    def is_on(self) -> bool:
+        return (self.coordinator.data or {}).get("mode") == MODE_ESCAPE
 
     @property
     def extra_state_attributes(self) -> dict:
         data = self.coordinator.data or {}
         return {
-            ATTR_SPIKES: data.get("spikes"),
-            ATTR_MODE: data.get("mode"),
-            ATTR_ENERGY: data.get("energy"),
-            "tick": data.get("tick"),
+            "escape_drive": data.get("escape", 0.0),
+            "pathway": "LPLC2 / LC4 -> DNp09, DNp10, DNp11",
         }

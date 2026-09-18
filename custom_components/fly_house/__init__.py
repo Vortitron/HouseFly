@@ -1,4 +1,4 @@
-"""Fly House — let a fruit fly (toy reservoir) control your house."""
+"""HouseFly -- a connectome-constrained fruit fly living in Home Assistant."""
 
 from __future__ import annotations
 
@@ -7,145 +7,130 @@ from pathlib import Path
 from typing import Any
 
 import voluptuous as vol
-
+from homeassistant.components.frontend import add_extra_js_url
+from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall
-from homeassistant.components.frontend import add_extra_js_url
-from homeassistant.components.http import StaticPathConfig
+
 from .const import (
     ATTR_AMOUNT,
-    ATTR_FOOD_TYPE,
     ATTR_STRENGTH,
     DEFAULT_FEED_AMOUNT,
-    DEFAULT_POKE_STRENGTH,
+    DEFAULT_LOOM_STRENGTH,
     DOMAIN,
     SERVICE_FEED,
-    SERVICE_POKE,
+    SERVICE_LOOM,
+    SERVICE_RESET_MEMORY,
 )
 from .coordinator import FlyHouseCoordinator
+from . import websocket_api
 
 _LOGGER = logging.getLogger(__name__)
 
-# Flag to track if frontend resources are registered (once per hass instance)
-_FRONTEND_REGISTERED = f"{DOMAIN}_frontend_registered"
+PLATFORMS = [Platform.BINARY_SENSOR, Platform.SENSOR]
+_FRONTEND_KEY = f"{DOMAIN}_frontend_registered"
 
-POKE_SCHEMA = vol.Schema(
-    {
-        vol.Optional(ATTR_STRENGTH, default=DEFAULT_POKE_STRENGTH): vol.All(
-            vol.Coerce(float), vol.Range(min=0.1, max=5.0)
-        ),
-    }
-)
+CARDS = ("housefly-overlay.js", "housefly-brain-card.js")
 
-FEED_SCHEMA = vol.Schema(
-    {
-        vol.Optional(ATTR_AMOUNT, default=DEFAULT_FEED_AMOUNT): vol.All(
-            vol.Coerce(float), vol.Range(min=0.1, max=1.0)
-        ),
-        vol.Optional(ATTR_FOOD_TYPE, default="sugar"): str,
-    }
-)
+LOOM_SCHEMA = vol.Schema({
+    vol.Optional(ATTR_STRENGTH, default=DEFAULT_LOOM_STRENGTH):
+        vol.All(vol.Coerce(float), vol.Range(min=0.1, max=3.0)),
+})
+FEED_SCHEMA = vol.Schema({
+    vol.Optional(ATTR_AMOUNT, default=DEFAULT_FEED_AMOUNT):
+        vol.All(vol.Coerce(float), vol.Range(min=0.05, max=2.0)),
+})
 
 
-def _merged_entry_data(entry: ConfigEntry) -> dict[str, Any]:
+def _merged(entry: ConfigEntry) -> dict[str, Any]:
     return {**entry.data, **entry.options}
 
 
-async def _async_register_frontend_resources(hass: HomeAssistant) -> None:
-    """Register frontend resources (static path + JS module) — once per hass."""
-    if _FRONTEND_REGISTERED in hass.data:
+async def _async_register_frontend(hass: HomeAssistant) -> None:
+    if hass.data.get(_FRONTEND_KEY):
         return
-    
-    # Register www directory as static path
-    integration_path = Path(__file__).parent
-    www_path = integration_path / "www"
-    
+    www = Path(__file__).parent / "www"
     await hass.http.async_register_static_paths(
-        [StaticPathConfig(f"/{DOMAIN}", str(www_path), cache_headers=False)]
+        [StaticPathConfig(f"/{DOMAIN}", str(www), cache_headers=False)]
     )
-    
-    # Register the card module for automatic loading
-    add_extra_js_url(hass, f"/{DOMAIN}/housefly-card.js")
-    
-    hass.data[_FRONTEND_REGISTERED] = True
-    _LOGGER.info(
-        "HouseFly frontend resources registered: /%s/housefly-card.js", DOMAIN
-    )
+    for card in CARDS:
+        add_extra_js_url(hass, f"/{DOMAIN}/{card}")
+    hass.data[_FRONTEND_KEY] = True
+    _LOGGER.debug("HouseFly cards registered: %s", ", ".join(CARDS))
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Set up Fly House from a config entry."""
     hass.data.setdefault(DOMAIN, {})
-    
-    # Register frontend resources once per hass instance
-    await _async_register_frontend_resources(hass)
-    
-    coordinator = FlyHouseCoordinator(hass, _merged_entry_data(entry), entry.entry_id)
-    
-    # Restore persisted state (hunger, mode, lifecycle metadata)
+    await _async_register_frontend(hass)
+
+    coordinator = FlyHouseCoordinator(hass, _merged(entry), entry.entry_id)
     await coordinator.async_restore_state()
-    
+    await coordinator.async_settle()
     await coordinator.async_config_entry_first_refresh()
     hass.data[DOMAIN][entry.entry_id] = coordinator
 
-    await hass.config_entries.async_forward_entry_setups(
-        entry, [Platform.BINARY_SENSOR, Platform.SENSOR]
-    )
-
+    websocket_api.async_register(hass)
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
 
-    async def async_poke(call: ServiceCall) -> None:
-        strength = call.data.get(ATTR_STRENGTH, DEFAULT_POKE_STRENGTH)
-        for coord in hass.data[DOMAIN].values():
-            if isinstance(coord, FlyHouseCoordinator):
-                coord.poke(float(strength))
-                await coord.async_request_refresh()
-        _LOGGER.info("Fly House poked with strength=%s", strength)
+    _register_services(hass)
+    _LOGGER.info(
+        "HouseFly awake: %d neurons, %d synapses, actuation %s",
+        coordinator.brain.data.n,
+        len(coordinator.brain.data.pre),
+        "ENABLED" if coordinator.governor.enabled else "off (observe-only)",
+    )
+    return True
+
+
+def _register_services(hass: HomeAssistant) -> None:
+    def _each() -> list[FlyHouseCoordinator]:
+        return [c for c in hass.data[DOMAIN].values() if isinstance(c, FlyHouseCoordinator)]
+
+    async def async_loom(call: ServiceCall) -> None:
+        strength = float(call.data[ATTR_STRENGTH])
+        for coordinator in _each():
+            coordinator.loom(strength)
+            await coordinator.async_request_refresh()
 
     async def async_feed(call: ServiceCall) -> None:
-        amount = call.data.get(ATTR_AMOUNT, DEFAULT_FEED_AMOUNT)
-        food_type = call.data.get(ATTR_FOOD_TYPE, "sugar")
-        for coord in hass.data[DOMAIN].values():
-            if isinstance(coord, FlyHouseCoordinator):
-                coord.feed(float(amount))
-                await coord.async_request_refresh()
-        _LOGGER.info("Fly House fed %s (amount=%s)", food_type, amount)
+        amount = float(call.data[ATTR_AMOUNT])
+        for coordinator in _each():
+            coordinator.feed(amount)
+            await coordinator.async_request_refresh()
 
-    # Register services once
-    if not hass.services.has_service(DOMAIN, SERVICE_POKE):
-        hass.services.async_register(
-            DOMAIN, SERVICE_POKE, async_poke, schema=POKE_SCHEMA
-        )
-    if not hass.services.has_service(DOMAIN, SERVICE_FEED):
-        hass.services.async_register(
-            DOMAIN, SERVICE_FEED, async_feed, schema=FEED_SCHEMA
-        )
+    async def async_reset_memory(call: ServiceCall) -> None:
+        for coordinator in _each():
+            coordinator.brain.kc_mbon_gain[:] = 1.0
+            await coordinator.async_save_state()
+        _LOGGER.info("HouseFly memory reset -- every learned synapse back to measured strength")
 
-    return True
+    for name, handler, schema in (
+        (SERVICE_LOOM, async_loom, LOOM_SCHEMA),
+        (SERVICE_FEED, async_feed, FEED_SCHEMA),
+        (SERVICE_RESET_MEMORY, async_reset_memory, None),
+    ):
+        if not hass.services.has_service(DOMAIN, name):
+            hass.services.async_register(DOMAIN, name, handler, schema=schema)
 
 
 async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
     coordinator: FlyHouseCoordinator = hass.data[DOMAIN][entry.entry_id]
-    coordinator.reconfigure(_merged_entry_data(entry))
+    coordinator.reconfigure(_merged(entry))
     await coordinator.async_request_refresh()
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Unload a config entry."""
-    # Persist state before unload
-    coordinator: FlyHouseCoordinator = hass.data[DOMAIN].get(entry.entry_id)
+    coordinator: FlyHouseCoordinator | None = hass.data[DOMAIN].get(entry.entry_id)
     if coordinator:
         await coordinator.async_save_state()
-    
-    unload_ok = await hass.config_entries.async_unload_platforms(
-        entry, [Platform.BINARY_SENSOR, Platform.SENSOR]
-    )
-    if unload_ok:
+
+    unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    if unloaded:
         hass.data[DOMAIN].pop(entry.entry_id, None)
-        if not hass.data[DOMAIN]:
-            if hass.services.has_service(DOMAIN, SERVICE_POKE):
-                hass.services.async_remove(DOMAIN, SERVICE_POKE)
-            if hass.services.has_service(DOMAIN, SERVICE_FEED):
-                hass.services.async_remove(DOMAIN, SERVICE_FEED)
-    return unload_ok
+        if not any(isinstance(c, FlyHouseCoordinator) for c in hass.data[DOMAIN].values()):
+            for name in (SERVICE_LOOM, SERVICE_FEED, SERVICE_RESET_MEMORY):
+                if hass.services.has_service(DOMAIN, name):
+                    hass.services.async_remove(DOMAIN, name)
+    return unloaded
