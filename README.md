@@ -118,7 +118,7 @@ type: vertical-stack
 title: 🪰 HouseFly Control
 cards:
   - type: picture
-    image: /local/community/fly_house/fly-animated.svg
+    image: /fly_house/fly-animated.svg
     tap_action:
       action: call-service
       service: fly_house.poke
@@ -154,9 +154,9 @@ content: |
 **Full examples** (including animated fly position, brain sparks, picture-elements) → see [`LOVELACE_EXAMPLE.yaml`](LOVELACE_EXAMPLE.yaml)
 
 **Assets automatically available:**
-- `/local/community/fly_house/fly-animated.svg` — buzzing fly with flapping wings
-- `/local/community/fly_house/brain-sparks.svg` — animated connectome with glowing nodes
-- `/local/community/fly_house/housefly-card.js` — custom Lovelace card (see below)
+- `/fly_house/fly-animated.svg` — buzzing fly with flapping wings (also `/local/community/fly_house/` for HACS)
+- `/fly_house/brain-sparks.svg` — animated connectome with glowing nodes (also `/local/community/fly_house/` for HACS)
+- `/fly_house/housefly-card.js` — custom Lovelace card (auto-registered, no manual resource needed!)
 
 (Restart Home Assistant after first install if images don't load.)
 
@@ -166,19 +166,29 @@ content: |
 
 HouseFly ships with a **custom card** that displays the full fly experience:
 
-### Installation (Resource)
+### Installation (Automatic) ✨
 
-Add to your `configuration.yaml` or via UI (Settings → Dashboards → Resources):
+**As of v1.0.1, the card auto-registers!** No resource setup required.
+
+1. Install HouseFly via HACS (or manually)
+2. Restart Home Assistant
+3. Add the card to your dashboard
+
+The integration automatically serves the card from `/fly_house/housefly-card.js` and loads it as a frontend module.
+
+### Manual Resource (Legacy / Optional)
+
+For older HA versions or troubleshooting, you can manually add as a resource:
 
 ```yaml
 resources:
-  - url: /local/community/fly_house/housefly-card.js
+  - url: /fly_house/housefly-card.js
     type: module
 ```
 
-Or add via UI: **Add Resource** → URL: `/local/community/fly_house/housefly-card.js`, Type: JavaScript Module
+Or via UI: **Settings → Dashboards → Resources → Add Resource** → URL: `/fly_house/housefly-card.js`, Type: JavaScript Module
 
-**Manual install path:** If you copied the integration manually, the card is at `custom_components/fly_house/www/housefly-card.js`. Copy it to `config/www/housefly/housefly-card.js` and use URL: `/local/housefly/housefly-card.js`
+**Legacy paths:** If you copied the card to `/local/`, use `/local/community/fly_house/housefly-card.js` (HACS) or `/local/housefly/housefly-card.js` (manual) instead.
 
 **Full guide:** See [`CUSTOM_CARD_GUIDE.md`](CUSTOM_CARD_GUIDE.md) for detailed installation, troubleshooting, and customisation
 

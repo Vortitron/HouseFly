@@ -10,14 +10,29 @@ The HouseFly custom card provides a complete visual interface for your fruit fly
 
 ## Installation
 
-### Option 1: HACS Resource Path (Recommended)
+### Automatic (Recommended) ✨
 
-The card ships bundled with the integration. Add it as a resource:
+**As of v1.0.1, the card auto-registers on integration setup!** No manual resource steps required.
+
+1. Install HouseFly integration via HACS (or manually)
+2. Restart Home Assistant
+3. Add the card to your dashboard:
+
+```yaml
+type: custom:housefly-card
+entity: binary_sensor.fly_house_active
+```
+
+That's it! The integration automatically serves the card from `/fly_house/housefly-card.js` and registers it as a frontend module.
+
+### Manual Resource (Legacy / Optional)
+
+If you need to manually register the resource (e.g., for ancient HA versions or troubleshooting), you can still add it via:
 
 **Settings → Dashboards → Resources → Add Resource**
 
 ```
-URL: /local/community/fly_house/housefly-card.js
+URL: /fly_house/housefly-card.js
 Type: JavaScript Module
 ```
 
@@ -27,25 +42,13 @@ Or in `configuration.yaml`:
 lovelace:
   mode: yaml
   resources:
-    - url: /local/community/fly_house/housefly-card.js
+    - url: /fly_house/housefly-card.js
       type: module
 ```
 
-### Option 2: Local Path (Manual Install)
+**HACS path (legacy):** If you installed via HACS and copied to `/local/`, use `/local/community/fly_house/housefly-card.js` instead.
 
-If you installed HouseFly manually, copy the card to your `www` folder:
-
-```bash
-mkdir -p config/www/housefly/
-cp custom_components/fly_house/www/housefly-card.js config/www/housefly/
-```
-
-Then add as a resource:
-
-```
-URL: /local/housefly/housefly-card.js
-Type: JavaScript Module
-```
+**Local path (legacy):** If you manually copied to `www/housefly/`, use `/local/housefly/housefly-card.js` instead.
 
 ## Card Configuration
 
