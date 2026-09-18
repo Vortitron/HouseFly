@@ -44,6 +44,11 @@ SENSORS: tuple[FlySensorDescription, ...] = (
             "goal_entity": d.get("goal_entity"),
             "landmarks_visible": d.get("landmarks", 0),
             "age_seconds": d.get("age_seconds", 0),
+            # A sensor stuck on "unknown" is not a smell of nothing, it is no
+            # smell at all, and silently feeding the brain a zero for it hides
+            # a misconfiguration that makes the fly look broken instead.
+            "live_inputs": d.get("live_inputs", 0),
+            "dead_inputs": d.get("dead_inputs", []),
         },
     ),
     FlySensorDescription(

@@ -20,6 +20,7 @@ import base64
 import hashlib
 import logging
 import math
+from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
 
@@ -69,21 +70,109 @@ def _stable_channel(entity_id: str, channels: int) -> int:
     return int.from_bytes(digest, "big") % max(channels, 1)
 
 
-def _numeric(state: State | None) -> float:
-    """Squash any HA state into 0..1 for use as a sensory magnitude."""
-    if state is None or state.state in ("unknown", "unavailable", "", None):
-        return 0.0
-    raw = state.state
-    if raw in ("on", "home", "open", "unlocked", "true", "playing"):
-        return 1.0
-    if raw in ("off", "not_home", "closed", "locked", "false", "idle", "standby"):
-        return 0.0
+# Values that mean "this channel is telling you nothing".
+DEAD_STATES = frozenset({"unknown", "unavailable", "none", ""})
+
+# Binary-ish states worth pinning to the ends of the range rather than
+# adapting, because their meaning does not drift.
+TRUE_STATES = frozenset({"on", "home", "open", "unlocked", "true", "playing",
+                         "above_horizon", "detected", "wet", "occupied"})
+FALSE_STATES = frozenset({"off", "not_home", "closed", "locked", "false", "idle",
+                          "standby", "below_horizon", "clear", "dry", "unoccupied"})
+
+
+@dataclass
+class SensoryAdaptation:
+    """Per-entity gain control, the way a receptor neuron does it.
+
+    A single fixed scale cannot serve a house. Measured on a real install, a
+    tanh(value / 60) squash put seven temperatures spanning 11 to 25 degrees
+    into a 0.2-wide band while a 2,840 W power sensor pinned at 1.0 and an
+    electricity price of 0.43 arrived as 0.007. Two of those channels were
+    effectively constants and the third had no resolution left.
+
+    So each channel learns its own range instead, and reports where the current
+    value sits inside it. Receptor neurons adapt their gain to the range of
+    stimulus they actually receive, which is why you can see indoors and out;
+    this is the same trick and it costs two floats per entity.
+
+    The bounds relax slowly back towards the current value, so a one-off spike
+    widens the range for a while and then stops flattening everything.
+    """
+
+    lo: float = 0.0
+    hi: float = 0.0
+    seen: int = 0
+
+    RELAX = 0.002  # per observation; ~ half an hour at a 2 s tick
+
+    def observe(self, value: float) -> float:
+        if self.seen == 0:
+            self.lo = self.hi = value
+            self.seen = 1
+            return 0.5
+        self.seen += 1
+        self.lo = min(self.lo, value)
+        self.hi = max(self.hi, value)
+        # Let stale extremes decay, or one cold night fixes the scale for ever.
+        self.lo += (value - self.lo) * self.RELAX
+        self.hi += (value - self.hi) * self.RELAX
+        span = self.hi - self.lo
+        if span < 1e-9:
+            return 0.5
+        return float(np.clip((value - self.lo) / span, 0.0, 1.0))
+
+
+@dataclass
+class Percept:
+    """One reading, ready to be delivered to a projection neuron.
+
+    `key` is what decides *which* glomerulus it goes to and `value` is how hard
+    that glomerulus is driven. Splitting the two matters for states that are
+    words rather than numbers: an odour's identity is carried by which neurons
+    respond, not by how strongly one of them does. Squeezing room names onto a
+    single channel by magnitude put 'Allrum' at 0.833 and 'Kitchen' at 0.825 --
+    numerically almost the same smell. Giving them their own glomeruli makes
+    them as different as they actually are.
+    """
+
+    key: str
+    value: float
+    live: bool
+
+
+def _numeric(state: State | None, adaptation: dict[str, SensoryAdaptation] | None = None,
+             entity_id: str = "") -> Percept:
+    """Turn any Home Assistant state into a percept.
+
+    A dead channel is not the same as a channel reading zero, and the
+    difference is worth surfacing rather than silently feeding the brain
+    nothing and calling it a smell.
+    """
+    if state is None:
+        return Percept(entity_id, 0.0, False)
+    raw = str(state.state).strip()
+    lowered = raw.lower()
+    if lowered in DEAD_STATES:
+        return Percept(entity_id, 0.0, False)
+    if lowered in TRUE_STATES:
+        return Percept(entity_id, 1.0, True)
+    if lowered in FALSE_STATES:
+        return Percept(entity_id, 0.0, True)
     try:
         value = float(raw)
     except (TypeError, ValueError):
-        return 0.35
-    # Percentages, temperatures and lux all land somewhere sane under a squash.
-    return float(np.clip(math.tanh(abs(value) / 60.0), 0.0, 1.0))
+        # A word. Its identity picks the glomerulus; it drives it fully.
+        return Percept(f"{entity_id}={lowered}", 1.0, True)
+
+    if adaptation is None:
+        return Percept(entity_id, float(np.clip(value, 0.0, 1.0)), True)
+    channel = adaptation.get(entity_id)
+    if channel is None:
+        channel = adaptation[entity_id] = SensoryAdaptation()
+    # Note: no abs(). Minus fifteen degrees and plus fifteen are not the same
+    # thing, and on a Swedish winter install that distinction is the signal.
+    return Percept(entity_id, channel.observe(value), True)
 
 
 class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
@@ -109,6 +198,9 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._goal_bearing = 0.0
         self._actions: list[dict[str, Any]] = []
         self._birth = dt_util.utcnow()
+        # One adaptive gain channel per input entity.
+        self._adaptation: dict[str, SensoryAdaptation] = {}
+        self._dead_inputs: list[str] = []
 
         self._store = Store(hass, STORAGE_VERSION, f"{STORAGE_KEY}_{entry_id}")
 
@@ -175,11 +267,17 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         # --- odour: the house's chemical signature ---------------------------
         channels = len(self.brain.i_pn)
+        dead: list[str] = []
         if channels:
             odour = np.zeros(channels, dtype=np.float32)
             for eid, st in states.items():
-                odour[_stable_channel(eid, channels)] += _numeric(st)
+                percept = _numeric(st, self._adaptation, eid)
+                if not percept.live:
+                    dead.append(eid)
+                    continue
+                odour[_stable_channel(percept.key, channels)] += percept.value
             senses.odour = np.clip(odour, 0.0, 1.5)
+        self._dead_inputs = dead
 
         # --- looming: something moved suddenly -------------------------------
         motion_now = set()
@@ -282,7 +380,7 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         for card in self._layout:
             entity = card.get("entity")
             st = self.hass.states.get(entity) if entity else None
-            appeal = _numeric(st) if st else 0.15
+            appeal = _numeric(st, self._adaptation, entity or "").value if st else 0.15
             if entity and entity in self.governor.allowlist:
                 appeal += 0.3          # things it can actually play with
             appeal += self.brain.valence * 0.5
@@ -337,6 +435,8 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             result["goal_entity"] = self._goal_entity
             result["landmarks"] = len(senses.landmarks)
             result["safety"] = self.governor.stats
+            result["dead_inputs"] = self._dead_inputs
+            result["live_inputs"] = len(self.input_entities) - len(self._dead_inputs)
             result["recent_actions"] = self._actions[-5:]
             result["age_seconds"] = int((dt_util.utcnow() - self._birth).total_seconds())
             return result
@@ -488,6 +588,12 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "kc_mbon_gain": base64.b64encode(
                     self.brain.kc_mbon_gain.astype(np.float32).tobytes()
                 ).decode("ascii"),
+                # The learned sensory ranges are part of what the fly knows
+                # about the house; throwing them away every restart means it
+                # spends its first half hour with no resolution on any channel.
+                "adaptation": {
+                    eid: [c.lo, c.hi, c.seen] for eid, c in self._adaptation.items()
+                },
             })
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("HouseFly could not save state: %s", err)
@@ -503,6 +609,9 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._birth = dt_util.parse_datetime(saved["birth"]) or self._birth
             if saved.get("position"):
                 self.pos = np.asarray(saved["position"], dtype=np.float64)
+            for eid, (lo, hi, seen) in (saved.get("adaptation") or {}).items():
+                self._adaptation[eid] = SensoryAdaptation(float(lo), float(hi), int(seen))
+
             blob = saved.get("kc_mbon_gain")
             if blob:
                 gains = np.frombuffer(base64.b64decode(blob), dtype=np.float32)

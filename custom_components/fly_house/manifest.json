@@ -1,12 +1,20 @@
 {
   "domain": "fly_house",
   "name": "HouseFly",
-  "codeowners": ["@Vortitron"],
+  "codeowners": [
+    "@Vortitron"
+  ],
   "config_flow": true,
-  "dependencies": ["http", "websocket_api", "frontend"],
+  "dependencies": [
+    "http",
+    "websocket_api",
+    "frontend"
+  ],
   "documentation": "https://github.com/Vortitron/HouseFly",
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/Vortitron/HouseFly/issues",
-  "requirements": ["numpy>=1.24"],
-  "version": "2.0.0"
+  "requirements": [
+    "numpy>=1.24"
+  ],
+  "version": "2.1.0"
 }

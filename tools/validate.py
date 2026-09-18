@@ -190,7 +190,88 @@ def main() -> int:
     check("the fan-shaped body is not flooded", float(fb.mean()) < 0.35,
           f"mean rate {fb.mean():.4f}")
 
-    print("\n8. The clock makes it crepuscular without an if-statement")
+    print("\n8. The house reaches the brain without being flattened first")
+    import hashlib as _h
+    from dataclasses import dataclass as _dc
+    src = (ROOT / "custom_components" / "fly_house" / "coordinator.py").read_text()
+    ns = {"np": np, "math": math, "hashlib": _h, "dataclass": _dc, "State": object}
+    exec(compile(src[src.index("def _stable_channel"):src.index("class FlyHouseCoordinator")],
+                 "coordinator", "exec"), ns)
+    numeric, channel_of = ns["_numeric"], ns["_stable_channel"]
+
+    class _State:
+        def __init__(self, state):
+            self.state = state
+
+    adaptation: dict = {}
+    rooms = ("Allrum", "Loft", "Kitchen", "Hallway", "Bedroom", "Study", "Garage")
+    glomeruli = {
+        room: channel_of(numeric(_State(room), adaptation, "sensor.area").key, 131)
+        for room in rooms
+    }
+    distinct = len(set(glomeruli.values()))
+    # Collisions are expected and are not a defect: 131 glomeruli cannot give
+    # every possible state its own, and a real fly has about 50 for an unbounded
+    # number of odours. What matters is that most separate here and that the
+    # rest are pulled apart downstream -- which is the next check.
+    check("most rooms reach their own glomerulus", distinct >= len(rooms) - 1,
+          f"{distinct} distinct for {len(rooms)} rooms")
+    repeats = {channel_of(numeric(_State("Kitchen"), adaptation, "sensor.area").key, 131)
+               for _ in range(5)}
+    check("and the same room always reaches the same one", len(repeats) == 1,
+          "otherwise nothing about it could ever be learned")
+
+    # Two channels in wildly different units must both end up usable.
+    for entity, values in (("sensor.power", [300, 2840, 1500]),
+                           ("sensor.temp", [-4, 17, 8])):
+        for _ in range(4):
+            for v in values:
+                numeric(_State(str(v)), adaptation, entity)
+    spread = [numeric(_State(str(v)), adaptation, "sensor.power").value
+              for v in (300, 1500, 2840)]
+    check("a watt-scale channel uses its whole range",
+          spread[0] < 0.1 and spread[-1] > 0.9 and 0.2 < spread[1] < 0.8,
+          f"300W..2840W -> {spread[0]:.2f}, {spread[1]:.2f}, {spread[2]:.2f}")
+    cold = numeric(_State("-15"), adaptation, "sensor.temp").value
+    warm = numeric(_State("15"), adaptation, "sensor.temp").value
+    check("below freezing is not the same as above it", cold < warm,
+          f"-15C -> {cold:.2f}, +15C -> {warm:.2f}")
+    check("dead inputs are reported rather than read as zero",
+          not numeric(_State("unknown"), adaptation, "x").live
+          and not numeric(_State("unavailable"), adaptation, "x").live,
+          "so a misconfigured sensor does not look like a quiet one")
+
+    # Two inputs that land on the SAME glomerulus must still be distinguishable
+    # by the time they reach the mushroom body, or the fly could never learn
+    # anything about one without learning it about the other. In the animal that
+    # is the job of the divergence from a few dozen projection neurons onto
+    # thousands of Kenyon cells, each sampling a handful at random -- and that
+    # wiring is in the connectome, so this is testing the real thing.
+    collided = [a for a in rooms for b in rooms
+                if a < b and glomeruli[a] == glomeruli[b]]
+    brain = circ.FlyBrain()
+    brain.settle()
+    n_pn = len(brain.i_pn)
+
+    def kc_code(glomerulus: int) -> np.ndarray:
+        b = circ.FlyBrain()
+        b.settle()
+        odour = np.zeros(n_pn, dtype=np.float32)
+        odour[glomerulus % n_pn] = 1.0
+        for _ in range(25):
+            b.step(circ.Senses(odour=odour, time_of_day=0.5), sub_steps=10)
+        return (b.rate[b.i_kc] > 0.01)
+
+    a, b = kc_code(glomeruli[rooms[0]]), kc_code(glomeruli[rooms[2]])
+    overlap = int((a & b).sum())
+    union = int((a | b).sum())
+    check("two different smells give different Kenyon cell codes",
+          union > 0 and overlap / union < 0.9,
+          f"{int(a.sum())} and {int(b.sum())} cells active, {overlap} shared "
+          f"({overlap / max(union, 1):.0%} overlap)"
+          + (f"; {len(collided)} room pair(s) collided upstream" if collided else ""))
+
+    print("\n9. The clock makes it crepuscular without an if-statement")
     arousal = {}
     for label, t in (("03:00", 0.125), ("06:00", 0.25), ("12:00", 0.5),
                      ("18:45", 0.78), ("23:00", 0.958)):

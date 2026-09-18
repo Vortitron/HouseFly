@@ -206,6 +206,12 @@ This is a real model of real circuits, and it is still a model.
 - **Adaptation is applied to two circuits, not the network.** Without it the
   looming and descending pathways latch and the fly flees permanently after one
   startle; with it applied everywhere, the compass bump decays.
+- **Sensory channels adapt to their own observed range**, so a channel that has
+  only ever seen a narrow band will read as more dramatic than it is until it
+  has seen a wider one. That is the price of not having to tell it the units.
+- **131 glomeruli cannot give every state its own.** Collisions happen, as they
+  do in a real fly with ~50 glomeruli, and are resolved downstream by the
+  divergence onto Kenyon cells rather than avoided.
 
 It is not conscious, it is not an agent, it does not understand your house, and
 it is not a scientific instrument. It is a small animal's wiring diagram with

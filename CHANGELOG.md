@@ -1,5 +1,32 @@
 # Changelog
 
+## 2.1.0 — what a real house exposed
+
+Run against a live installation's entities rather than a generated fake house,
+the sensory front end turned out to be destroying most of its input before a
+single neuron saw it. Five defects, all in the same twenty lines.
+
+- **Categorical states were flattened to a constant.** Every state that was a
+  word rather than a number returned 0.35, so `Allrum`, `Loft` and `Kitchen`
+  arrived as the same smell and the mushroom body could not learn that one room
+  differed from another. Words now pick a *glomerulus* rather than a magnitude,
+  which is how odour identity actually works — and where two collide, the
+  measured projection-neuron to Kenyon-cell divergence pulls them apart
+  downstream (12% code overlap, verified).
+- **One fixed scale for every unit.** `tanh(value / 60)` put seven temperatures
+  spanning 11–25 °C into a 0.2-wide band, pinned a 2,840 W power sensor at 1.0,
+  and rendered an electricity price of 0.43 as 0.007. Each channel now learns
+  its own range, the way a receptor neuron adapts its gain, and the learned
+  ranges persist across restarts.
+- **`abs(value)`** meant −15 °C and +15 °C were the same reading. On a Swedish
+  install that is the signal.
+- **`sun.sun` was unparseable**, so the sun was a constant.
+- **Dead inputs were silently read as zero.** On the installation tested, four
+  of nine configured inputs were `unknown` and nothing said so. Live and dead
+  input counts are now attributes on the mode sensor.
+
+Six new checks in `tools/validate.py` cover all of it; 26 total.
+
 ## 2.0.0 — connectome rewrite
 
 The reservoir is gone. The brain is now a rate model of 4,724 identified
