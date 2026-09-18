@@ -60,6 +60,24 @@ def main() -> int:
               counts[cell_type] == expected,
               f"{counts[cell_type]} (expected {expected})")
 
+    # If the pack is ever rebuilt, the checksums compiled into connectome_fetch
+    # must be regenerated with it. Otherwise an install that has to fetch the
+    # pack refuses the very file this repository ships.
+    import hashlib as _hashlib
+    import re as _re
+    fetch_src = (ROOT / "custom_components" / "fly_house"
+                 / "connectome_fetch.py").read_text()
+    declared = dict(_re.findall(r'"(core\.npz|meta\.json\.gz)":\s*"([0-9a-f]{64})"',
+                                fetch_src))
+    pack_dir = ROOT / "custom_components" / "fly_house" / "connectome"
+    mismatched = [
+        name for name, expected in declared.items()
+        if _hashlib.sha256((pack_dir / name).read_bytes()).hexdigest() != expected
+    ]
+    check("the fetcher's checksums match the shipped pack",
+          len(declared) == 2 and not mismatched,
+          f"{len(declared)} declared, mismatched: {mismatched or 'none'}")
+
     print("\n2. The ring attractor is in the wiring, not in our code")
     W = np.zeros((data.n, data.n), dtype=np.float32)
     W[data.pre, data.post] = data.raw_weight

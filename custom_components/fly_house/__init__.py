@@ -10,6 +10,7 @@ import voluptuous as vol
 from homeassistant.components.frontend import add_extra_js_url
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall, callback
 from homeassistant.helpers import entity_registry as er
@@ -30,6 +31,7 @@ from .const import (
     SERVICE_LOOM,
     SERVICE_RESET_MEMORY,
 )
+from .connectome_fetch import async_ensure_connectome
 from .coordinator import FlyHouseCoordinator
 from .safety import ActuationGovernor
 from . import websocket_api
@@ -144,6 +146,16 @@ async def _async_register_frontend(hass: HomeAssistant) -> None:
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data.setdefault(DOMAIN, {})
     await _async_register_frontend(hass)
+
+    # Normally a no-op: the connectome ships with the integration. It only does
+    # anything where the files arrived by a route that could not carry 432 KB of
+    # binary, and it refuses anything whose checksum does not match.
+    connectome_dir = Path(__file__).parent / "connectome"
+    if not await async_ensure_connectome(hass, connectome_dir):
+        raise ConfigEntryNotReady(
+            "HouseFly's connectome data pack is missing and could not be "
+            "fetched. Without it there is no brain to run."
+        )
 
     coordinator = FlyHouseCoordinator(hass, _merged(entry), entry.entry_id)
     await coordinator.async_restore_state()

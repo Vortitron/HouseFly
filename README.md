@@ -14,7 +14,9 @@ motor output moves a fly across your dashboard. It learns which parts of your
 house it likes.
 
 It is about 450 KB of connectome, a few milliseconds of numpy per tick, and no
-GPU.
+GPU. The pack ships inside the integration; on installs where the files arrive
+by a route that cannot carry binary, it is fetched from the release tag and
+checked against a compiled-in SHA-256 before anything loads it.
 
 ---
 

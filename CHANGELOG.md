@@ -27,6 +27,20 @@ single neuron saw it. Five defects, all in the same twenty lines.
 
 Six new checks in `tools/validate.py` cover all of it; 26 total.
 
+## 2.4.0 — install where binaries cannot reach
+
+- **The connectome pack can be fetched at setup** if it is missing or corrupt.
+  Normally a no-op: HACS, a clone and a manual copy all bring it along. It
+  exists for install routes that cannot carry 432 KB of binary — a text-only
+  file API, a constrained pipeline, a sandbox that strips anything but source.
+  The URL is pinned to the integration's own version tag so the pack always
+  matches the code reading it, and each file is checked against a compiled-in
+  SHA-256 and discarded on mismatch. Running the model on an unidentified pack
+  would invalidate every measured claim here, so it refuses rather than guesses.
+- `tools/validate.py` now checks those checksums against the shipped pack, so
+  rebuilding the connectome without regenerating them fails CI rather than
+  breaking installs that need the fetch.
+
 ## 2.2.x — what a live dashboard exposed
 
 - **Landmarks switched the compass off.** Ring neurons are GABAergic, so
