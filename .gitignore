@@ -35,3 +35,11 @@ testbed/config/.uuid
 testbed/config/deps/
 testbed/config/tts/
 testbed/config/custom_components/
+testbed/config/.ha_run.lock
+testbed/config/blueprints/
+testbed/config/automations.yaml
+testbed/config/scenes.yaml
+testbed/config/scripts.yaml
+testbed/config/secrets.yaml
+testbed/config/image/
+testbed/config/backups/
