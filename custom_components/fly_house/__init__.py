@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Any
 
 import voluptuous as vol
@@ -10,6 +11,8 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.components.frontend import add_extra_js_url
+from homeassistant.components.http import StaticPathConfig
 from .const import (
     ATTR_AMOUNT,
     ATTR_FOOD_TYPE,
@@ -23,6 +26,9 @@ from .const import (
 from .coordinator import FlyHouseCoordinator
 
 _LOGGER = logging.getLogger(__name__)
+
+# Flag to track if frontend resources are registered (once per hass instance)
+_FRONTEND_REGISTERED = f"{DOMAIN}_frontend_registered"
 
 POKE_SCHEMA = vol.Schema(
     {
@@ -46,9 +52,35 @@ def _merged_entry_data(entry: ConfigEntry) -> dict[str, Any]:
     return {**entry.data, **entry.options}
 
 
+async def _async_register_frontend_resources(hass: HomeAssistant) -> None:
+    """Register frontend resources (static path + JS module) — once per hass."""
+    if _FRONTEND_REGISTERED in hass.data:
+        return
+    
+    # Register www directory as static path
+    integration_path = Path(__file__).parent
+    www_path = integration_path / "www"
+    
+    await hass.http.async_register_static_paths(
+        [StaticPathConfig(f"/{DOMAIN}", str(www_path), cache_headers=False)]
+    )
+    
+    # Register the card module for automatic loading
+    add_extra_js_url(hass, f"/{DOMAIN}/housefly-card.js")
+    
+    hass.data[_FRONTEND_REGISTERED] = True
+    _LOGGER.info(
+        "HouseFly frontend resources registered: /%s/housefly-card.js", DOMAIN
+    )
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Fly House from a config entry."""
     hass.data.setdefault(DOMAIN, {})
+    
+    # Register frontend resources once per hass instance
+    await _async_register_frontend_resources(hass)
+    
     coordinator = FlyHouseCoordinator(hass, _merged_entry_data(entry), entry.entry_id)
     
     # Restore persisted state (hunger, mode, lifecycle metadata)
