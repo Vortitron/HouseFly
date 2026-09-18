@@ -11,19 +11,27 @@ from homeassistant.components.frontend import add_extra_js_url
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.core import HomeAssistant, ServiceCall, callback
+from homeassistant.helpers import entity_registry as er
 
 from .const import (
     ATTR_AMOUNT,
     ATTR_STRENGTH,
+    CONF_ACTUATION_ENABLED,
+    CONF_HOURLY_BUDGET,
+    CONF_OUTPUT_ENTITIES,
+    CONF_TICK_INTERVAL,
+    DEFAULT_HOURLY_BUDGET,
     DEFAULT_FEED_AMOUNT,
     DEFAULT_LOOM_STRENGTH,
+    DEFAULT_TICK_INTERVAL,
     DOMAIN,
     SERVICE_FEED,
     SERVICE_LOOM,
     SERVICE_RESET_MEMORY,
 )
 from .coordinator import FlyHouseCoordinator
+from .safety import ActuationGovernor
 from . import websocket_api
 
 _LOGGER = logging.getLogger(__name__)
@@ -45,6 +53,79 @@ FEED_SCHEMA = vol.Schema({
 
 def _merged(entry: ConfigEntry) -> dict[str, Any]:
     return {**entry.data, **entry.options}
+
+
+# Settings that existed in v1 and mean nothing now: the reservoir's size and
+# seed, and the camera the old compound eye sampled.
+REMOVED_IN_V2 = ("intensity", "seed", "camera_entity", "vision_tick_interval",
+                 "whole_house")
+
+
+async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Bring a v1 config entry forward.
+
+    Without this, Home Assistant logs "Migration handler not found" and refuses
+    to load the entry at all, so an existing install upgrades itself into an
+    integration that silently does nothing. The version was bumped when the
+    options changed shape; this is the other half of that change.
+
+    Two decisions worth stating:
+
+    * Actuation comes back **off**. A v1 entry had no such switch -- it wrote to
+      every configured output on every tick, unconditionally. Carrying that
+      forward as "enabled" would mean an upgrade silently granted write access
+      under a new set of rules the user never agreed to. They can turn it on.
+    * Outputs are re-vetted. v1 accepted domains v2 refuses outright, `cover`
+      among them, so anything that no longer passes is dropped here rather than
+      being silently ignored at runtime.
+    """
+    if entry.version > 2:
+        # Downgrade. Nothing sensible to do, and pretending otherwise loses data.
+        return False
+    if entry.version == 2:
+        return True
+
+    data = {**entry.data, **entry.options}
+    removed = [k for k in REMOVED_IN_V2 if k in data]
+    for key in removed:
+        data.pop(key, None)
+
+    outputs = list(data.get(CONF_OUTPUT_ENTITIES, []))
+    kept = [e for e in outputs if ActuationGovernor.vet_entity(e).allowed]
+    refused = [e for e in outputs if e not in kept]
+    data[CONF_OUTPUT_ENTITIES] = kept
+
+    data[CONF_ACTUATION_ENABLED] = False
+    data.setdefault(CONF_HOURLY_BUDGET, DEFAULT_HOURLY_BUDGET)
+    data.setdefault(CONF_TICK_INTERVAL, DEFAULT_TICK_INTERVAL)
+
+    hass.config_entries.async_update_entry(entry, data=data, options={}, version=2)
+    _LOGGER.info(
+        "Migrated HouseFly to v2. Dropped %s. %s. Actuation is off -- turn it "
+        "on in the integration options once you are happy with what it does.",
+        ", ".join(removed) or "nothing",
+        f"Refused {len(refused)} output(s) on safety grounds: {', '.join(refused)}"
+        if refused else "All outputs still allowed",
+    )
+    _async_forget_v1_entities(hass, entry)
+    return True
+
+
+@callback
+def _async_forget_v1_entities(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Drop registry entries for sensors that no longer exist.
+
+    v1's spikes/brain/retina sensors and its "active" binary sensor are gone.
+    Left in the registry they sit there as `unavailable` for ever, which looks
+    exactly like a broken integration.
+    """
+    registry = er.async_get(hass)
+    stale = {"spikes", "brain", "retina", "active"}
+    for reg_entry in list(er.async_entries_for_config_entry(registry, entry.entry_id)):
+        suffix = (reg_entry.unique_id or "").rsplit("_", 1)[-1]
+        if suffix in stale:
+            _LOGGER.debug("Removing v1 entity %s", reg_entry.entity_id)
+            registry.async_remove(reg_entry.entity_id)
 
 
 async def _async_register_frontend(hass: HomeAssistant) -> None:
