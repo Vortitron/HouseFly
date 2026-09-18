@@ -118,6 +118,7 @@
   <a href="#ringattractor">The ring attractor</a>
   <a href="#memory">Memory</a>
   <a href="#notthere">What isn't in the connectome</a>
+  <a href="#realhouse">What a real house exposed</a>
   <a href="#limits">Honest limits</a>
   <a href="#install">Install</a>
   <a href="#safety">Safety</a>
@@ -241,6 +242,53 @@ attractor, which is real, and chooses which heading to hold using arithmetic, wh
 Keeping those visibly separate matters more than having one more thing to claim.</p>
 </div>
 
+<h2 id="realhouse">What a real house exposed</h2>
+<p>The fake ten-room testbed was generated, tidy and metric. Pointed at a live
+installation instead — Swedish, 30 lights, Bluetooth room-presence sensors, a
+power meter and an electricity price — the sensory front end turned out to be
+destroying most of its input before a single neuron saw it.</p>
+
+<div class="panel">
+<h3>Every word became the same number</h3>
+<p>Any state that wasn't numeric returned a constant <code>0.35</code>. So
+<code>Allrum</code>, <code>Loft</code> and <code>Kitchen</code> all arrived as
+the same smell, and the mushroom body could not learn that one room differed
+from another. The information was gone before it reached a neuron.</p>
+<p>Words now pick a <em>glomerulus</em> rather than a magnitude — which is how
+odour identity actually works: it is carried by <em>which</em> neurons respond,
+not how hard one does. With 131 glomeruli some states inevitably collide, as
+they do in a real fly with about 50 for an unbounded number of odours. That is
+resolved where the animal resolves it: two colliding inputs still produce
+clearly different Kenyon cell codes — 67 and 39 cells active with 12% overlap —
+because the projection-neuron-to-Kenyon-cell divergence in the connectome pulls
+them apart.</p>
+</div>
+
+<div class="panel">
+<h3>One scale cannot serve degrees, watts and currency</h3>
+<p><code>tanh(value / 60)</code> put seven temperatures spanning 11–25 °C into a
+0.2-wide band, pinned a 2,840 W power sensor flat at 1.0, and turned an
+electricity price of 0.43 into 0.007. Two of those channels were constants and
+the third had no resolution left.</p>
+<p>Each channel now learns its own range and reports where the current value
+sits inside it — receptor neurons adapt their gain to the stimulus range they
+actually receive, which is why you can see indoors and outdoors. It costs two
+floats per entity and they persist across restarts.</p>
+</div>
+
+<div class="panel">
+<h3>Three smaller ones, all of a kind</h3>
+<ul>
+<li><code>abs(value)</code> meant −15 °C and +15 °C were identical readings.
+On a Swedish install, that sign <em>is</em> the signal.</li>
+<li><code>sun.sun</code> reports <code>above_horizon</code>, which didn't parse
+as a number — so the sun was a constant.</li>
+<li>Dead inputs were silently read as zero. On the install tested, four of nine
+configured inputs were <code>unknown</code> and nothing said so. A sensor stuck
+on unknown is not a smell of nothing; it is no smell at all.</li>
+</ul>
+</div>
+
 <h2 id="limits">Honest limits</h2>
 <p>This is a real model of real circuits, and it is still a model.</p>
 <ul>
@@ -263,8 +311,10 @@ FlyWire — a different fly. Joined by cell type, which is standard practice and
 scientific instrument. It is a small animal's wiring diagram with your sensors plugged into it.</p>
 
 <h3>Everything above is checkable</h3>
-<p><code>python3 tools/validate.py</code> runs the shipped brain and checks all twenty claims,
-printing the numbers — including the marginal ones.</p>
+<p><code>python3 tools/validate.py</code> runs the shipped brain and checks all
+twenty-six claims, printing the numbers — including the marginal ones. CI runs
+it on every push, alongside HACS's own validation action and Home Assistant's
+hassfest.</p>
 <pre><code>a bump forms                               peak 0.223, trough 0.000     <span class="pass">PASS</span>
 it holds still with no self-motion         0 deg of drift               <span class="pass">PASS</span>
 turning rotates the bump, right direction  correlation +0.99            <span class="pass">PASS</span>
