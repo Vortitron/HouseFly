@@ -119,6 +119,7 @@
   <a href="#memory">Memory</a>
   <a href="#notthere">What isn't in the connectome</a>
   <a href="#realhouse">What a real house exposed</a>
+  <a href="#looming">Approach as looming</a>
   <a href="#limits">Honest limits</a>
   <a href="#install">Install</a>
   <a href="#safety">Safety</a>
@@ -289,6 +290,37 @@ on unknown is not a smell of nothing; it is no smell at all.</li>
 </ul>
 </div>
 
+<h2 id="looming">Approach, measured properly</h2>
+<p>LPLC2 — the population that drives escape — fires at an object <em>expanding</em> in the visual
+field. For a target of size L at range r closing at speed v, the angular size is θ ≈ L/r, so the
+expansion rate is <strong>θ̇ = L·v/r²</strong>. That r² is the whole character of the response: the
+same footsteps count for far more at one metre than at five, which is why a real fly leaves it so
+late and then goes all at once.</p>
+
+<p>A ranging sensor — mmWave radar, ultrasonic, BLE distance — gives r directly and v by
+differencing, so it delivers exactly the quantity the circuit is built for, by radar instead of by
+photons. Someone walking up to the door produces a genuine looming response:</p>
+
+<figure>
+<div class="panel bars">
+  <div>5.3 m closing&nbsp;&nbsp;&nbsp;θ̇ 0.022&nbsp;&nbsp;&nbsp;escape 0.0000</div>
+  <div>2.5 m closing&nbsp;&nbsp;&nbsp;θ̇ 0.101&nbsp;&nbsp;&nbsp;escape 0.1931&nbsp;&nbsp;<span class="bar">▉▉▉▉▉▉▉▉</span></div>
+  <div>1.1 m closing&nbsp;&nbsp;&nbsp;θ̇ 0.521&nbsp;&nbsp;&nbsp;escape 0.2217&nbsp;&nbsp;<span class="bar">▉▉▉▉▉▉▉▉▉▉</span></div>
+  <div class="peak">0.6 m closing&nbsp;&nbsp;&nbsp;θ̇ 1.250&nbsp;&nbsp;&nbsp;escape 0.2381&nbsp;&nbsp;▉▉▉▉▉▉▉▉▉▉▉</div>
+</div>
+<figcaption>Walking away produces nothing, because receding is not looming. Standing still produces
+nothing, because there is no expansion.</figcaption>
+</figure>
+
+<div class="panel">
+<h3>A camera is usually the wrong source</h3>
+<p>Optic flow needs frames close enough together to correspond. The first house this ran on had
+exactly one camera — a motorway traffic camera whose own <code>photo_time</code> showed it updating
+<strong>every five minutes</strong>. At that spacing there is no correspondence between frames at
+all: flow would be noise, and a looming detector fed from it would fire constantly and mean
+nothing. The radar in the hallway was the better eye.</p>
+</div>
+
 <h2 id="limits">Honest limits</h2>
 <p>This is a real model of real circuits, and it is still a model.</p>
 <ul>
@@ -312,7 +344,7 @@ scientific instrument. It is a small animal's wiring diagram with your sensors p
 
 <h3>Everything above is checkable</h3>
 <p><code>python3 tools/validate.py</code> runs the shipped brain and checks all
-twenty-six claims, printing the numbers — including the marginal ones. CI runs
+twenty-nine claims, printing the numbers — including the marginal ones. CI runs
 it on every push, alongside HACS's own validation action and Home Assistant's
 hassfest.</p>
 <pre><code>a bump forms                               peak 0.223, trough 0.000     <span class="pass">PASS</span>
