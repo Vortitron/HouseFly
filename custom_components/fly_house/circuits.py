@@ -114,15 +114,28 @@ RING_GAIN = 0.05
 FB_GOAL_GAIN = 0.12
 
 
-# Converts summed clock-neuron firing into an arousal level in 0..1. The
-# oscillators only swing over about 0.458..0.508 in these units, so the readout
-# is stretched onto the useful range rather than reporting a flat value all day.
-# The swing is small because these are 27 cells inside a 4,724-neuron network;
-# the shape of it is what matters.
-# Measured across a simulated 24 hours: the morning cells peak at 06:00 and the
-# evening cells at 18:00, with nothing telling them to.
-AROUSAL_GAIN = 17.33
-AROUSAL_BASE = -7.86
+# Converts summed clock-neuron firing into an arousal level in 0..1.
+#
+# Measured across a simulated day, the summed clock rate runs 0.601 at its
+# quietest to 0.743 at its peak. The morning cells peak at 06:00 and the evening
+# cells at 18:00, with nothing anywhere telling them to. It is a narrow band
+# because 27 cells inside a 4,724-neuron network is a narrow thing; the shape is
+# what matters, not the amplitude.
+#
+# The window is deliberately wider than that measured swing. An earlier version
+# fitted it tightly, and on a live house the readout sat flat at 0.0 -- reported
+# as "asleep" at eight in the evening -- because real sensory input shifts the
+# operating point and anything outside a 0.058-wide window clips. A wider window
+# costs contrast and buys never lying.
+#
+# An adaptive window was tried instead and removed: it works over a real day,
+# but a brain held at a single time of day has no range to learn from, so the
+# window collapses and every hour reads 1.00. Not everything should adapt.
+AROUSAL_LO = 0.565
+AROUSAL_HI = 0.779
+
+# Below this fraction of the arousal range, the fly is asleep.
+SLEEP_BELOW = 0.34
 
 # Spike-frequency adaptation. Every neuron accumulates a slow self-inhibition
 # in proportion to how much it has recently been firing.
@@ -296,6 +309,7 @@ class FlyBrain:
         d = self.data
         self.rate = np.zeros(d.n, dtype=np.float32)
         self.adapt = np.zeros(d.n, dtype=np.float32)
+        self._last_seconds = DT
 
         # --- cache the index sets we read and write every tick -------------
         self.i_epg = _typed(d, "EPG")
@@ -426,10 +440,20 @@ class FlyBrain:
 
         The time of day matters here and is not a detail. Clock neurons
         integrate over minutes, so a fly settled at noon and then handed the
-        real time at six in the morning spends its first five minutes of life
-        asleep, looking for all the world like a broken integration.
+        real time at six in the morning spends its first quarter of an hour of
+        life asleep, looking for all the world like a broken integration.
+
+        Their time constant is shortened for the duration so they reach the
+        state they would have reached after fifteen simulated minutes, without
+        anyone having to wait for it.
         """
-        self.step(Senses(time_of_day=time_of_day), sub_steps=int(seconds / DT))
+        slow = np.concatenate([self.i_clock_m, self.i_clock_e]).astype(np.int32)
+        original = self.tau[slow].copy()
+        self.tau[slow] = TAU_DEFAULT
+        try:
+            self.step(Senses(time_of_day=time_of_day), sub_steps=int(seconds / DT))
+        finally:
+            self.tau[slow] = original
         self.tick = 0
 
     # -------------------------------------------------------------- phases
@@ -687,7 +711,8 @@ class FlyBrain:
             # Adaptation accumulates only in the phasic circuits.
             self.adapt += adapt_decay * (self.adapting * self.rate - self.adapt)
 
-        self.time_s += sub_steps * DT
+        self._last_seconds = sub_steps * DT
+        self.time_s += self._last_seconds
         self.tick += 1
         self._learn(senses)
         return self._readout(senses)
@@ -757,11 +782,13 @@ class FlyBrain:
         # Arousal is read off the two oscillator populations directly. There is
         # no rule anywhere that says "be active at dawn"; the morning cells are
         # driven by morning and the evening cells by evening, and this is just
-        # their sum.
+        # their sum, scaled against the range the clock is actually observed to
+        # cover.
         m_clock = float(r[self.i_clock_m].mean()) if len(self.i_clock_m) else 0.0
         e_clock = float(r[self.i_clock_e].mean()) if len(self.i_clock_e) else 0.0
+        clock = m_clock + e_clock
         self.arousal = float(np.clip(
-            AROUSAL_BASE + AROUSAL_GAIN * (m_clock + e_clock), 0.0, 1.0
+            (clock - AROUSAL_LO) / (AROUSAL_HI - AROUSAL_LO), 0.0, 1.0
         ))
 
         kc = r[self.i_kc]
@@ -777,7 +804,7 @@ class FlyBrain:
 
         mode = (
             "escape" if escape > 0.15
-            else "sleep" if self.arousal < 0.30
+            else "sleep" if self.arousal < SLEEP_BELOW
             else "forage" if self.hunger > 0.5
             else "walk" if self.speed > 0.25
             else "groom"
