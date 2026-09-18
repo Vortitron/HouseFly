@@ -118,7 +118,7 @@ type: vertical-stack
 title: 🪰 HouseFly Control
 cards:
   - type: picture
-    image: /local/community/fly_house/fly-animated.svg
+    image: /fly_house/fly-animated.svg
     tap_action:
       action: call-service
       service: fly_house.poke
@@ -154,9 +154,9 @@ content: |
 **Full examples** (including animated fly position, brain sparks, picture-elements) → see [`LOVELACE_EXAMPLE.yaml`](LOVELACE_EXAMPLE.yaml)
 
 **Assets automatically available:**
-- `/local/community/fly_house/fly-animated.svg` — buzzing fly with flapping wings
-- `/local/community/fly_house/brain-sparks.svg` — animated connectome with glowing nodes
-- `/local/community/fly_house/housefly-card.js` — custom Lovelace card (see below)
+- `/fly_house/fly-animated.svg` — buzzing fly with flapping wings (also `/local/community/fly_house/` for HACS)
+- `/fly_house/brain-sparks.svg` — animated connectome with glowing nodes (also `/local/community/fly_house/` for HACS)
+- `/fly_house/housefly-card.js` — custom Lovelace card (auto-registered, no manual resource needed!)
 
 (Restart Home Assistant after first install if images don't load.)
 
