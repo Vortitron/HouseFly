@@ -1,0 +1,47 @@
+name: Validate
+
+# Proves the two things a user cares about before installing: that HACS will
+# accept this repository, and that Home Assistant will accept the integration.
+# Both are official upstream actions, so this is their verdict rather than ours.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # Upstream requirements drift; catch it on a schedule rather than when
+    # someone is trying to install.
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+
+jobs:
+  hacs:
+    name: HACS
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hacs/action@main
+        with:
+          category: integration
+
+  hassfest:
+    name: Home Assistant hassfest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: home-assistant/actions/hassfest@master
+
+  brain:
+    name: The brain still does what the README says
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install numpy
+      # Twenty checks against the shipped connectome: cell counts against the
+      # literature, the ring attractor's Mexican hat, PEN hemispheres shifting
+      # oppositely, the bump forming and integrating turns, KC->MBON depression,
+      # transient escape, and a crepuscular arousal rhythm.
+      - run: python3 tools/validate.py
