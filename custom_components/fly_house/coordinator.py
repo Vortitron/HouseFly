@@ -20,6 +20,7 @@ import base64
 import hashlib
 import logging
 import math
+import time
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
@@ -33,6 +34,7 @@ from homeassistant.util import dt as dt_util
 from .circuits import FlyBrain, Senses, shared_connectome
 from .const import (
     CONF_ACTUATION_ENABLED,
+    CONF_APPROACH_ENTITIES,
     CONF_HOURLY_BUDGET,
     CONF_INPUT_ENTITIES,
     CONF_OUTPUT_ENTITIES,
@@ -57,6 +59,20 @@ MOTION_CLASSES = ("motion", "occupancy", "moving", "vibration")
 # Proportional gain of the goal-seeking controller. Explicitly a controller:
 # see the comment in _build_senses.
 GOAL_GAIN = 1.2
+
+# Looming. LPLC2 responds to an object's image *expanding*, and for a target of
+# size L at range r closing at speed v the angular size is theta ~ L/r, so the
+# expansion rate is theta-dot = L*v/r^2. That r-squared is the whole character
+# of the response: the same footstep counts for far more at one metre than at
+# five, which is why a real fly leaves it so late and then goes all at once.
+#
+# A ranging sensor gives r directly and v by differencing, so this is the same
+# quantity the circuit is built for, arriving by radar instead of by photons.
+LOOM_SCALE = 0.45          # converts theta-dot into the drive LPLC2 expects
+LOOM_MIN_RANGE = 0.35      # metres; closer than this the r^2 term blows up
+LOOM_MAX_RANGE = 8.0       # metres; beyond this it is not looming at anything
+LOOM_MAX_AGE = 6.0         # seconds; older readings cannot be differenced
+DISTANCE_UNITS = {"cm": 0.01, "mm": 0.001, "m": 1.0, "km": 1000.0}
 
 # How long a state change stays interesting, and how much it pulls.
 NOVELTY_SECONDS = 90.0
@@ -205,6 +221,7 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._birth = dt_util.utcnow()
         # One adaptive gain channel per input entity.
         self._adaptation: dict[str, SensoryAdaptation] = {}
+        self._ranges: dict[str, tuple[float, float]] = {}   # entity -> (metres, monotonic)
         self._dead_inputs: list[str] = []
 
         self._store = Store(hass, STORAGE_VERSION, f"{STORAGE_KEY}_{entry_id}")
@@ -219,6 +236,9 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # ----------------------------------------------------------------- config
     def _apply_config(self, entry_data: dict[str, Any]) -> None:
         self.input_entities: list[str] = list(entry_data.get(CONF_INPUT_ENTITIES, []))
+        # Ranging sensors -- mmWave radar, ultrasonic, BLE distance. Anything
+        # that reports how far away a moving thing is.
+        self.approach_entities: list[str] = list(entry_data.get(CONF_APPROACH_ENTITIES, []))
         self.output_entities: list[str] = list(entry_data.get(CONF_OUTPUT_ENTITIES, []))
         self._tick_interval = int(entry_data.get(CONF_TICK_INTERVAL, DEFAULT_TICK_INTERVAL))
 
@@ -301,7 +321,9 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 motion_now.add(eid)
         fresh = motion_now - self._last_motion_on
         self._last_motion_on = motion_now
-        senses.looming = max(self._pending_loom, 0.9 if fresh else 0.0)
+        senses.looming = max(self._pending_loom,
+                             0.9 if fresh else 0.0,
+                             self._approach_looming())
         self._pending_loom = 0.0
 
         # --- teaching signals ------------------------------------------------
@@ -346,6 +368,44 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         senses.angular_velocity = float(np.clip(pfl3 + controller, -2.0, 2.0))
 
         return senses
+
+    def _approach_looming(self) -> float:
+        """Turn ranging sensors into the expansion rate LPLC2 responds to.
+
+        Only closing counts. Something walking away is not looming at anything,
+        and a fly that startled at departures would be a poor fly.
+        """
+        now = time.monotonic()
+        strongest = 0.0
+        for entity_id in self.approach_entities:
+            state = self.hass.states.get(entity_id)
+            if state is None:
+                continue
+            try:
+                raw = float(state.state)
+            except (TypeError, ValueError):
+                self._ranges.pop(entity_id, None)
+                continue
+            unit = str(state.attributes.get("unit_of_measurement") or "m").lower()
+            metres = raw * DISTANCE_UNITS.get(unit, 1.0)
+
+            previous = self._ranges.get(entity_id)
+            self._ranges[entity_id] = (metres, now)
+            if previous is None:
+                continue
+            last_metres, last_at = previous
+            dt = now - last_at
+            if dt <= 0.0 or dt > LOOM_MAX_AGE:
+                continue
+            if not (LOOM_MIN_RANGE <= metres <= LOOM_MAX_RANGE):
+                continue
+
+            closing = (last_metres - metres) / dt          # metres per second
+            if closing <= 0.0:
+                continue
+            expansion = closing / (metres * metres)
+            strongest = max(strongest, float(np.clip(expansion * LOOM_SCALE, 0.0, 3.0)))
+        return strongest
 
     def _landmarks(self) -> list[tuple[float, float]]:
         """Bearings to the cards on screen, or to lit lights if there is no UI."""
@@ -464,6 +524,7 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             result["landmarks"] = len(senses.landmarks)
             result["safety"] = self.governor.stats
             result["dead_inputs"] = self._dead_inputs
+            result["approach_sensors"] = len(self.approach_entities)
             result["goal_bearing_deg"] = round(math.degrees(self._goal_bearing), 1)
             result["live_inputs"] = len(self.input_entities) - len(self._dead_inputs)
             result["recent_actions"] = self._actions[-5:]

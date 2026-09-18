@@ -17,6 +17,7 @@ from homeassistant.helpers import selector
 
 from .const import (
     CONF_ACTUATION_ENABLED,
+    CONF_APPROACH_ENTITIES,
     CONF_HOURLY_BUDGET,
     CONF_INPUT_ENTITIES,
     CONF_OUTPUT_ENTITIES,
@@ -27,6 +28,7 @@ from .const import (
     DEFAULT_HOURLY_BUDGET,
     DEFAULT_TICK_INTERVAL,
     DOMAIN,
+    MAX_APPROACH_ENTITIES,
     MAX_INPUT_ENTITIES,
     MAX_OUTPUT_ENTITIES,
 )
@@ -40,6 +42,15 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
         vol.Optional(CONF_OUTPUT_ENTITIES, default=defaults.get(CONF_OUTPUT_ENTITIES, [])):
             selector.EntitySelector(
                 selector.EntitySelectorConfig(multiple=True, domain=sorted(ALLOWED_DOMAINS))
+            ),
+        # Ranging sensors get their own slot rather than going in with the
+        # rest: a distance is not a smell, it is the one input the looming
+        # detectors can actually use, and differencing it is what makes an
+        # approach an approach.
+        vol.Optional(CONF_APPROACH_ENTITIES, default=defaults.get(CONF_APPROACH_ENTITIES, [])):
+            selector.EntitySelector(
+                selector.EntitySelectorConfig(multiple=True, domain="sensor",
+                                              device_class="distance")
             ),
         vol.Optional(CONF_ACTUATION_ENABLED,
                      default=defaults.get(CONF_ACTUATION_ENABLED, DEFAULT_ACTUATION_ENABLED)):
@@ -66,6 +77,8 @@ def _validate(data: dict[str, Any]) -> dict[str, str]:
     errors: dict[str, str] = {}
     if len(data.get(CONF_INPUT_ENTITIES, [])) > MAX_INPUT_ENTITIES:
         errors[CONF_INPUT_ENTITIES] = "too_many_inputs"
+    if len(data.get(CONF_APPROACH_ENTITIES, [])) > MAX_APPROACH_ENTITIES:
+        errors[CONF_APPROACH_ENTITIES] = "too_many_approach"
     outputs = data.get(CONF_OUTPUT_ENTITIES, [])
     if len(outputs) > MAX_OUTPUT_ENTITIES:
         errors[CONF_OUTPUT_ENTITIES] = "too_many_outputs"

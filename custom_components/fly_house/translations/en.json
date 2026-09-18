@@ -11,14 +11,16 @@
           "hourly_budget": "Most actions per hour",
           "tick_interval": "Seconds between brain updates",
           "quiet_hours_start": "Quiet hours start",
-          "quiet_hours_end": "Quiet hours end"
+          "quiet_hours_end": "Quiet hours end",
+          "approach_entities": "Ranging sensors it can be approached by (radar, ultrasonic)"
         }
       }
     },
     "error": {
       "too_many_inputs": "That is more sensors than the antennal lobe has glomeruli. Pick fewer.",
       "too_many_outputs": "Too many outputs. A fly lands on a few things, not everything.",
-      "unsafe_output": "One or more of those cannot be fly-controlled. Locks, covers, climate, water heaters and anything named like it matters are refused."
+      "unsafe_output": "One or more of those cannot be fly-controlled. Locks, covers, climate, water heaters and anything named like it matters are refused.",
+      "too_many_approach": "Too many ranging sensors. A fly has two eyes, not eight."
     }
   },
   "options": {
@@ -32,14 +34,16 @@
           "hourly_budget": "Most actions per hour",
           "tick_interval": "Seconds between brain updates",
           "quiet_hours_start": "Quiet hours start",
-          "quiet_hours_end": "Quiet hours end"
+          "quiet_hours_end": "Quiet hours end",
+          "approach_entities": "Ranging sensors it can be approached by (radar, ultrasonic)"
         }
       }
     },
     "error": {
       "too_many_inputs": "That is more sensors than the antennal lobe has glomeruli. Pick fewer.",
       "too_many_outputs": "Too many outputs. A fly lands on a few things, not everything.",
-      "unsafe_output": "One or more of those cannot be fly-controlled."
+      "unsafe_output": "One or more of those cannot be fly-controlled.",
+      "too_many_approach": "Too many ranging sensors. A fly has two eyes, not eight."
     }
   }
 }

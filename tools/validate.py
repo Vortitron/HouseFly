@@ -203,6 +203,24 @@ def main() -> int:
           settled["escape"] < 0.25 * loud["escape"] + 0.01,
           f"escape fell back to {settled['escape']:.4f}")
 
+    print("\n6b. An approach drives escape the way a real one would")
+    # theta-dot = L*v/r^2, so the same footsteps count for far more close in.
+    # A fly that startled at someone across the room, or at someone leaving,
+    # would be a poor fly.
+    far = circ.FlyBrain()
+    far.settle()
+    for _ in range(12):
+        far_result = far.step(circ.Senses(looming=0.03, time_of_day=0.5), sub_steps=10)
+    near = circ.FlyBrain()
+    near.settle()
+    for _ in range(12):
+        near_result = near.step(circ.Senses(looming=1.25, time_of_day=0.5), sub_steps=10)
+    check("something close and closing fires the escape pathway",
+          near_result["escape"] > 0.05,
+          f"at 0.6 m closing: escape {near_result['escape']:.4f}")
+    check("something far off does not", far_result["escape"] < near_result["escape"] * 0.5,
+          f"at 5 m closing: escape {far_result['escape']:.4f}")
+
     print("\n7. Steering output is differentiated, not saturated")
     brain = circ.FlyBrain()
     brain.settle()

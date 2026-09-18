@@ -70,7 +70,7 @@ each one the input it actually carries.
 | **PFL3** | Compares heading against goal, commands a turn | Steers it towards whatever it currently wants |
 | **Kenyon cells → MBONs** | Associative memory, with real plasticity | Learns which parts of your house are good |
 | **PAM / PPL1 dopaminergic** | Reward and punishment teaching signals | `fly_house.feed` and swatting at it |
-| **LPLC2 / LC4 → DNp09/10** | Looming detection → escape | Motion sensors firing, or your cursor |
+| **LPLC2 / LC4 → DNp09/10** | Looming detection → escape | Ranging sensors closing on it; motion; your cursor |
 | **Projection neurons** | Odour identity | The state of your house as a smell |
 | **s-LNv / LNd / DN1** | Morning and evening circadian oscillators | Real local time |
 
@@ -125,6 +125,35 @@ EPG -> RIGHT PEG  -> EPG loop shift:   +0.9 deg
 PEN loops shift the bump in opposite directions per hemisphere; PEG loops don't
 shift it at all. That is the textbook split between the loop that *moves* the
 bump and the loop that *holds* it, and it fell out of the synapse counts.
+
+### Approach, measured properly
+
+LPLC2 fires at an object *expanding* in the visual field. For a target of size
+L at range r closing at speed v the angular size is θ ≈ L/r, so the expansion
+rate is **θ̇ = L·v/r²**. That r² is the whole character of the response: the same
+footsteps count for far more at one metre than at five, which is why a real fly
+leaves it so late and then goes all at once.
+
+A ranging sensor — mmWave radar, ultrasonic, BLE distance — gives r directly and
+v by differencing, so it delivers exactly the quantity the circuit is built for,
+by radar instead of by photons. Point HouseFly at one and someone walking up to
+the door produces a genuine looming response:
+
+```
+ 5.3 m closing   θ̇ 0.022   escape 0.0000
+ 2.5 m closing   θ̇ 0.101   escape 0.1931
+ 1.1 m closing   θ̇ 0.521   escape 0.2217
+ 0.6 m closing   θ̇ 1.250   escape 0.2381
+```
+
+Walking away produces nothing, because receding is not looming.
+
+**A camera is usually the wrong source.** Optic flow needs frames close enough
+together to correspond. The first install this was tried on had one camera, a
+traffic camera whose own `photo_time` showed it updating *every five minutes* —
+at that spacing there is no correspondence between frames at all, so flow would
+be noise and a looming detector fed from it would fire constantly and mean
+nothing.
 
 ### It has a memory, and the memory is synapses
 

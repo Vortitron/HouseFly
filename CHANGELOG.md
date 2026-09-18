@@ -27,6 +27,30 @@ single neuron saw it. Five defects, all in the same twenty lines.
 
 Six new checks in `tools/validate.py` cover all of it; 26 total.
 
+## 2.2.x — what a live dashboard exposed
+
+- **Landmarks switched the compass off.** Ring neurons are GABAergic, so
+  landmark input reaches the compass as inhibition — about −1.1 per EPG cell
+  with 7% spatial modulation on top. Injected raw, a single visible lamp
+  silenced the bump, the heading froze at 0 radians, and 0 radians points right:
+  the reported symptom was a fly that flew to the right-hand edge and stayed
+  there. The component carrying net drive onto EPG is now projected out.
+- **The card and the brain each integrated position separately**, so the brain
+  took bearings from somewhere the fly visibly was not. The card is the
+  authority now.
+- **Arousal read a flat 0.0** — reported as "asleep" at eight in the evening —
+  because the window was calibrated without sensory input and real input shifts
+  the operating point outside it. Measured with the network running instead, and
+  padded. Clock cells are also charged during `settle()` rather than taking a
+  quarter of an hour.
+- **Approach as looming.** Ranging sensors now drive LPLC2 with θ̇ = v/r², the
+  actual quantity the circuit responds to.
+- **A real tripod gait** with two-link IK legs and feet planted in viewport
+  coordinates: zero foot slip during stance, three legs down every frame.
+- Novelty feeds goal choice, so the fly goes to look at whatever just changed.
+
+29 checks in `tools/validate.py`.
+
 ## 2.0.0 — connectome rewrite
 
 The reservoir is gone. The brain is now a rate model of 4,724 identified

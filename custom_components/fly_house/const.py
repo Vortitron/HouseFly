@@ -12,10 +12,12 @@ CONF_ACTUATION_ENABLED = "actuation_enabled"
 CONF_HOURLY_BUDGET = "hourly_budget"
 CONF_QUIET_HOURS_START = "quiet_hours_start"
 CONF_QUIET_HOURS_END = "quiet_hours_end"
+CONF_APPROACH_ENTITIES = "approach_entities"
 
 DEFAULT_TICK_INTERVAL = 2
 DEFAULT_HOURLY_BUDGET = 30
 MAX_INPUT_ENTITIES = 64
+MAX_APPROACH_ENTITIES = 8
 MAX_OUTPUT_ENTITIES = 16
 
 # Actuation is off until someone deliberately turns it on. A fresh install
