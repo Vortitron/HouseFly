@@ -141,6 +141,16 @@ def ws_connectome(hass: HomeAssistant, connection, msg: dict[str, Any]) -> None:
             vol.Required("w"): vol.Coerce(float),
             vol.Required("h"): vol.Coerce(float),
         },
+        # Where the card is actually drawing the fly, normalised to the
+        # viewport. The card integrates position at display rate and the brain
+        # only ticks a few times a second, so the card is the authority on
+        # where the body is -- and the brain needs to agree, or it computes
+        # bearings to landmarks from a position the fly is not standing in and
+        # the heading it produces has nothing to do with what you can see.
+        vol.Optional("fly"): {
+            vol.Required("x"): vol.Coerce(float),
+            vol.Required("y"): vol.Coerce(float),
+        },
         vol.Optional("entry_id"): str,
     }
 )
@@ -157,5 +167,5 @@ def ws_layout(hass: HomeAssistant, connection, msg: dict[str, Any]) -> None:
     if coordinator is None:
         connection.send_error(msg["id"], "not_found", "No HouseFly instance is running")
         return
-    coordinator.set_layout(msg["cards"], msg.get("viewport"))
+    coordinator.set_layout(msg["cards"], msg.get("viewport"), msg.get("fly"))
     connection.send_result(msg["id"], {"landmarks": len(msg["cards"])})

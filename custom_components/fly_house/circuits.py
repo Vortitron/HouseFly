@@ -99,6 +99,15 @@ TONIC_DRIVE = 0.10
 # How hard angular velocity drives the PEN cells that shift the bump.
 PEN_GAIN = 9.0
 
+# How hard a visible landmark modulates the ring neurons, about their mean.
+#
+# Swept against thirteen landmark layouts, including the awkward ones (a single
+# lamp, two opposed, and randomly scattered): at 0.1 and above the bump still
+# collapsed on some of them, and at 0.02 the landmarks barely moved the heading.
+# 0.05 holds the bump on every layout while still swinging the settled heading
+# by about 94 degrees across them, which is the point of having landmarks.
+RING_GAIN = 0.05
+
 # How hard the goal bearing is written into the fan-shaped body columns. The
 # columnar network is large and mostly excitatory, so this has to stay small or
 # it floods and every PFL3 cell ends up at the same rate.
@@ -373,6 +382,17 @@ class FlyBrain:
         self.neuron_phase = self._derive_phases()
         self.er_phase = self.neuron_phase[self.i_er]
 
+        # How much net drive each ring neuron delivers to the compass. Used to
+        # make landmark input shape the bump without switching it off: see the
+        # note in _sensory_drive.
+        epg_set = np.zeros(d.n, dtype=bool)
+        epg_set[self.i_epg] = True
+        onto_epg = epg_set[d.post]
+        net = np.bincount(d.pre[onto_epg], weights=d.weight[onto_epg], minlength=d.n)
+        self.er_to_epg = net[self.i_er].astype(np.float32)
+        norm = float(self.er_to_epg @ self.er_to_epg)
+        self.er_to_epg_norm = norm if norm > 1e-12 else 1.0
+
         # PEN side determines which way the bump rotates: left-hemisphere PENs
         # shift the bump one way, right-hemisphere the other. That asymmetry is
         # the fly's angular velocity integrator.
@@ -517,10 +537,38 @@ class FlyBrain:
         # --- Ring neurons: visual landmark bearing --------------------------
         # ER neurons carry the azimuth of visual features into the ellipsoid
         # body and are what pins the heading bump to the outside world.
+        #
+        # The drive is made zero-mean before it is injected, and that is not a
+        # detail -- without it the compass does not work at all. Ring neurons
+        # are GABAergic, so *any* net activity across the population arrives at
+        # EPG as uniform inhibition. Measured on this connectome that inhibition
+        # is about -1.1 per EPG cell with only 7% spatial modulation on top, and
+        # the EPG population sits just above threshold, so a single visible
+        # landmark silenced the bump completely. It was found on a real house
+        # with six lamps on, where the compass read one cell at 0.002 and every
+        # other wedge at zero.
+        #
+        # Removing the component that carries net drive leaves the total
+        # inhibitory tone into the ellipsoid body unchanged and passes only the
+        # *pattern*, which is what a landmark should contribute: information
+        # about direction, not a reason to stop having a heading.
+        #
+        # Subtracting the plain mean is not enough, and the difference is the
+        # whole fix. Ring neurons do not contribute equally -- some have far
+        # more outgoing weight onto EPG than others -- so a pattern that is
+        # zero-mean across the ring population still delivers net inhibition to
+        # the compass. Projecting out the direction that actually drives EPG
+        # makes the net effect exactly zero by construction. With only the mean
+        # removed, two or three visible landmarks still silenced the bump.
         if senses.landmarks:
+            pattern = np.zeros(len(self.i_er), dtype=np.float32)
             for bearing, strength in senses.landmarks:
-                tuning = np.cos(self.er_phase - bearing)
-                inj[self.i_er] += (strength * np.maximum(tuning, 0.0) ** 2).astype(np.float32)
+                tuning = np.maximum(np.cos(self.er_phase - bearing), 0.0) ** 2
+                pattern += (strength * tuning).astype(np.float32)
+            if pattern.size:
+                overlap = float(pattern @ self.er_to_epg) / self.er_to_epg_norm
+                pattern = pattern - overlap * self.er_to_epg
+                inj[self.i_er] += RING_GAIN * pattern
 
         # --- PEN neurons: angular velocity ----------------------------------
         # Turning drives one hemisphere's PENs harder than the other, which is

@@ -141,6 +141,32 @@ def main() -> int:
     check("turning rotates the bump, in the right direction", corr > 0.6,
           f"correlation {corr:+.2f}, rotations {[round(r) for r in rotations]}")
 
+    # The bug that actually reached a live house. Ring neurons are GABAergic,
+    # so landmark input arrives at the compass as inhibition; injected raw, a
+    # single visible lamp silenced the bump entirely and the heading froze at
+    # zero, which on a dashboard looks like a fly that flies right and stops.
+    print("\n4b. Seeing something does not switch the compass off")
+    worst = None
+    layouts = {
+        "nothing visible": [],
+        "one landmark": [(0.0, 0.5)],
+        "two opposed": [(0.0, 0.5), (math.pi, 0.5)],
+        "three": [(i * 2 * math.pi / 3, 0.5) for i in range(3)],
+        "six lamps (as measured on a real house)": [
+            (i * 2 * math.pi / 6, 0.5) for i in range(6)
+        ],
+    }
+    for label, marks in layouts.items():
+        b = circ.FlyBrain()
+        b.settle(time_of_day=0.62)
+        for _ in range(35):
+            b.step(circ.Senses(landmarks=marks, time_of_day=0.62), sub_steps=10)
+        peak = float(np.array(b.compass_profile()).max())
+        if worst is None or peak < worst[1]:
+            worst = (label, peak)
+    check("the bump survives every landmark layout", worst[1] > 0.02,
+          f"weakest was {worst[0]} at peak {worst[1]:.3f}")
+
     print("\n5. The mushroom body learns, and learns the right sign")
     brain = circ.FlyBrain()
     brain.settle()

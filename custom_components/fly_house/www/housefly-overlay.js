@@ -14,6 +14,8 @@
  * between the updates its compass gives it.
  */
 
+import { createLegs, stepGait, drawFly } from './housefly-fly.js';
+
 const TAU = Math.PI * 2;
 const Z_INDEX = 9999;
 
@@ -88,6 +90,7 @@ class HouseFlyOverlay extends HTMLElement {
       x: window.innerWidth * 0.5, y: window.innerHeight * 0.4,
       heading: 0, speed: 0, turn: 0, mode: 'groom',
       wing: 0, perch: null, z: 0, trail: [],
+      gait: 0, bank: 0, legs: createLegs(),
     };
     this._brain = { heading: 0, speed: 0, turn: 0, mode: 'groom', escape: 0, valence: 0, arousal: 0.5 };
     this._cards = [];
@@ -173,6 +176,9 @@ class HouseFlyOverlay extends HTMLElement {
         type: 'fly_house/layout',
         cards: payload,
         viewport: { w: vw, h: vh },
+        // The brain works out bearings from this, so it has to be where the
+        // fly actually is on screen, not where the brain last guessed.
+        fly: { x: this._fly.x / vw, y: this._fly.y / vh },
       }).catch(() => {});
     }
   }
@@ -208,23 +214,35 @@ class HouseFlyOverlay extends HTMLElement {
     f.heading += clamp(delta, -agility * dt, agility * dt);
     f.heading = (f.heading + TAU) % TAU;
 
+    // Banking. A fly leans into a turn, and it is the cue that makes a change
+    // of direction read as deliberate rather than as a jump cut.
+    f.bank += (clamp(delta * 2.2, -0.5, 0.5) - f.bank) * Math.min(1, dt * 5);
+
     const escaping = (b.escape || 0) > 0.15;
     const asleep = b.mode === 'sleep';
-    const pxPerSecond = escaping ? 900 : (asleep ? 0 : 60 + 170 * (b.speed || 0));
-    f.speed += ((pxPerSecond) - f.speed) * Math.min(1, dt * 6);
+
+    // A fly walks far more than it flies. It takes off to cross open space or
+    // when startled, and walks once it is on something -- so the mode here is
+    // decided by whether it is over a card, not by a coin flip.
+    const overCard = this._cardAt(f.x, f.y);
+    const wantsToFly = escaping || !overCard || (b.speed || 0) > 0.55;
+    f.airborne = wantsToFly;
+
+    const pxPerSecond = escaping ? 820
+      : asleep ? 0
+      : wantsToFly ? 90 + 190 * (b.speed || 0)
+      : 14 + 44 * (b.speed || 0);        // walking pace, much slower
+    f.speed += (pxPerSecond - f.speed) * Math.min(1, dt * 6);
     f.mode = b.mode || 'groom';
+    f.perch = wantsToFly ? null : overCard;
 
-    // Perching: a fly at rest sits on something. Pick the card underneath it.
-    const wantsPerch = !escaping && (b.speed || 0) < 0.22 && !asleep;
-    if (wantsPerch && !f.perch) f.perch = this._cardAt(f.x, f.y);
-    if (escaping || (b.speed || 0) > 0.4) f.perch = null;
+    const moved = f.speed * dt;
+    f.x += Math.cos(f.heading) * moved;
+    f.y += Math.sin(f.heading) * moved;
+    stepGait(f, moved, this._config.scale, f.airborne);
 
-    f.x += Math.cos(f.heading) * f.speed * dt;
-    f.y += Math.sin(f.heading) * f.speed * dt;
-
-    // Altitude: flies are on a surface or in the air, and the shadow should say
-    // which. Perched means z=0, flying means lifted.
-    const targetZ = f.perch ? 0 : (escaping ? 16 : 7);
+    // Altitude: on a surface, or in the air, and the shadow says which.
+    const targetZ = f.airborne ? (escaping ? 18 : 9) : 0;
     f.z += (targetZ - f.z) * Math.min(1, dt * 7);
 
     // Walls. Bounce off the viewport rather than wandering off it forever.
@@ -235,7 +253,7 @@ class HouseFlyOverlay extends HTMLElement {
     if (f.y > window.innerHeight - m) { f.y = window.innerHeight - m; f.heading = -f.heading; }
     f.heading = (f.heading + TAU) % TAU;
 
-    f.wing += dt * (asleep ? 0 : (escaping ? 90 : (f.perch ? 8 : 55)));
+    f.wing += dt * (asleep ? 0 : (escaping ? 95 : (f.airborne ? 62 : 6)));
 
     if (escaping) {
       f.trail.push({ x: f.x, y: f.y, t: 0 });
@@ -277,82 +295,38 @@ class HouseFlyOverlay extends HTMLElement {
     ctx.fill();
     ctx.restore();
 
-    ctx.save();
-    ctx.translate(f.x, f.y - f.z);
-    ctx.rotate(f.heading + Math.PI / 2);
-    ctx.scale(this._config.scale, this._config.scale);
-    this._drawFly(ctx, f);
-    ctx.restore();
+    drawFly(ctx, f, this._config.scale, {
+      airborne: f.airborne,
+      escaping: f.mode === 'escape',
+      asleep: f.mode === 'sleep',
+    });
 
     if (this._config.show_debug) this._drawDebug(ctx);
   }
 
-  _drawFly(ctx, f) {
-    const flapping = f.mode !== 'sleep' && (!f.perch || f.mode === 'escape');
-    const flap = Math.sin(f.wing) * (flapping ? 1 : 0.1);
-
-    // Legs
-    ctx.strokeStyle = 'rgba(28,24,22,0.85)';
-    ctx.lineWidth = 1.1;
-    const legs = [[-4, -1, -11, -7], [-4.5, 2, -12, 3], [-4, 5, -10, 12],
-                  [4, -1, 11, -7], [4.5, 2, 12, 3], [4, 5, 10, 12]];
-    const gait = f.perch ? Math.sin(f.wing * 1.2) * 1.6 : 0;
-    for (const [x1, y1, x2, y2] of legs) {
-      ctx.beginPath(); ctx.moveTo(x1, y1);
-      ctx.quadraticCurveTo(x2 * 0.6, y1 + 3, x2, y2 + (x1 < 0 ? gait : -gait));
-      ctx.stroke();
-    }
-
-    // Wings: blurred ellipses when flying, folded over the back when perched.
-    ctx.save();
-    ctx.globalAlpha = flapping ? 0.32 : 0.55;
-    ctx.fillStyle = '#cfe0f5';
-    ctx.strokeStyle = 'rgba(150,175,205,0.7)';
-    ctx.lineWidth = 0.5;
-    for (const side of [-1, 1]) {
-      ctx.save();
-      ctx.translate(side * 2.5, 1);
-      ctx.rotate(side * (flapping ? (0.5 + flap * 0.55) : 0.16));
-      ctx.beginPath();
-      ctx.ellipse(side * 6.5, 2, 11, 4.2, 0, 0, TAU);
-      ctx.fill(); ctx.stroke();
-      ctx.restore();
-    }
-    ctx.restore();
-
-    // Abdomen, thorax, head
-    const grad = ctx.createLinearGradient(0, -8, 0, 12);
-    grad.addColorStop(0, '#4a4239'); grad.addColorStop(1, '#221d19');
-    ctx.fillStyle = grad;
-    ctx.beginPath(); ctx.ellipse(0, 6, 4.6, 8, 0, 0, TAU); ctx.fill();
-    ctx.fillStyle = '#39322b';
-    ctx.beginPath(); ctx.ellipse(0, -1.5, 4.4, 5.2, 0, 0, TAU); ctx.fill();
-    ctx.fillStyle = '#2b2520';
-    ctx.beginPath(); ctx.ellipse(0, -7.5, 3.9, 3.4, 0, 0, TAU); ctx.fill();
-
-    // Compound eyes. Red, because Drosophila melanogaster, and because it is
-    // the one detail everyone recognises.
-    for (const side of [-1, 1]) {
-      const eye = ctx.createRadialGradient(side * 2.2, -8.6, 0.3, side * 2.4, -8, 3.1);
-      eye.addColorStop(0, '#ff6b5a'); eye.addColorStop(0.55, '#d0261c'); eye.addColorStop(1, '#7d0f0c');
-      ctx.fillStyle = eye;
-      ctx.beginPath(); ctx.ellipse(side * 2.4, -8, 2.5, 2.9, side * 0.2, 0, TAU); ctx.fill();
-    }
-    ctx.strokeStyle = 'rgba(40,34,30,0.9)'; ctx.lineWidth = 0.9;
-    for (const side of [-1, 1]) {
-      ctx.beginPath(); ctx.moveTo(side * 1.4, -10);
-      ctx.quadraticCurveTo(side * 3, -13.5, side * 2.2, -15.5); ctx.stroke();
-    }
-  }
-
   _drawDebug(ctx) {
     ctx.save();
-    ctx.strokeStyle = 'rgba(80,200,255,0.45)';
     ctx.lineWidth = 1;
-    for (const c of this._cards) ctx.strokeRect(c.x, c.y, c.w, c.h);
     const b = this._brain;
+    for (const c of this._cards) {
+      // Show which card it has decided to go to, and the bearing it is
+      // steering on -- otherwise "it walks about" is indistinguishable from
+      // "it walks about at random", which is the whole question.
+      const isGoal = b.goal_entity && c.entity === b.goal_entity;
+      ctx.strokeStyle = isGoal ? 'rgba(255,190,90,0.85)' : 'rgba(80,200,255,0.30)';
+      ctx.lineWidth = isGoal ? 2 : 1;
+      ctx.strokeRect(c.x, c.y, c.w, c.h);
+      if (isGoal) {
+        ctx.beginPath();
+        ctx.moveTo(this._fly.x, this._fly.y);
+        ctx.lineTo(c.x + c.w / 2, c.y + c.h / 2);
+        ctx.setLineDash([4, 5]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+    }
     ctx.fillStyle = 'rgba(10,14,26,0.85)';
-    ctx.fillRect(10, 10, 232, 104);
+    ctx.fillRect(10, 10, 300, 118);
     ctx.fillStyle = '#9fe8ff';
     ctx.font = '11px ui-monospace,SFMono-Regular,Menlo,monospace';
     const lines = [
@@ -362,6 +336,7 @@ class HouseFlyOverlay extends HTMLElement {
       `escape    ${(b.escape || 0).toFixed(3)}`,
       `valence   ${(b.valence || 0).toFixed(3)}`,
       `landmarks ${this._cards.length}`,
+      `goal      ${b.goal_entity || '\u2014'}`,
     ];
     lines.forEach((t, i) => ctx.fillText(t, 20, 30 + i * 14));
     ctx.restore();

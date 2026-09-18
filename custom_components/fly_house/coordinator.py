@@ -58,6 +58,10 @@ MOTION_CLASSES = ("motion", "occupancy", "moving", "vibration")
 # see the comment in _build_senses.
 GOAL_GAIN = 1.2
 
+# How long a state change stays interesting, and how much it pulls.
+NOVELTY_SECONDS = 90.0
+NOVELTY_APPEAL = 0.8
+
 
 def _stable_channel(entity_id: str, channels: int) -> int:
     """Assign an entity to a projection-neuron channel, stably.
@@ -196,6 +200,7 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._last_turn = 0.0
         self._goal_entity: str | None = None
         self._goal_bearing = 0.0
+        self._position_from_card = False
         self._actions: list[dict[str, Any]] = []
         self._birth = dt_util.utcnow()
         # One adaptive gain channel per input entity.
@@ -252,10 +257,18 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._pending_reward = max(self._pending_reward, float(amount))
         self.brain.hunger = max(0.0, self.brain.hunger - float(amount) * 0.6)
 
-    def set_layout(self, cards: list[dict[str, Any]], viewport: dict[str, Any] | None) -> None:
+    def set_layout(self, cards: list[dict[str, Any]], viewport: dict[str, Any] | None,
+                   fly: dict[str, Any] | None = None) -> None:
         self._layout = cards
         if viewport:
             self._viewport = (float(viewport["w"]) or 1.0, float(viewport["h"]) or 1.0)
+        if fly:
+            # Adopt the card's position. Two independent integrations of the
+            # same body is one too many: the brain would be working out which
+            # way the kitchen light is from somewhere the fly visibly is not.
+            self.pos[0] = float(np.clip(fly["x"], 0.0, 1.0))
+            self.pos[1] = float(np.clip(fly["y"], 0.0, 1.0))
+            self._position_from_card = True
 
     # ----------------------------------------------------------------- sense
     def _build_senses(self) -> Senses:
@@ -375,18 +388,33 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         vw, vh = self._viewport
         fx, fy = self.pos[0] * vw, self.pos[1] * vh
+        now = dt_util.utcnow()
         best = None
         best_score = -1e9
         for card in self._layout:
             entity = card.get("entity")
             st = self.hass.states.get(entity) if entity else None
             appeal = _numeric(st, self._adaptation, entity or "").value if st else 0.15
+
+            # Something that just changed is worth going to look at. Novelty is
+            # most of what makes a real animal's path look purposeful rather
+            # than random, and without it the fly drifts towards whatever
+            # happens to be brightest and then stays there for ever.
+            if st is not None:
+                age = (now - st.last_changed).total_seconds()
+                if age < NOVELTY_SECONDS:
+                    appeal += NOVELTY_APPEAL * (1.0 - age / NOVELTY_SECONDS)
+
             if entity and entity in self.governor.allowlist:
                 appeal += 0.3          # things it can actually play with
             appeal += self.brain.valence * 0.5
+
             cx = card["x"] + card["w"] * 0.5
             cy = card["y"] + card["h"] * 0.5
             dist = max(60.0, math.hypot(cx - fx, cy - fy))
+            # Somewhere it is already standing is not somewhere to travel to.
+            if dist < 90.0:
+                appeal -= 0.5
             score = appeal * (1.0 + self.brain.hunger) - dist / max(vw, vh)
             if score > best_score:
                 best_score, best = score, (cx, cy, entity)
@@ -436,6 +464,7 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             result["landmarks"] = len(senses.landmarks)
             result["safety"] = self.governor.stats
             result["dead_inputs"] = self._dead_inputs
+            result["goal_bearing_deg"] = round(math.degrees(self._goal_bearing), 1)
             result["live_inputs"] = len(self.input_entities) - len(self._dead_inputs)
             result["recent_actions"] = self._actions[-5:]
             result["age_seconds"] = int((dt_util.utcnow() - self._birth).total_seconds())
@@ -444,7 +473,14 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise UpdateFailed(f"HouseFly tick failed: {err}") from err
 
     def _advance_position(self, result: dict[str, Any]) -> None:
-        """Move the body the way the motor output says to."""
+        """Move the body the way the motor output says to.
+
+        Skipped entirely while a dashboard is reporting where the fly is: the
+        card integrates the same motion at display rate, and doing it twice
+        makes the two disagree.
+        """
+        if self._position_from_card:
+            return
         heading = float(result["heading"])
         speed = float(result["speed"]) * (1.0 + 4.0 * float(result["escape"]))
         step = speed * 0.02 * self._tick_interval
