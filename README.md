@@ -1,5 +1,9 @@
 # HouseFly 🪰
 
+[![Validate](https://github.com/Vortitron/HouseFly/actions/workflows/validate.yml/badge.svg)](https://github.com/Vortitron/HouseFly/actions/workflows/validate.yml)
+[![hacs](https://img.shields.io/badge/HACS-custom-41BDF5.svg)](https://hacs.xyz)
+[![project page](https://img.shields.io/badge/write--up-housefly.vome.io-5ad7ff.svg)](https://housefly.vome.io)
+
 **A fruit fly lives in your Home Assistant. Its brain is the real one.**
 
 HouseFly runs a rate model of 4,724 identified *Drosophila melanogaster* neurons
@@ -211,8 +215,13 @@ your sensors plugged into it.
 
 ## Installation
 
-HACS → Custom repositories → `https://github.com/Vortitron/HouseFly` → Integration.
-Then **Settings → Devices & Services → Add Integration → HouseFly**.
+HACS → ⋮ → Custom repositories → `https://github.com/Vortitron/HouseFly`, category
+**Integration**. Install, restart, then **Settings → Devices & Services → Add
+Integration → HouseFly**.
+
+Every push runs HACS's own validation action and Home Assistant's hassfest, so
+whether this is installable is upstream's verdict rather than ours — currently
+9/9 and passing.
 
 Actuation is **off by default**. A fresh install watches and walks; it touches
 nothing until you deliberately turn it on.
@@ -292,6 +301,9 @@ all six trap entities are refused by name — `boiler`, `freezer`, `network`,
 python3 tools/validate.py          # runs the shipped brain, checks every claim above
 python3 tools/build_connectome.py  # rebuilds the data pack from the public sources
 ```
+
+CI runs `validate.py` on every push, so these numbers are checked rather than
+asserted. A longer write-up lives at **[housefly.vome.io](https://housefly.vome.io)**.
 
 Twenty checks. Cell counts against the literature; the Mexican hat; PEN
 hemispheres shifting oppositely; the bump forming, holding still and integrating
