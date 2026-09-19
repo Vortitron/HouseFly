@@ -299,18 +299,42 @@ late and then goes all at once.</p>
 
 <p>A ranging sensor — mmWave radar, ultrasonic, BLE distance — gives r directly and v by
 differencing, so it delivers exactly the quantity the circuit is built for, by radar instead of by
-photons. Someone walking up to the door produces a genuine looming response:</p>
+photons. Someone walking in at 1 m/s, sampled at a range of distances:</p>
 
 <figure>
 <div class="panel bars">
-  <div>5.3 m closing&nbsp;&nbsp;&nbsp;θ̇ 0.022&nbsp;&nbsp;&nbsp;escape 0.0000</div>
-  <div>2.5 m closing&nbsp;&nbsp;&nbsp;θ̇ 0.101&nbsp;&nbsp;&nbsp;escape 0.1931&nbsp;&nbsp;<span class="bar">▉▉▉▉▉▉▉▉</span></div>
-  <div>1.1 m closing&nbsp;&nbsp;&nbsp;θ̇ 0.521&nbsp;&nbsp;&nbsp;escape 0.2217&nbsp;&nbsp;<span class="bar">▉▉▉▉▉▉▉▉▉▉</span></div>
-  <div class="peak">0.6 m closing&nbsp;&nbsp;&nbsp;θ̇ 1.250&nbsp;&nbsp;&nbsp;escape 0.2381&nbsp;&nbsp;▉▉▉▉▉▉▉▉▉▉▉</div>
+  <div>5.0 m closing&nbsp;&nbsp;&nbsp;θ̇ 0.040&nbsp;&nbsp;&nbsp;escape 0.0000</div>
+  <div>3.0 m closing&nbsp;&nbsp;&nbsp;θ̇ 0.111&nbsp;&nbsp;&nbsp;escape 0.0000</div>
+  <div>2.2 m closing&nbsp;&nbsp;&nbsp;θ̇ 0.207&nbsp;&nbsp;&nbsp;escape 0.2714&nbsp;&nbsp;<span class="bar">▉▉▉▉▉▉▉▉▉▉</span></div>
+  <div>2.0 m closing&nbsp;&nbsp;&nbsp;θ̇ 0.250&nbsp;&nbsp;&nbsp;escape 0.2893&nbsp;&nbsp;<span class="bar">▉▉▉▉▉▉▉▉▉▉▉</span></div>
+  <div>1.4 m closing&nbsp;&nbsp;&nbsp;θ̇ 0.510&nbsp;&nbsp;&nbsp;escape 0.2627&nbsp;&nbsp;<span class="bar">▉▉▉▉▉▉▉▉▉▉</span></div>
+  <div class="peak">0.6 m closing&nbsp;&nbsp;&nbsp;θ̇ 2.778&nbsp;&nbsp;&nbsp;escape 0.2725&nbsp;&nbsp;▉▉▉▉▉▉▉▉▉▉</div>
 </div>
 <figcaption>Walking away produces nothing, because receding is not looming. Standing still produces
 nothing, because there is no expansion.</figcaption>
 </figure>
+
+<p>Note the shape. Nothing at all until about 2.4 m, then the same full burst at every distance
+inside it. That is not a rounding artefact, it is the pathway: the giant-fibre escape is a trigger,
+so the interesting quantity is <em>where</em> the threshold falls, and the r² is what puts it there.
+Halve the walking speed and the fly lets you get to 1.7 m instead; the response itself does not get
+any smaller.</p>
+
+<div class="panel">
+<h3>This took a correction to get right</h3>
+<p>The first version of these numbers was wrong in a way that flattered it. The model adds a small
+resting drive to every neuron, standing in for the parts of the brain that are not modelled — and
+that drive and the firing threshold happened to be the same number, so the escape pathway sat
+<em>exactly</em> at its own threshold. Measured from rest, a looming input of 1e-5 produced escape
+0.286 and an input of 1.25 produced 0.284. The same burst. θ̇ = v/r² was being computed faithfully
+and then thrown away, and every claim on this page about the r² was decorative.</p>
+<p>The check that was supposed to catch this held the stimulus on for twelve steps, where a weak one
+simply adapts away — but a real approach is a <em>transient</em>, and that is the case that mattered.
+DNp09 and its LPLC2 inputs are silent at rest in the animal, which is what makes them a trigger
+rather than a readout, so the resting drive is now withheld from precisely the circuits already
+marked phasic. No new constant, no new list. The validation suite now measures the onset response
+across four decades.</p>
+</div>
 
 <div class="panel">
 <h3>A camera is usually the wrong source</h3>
