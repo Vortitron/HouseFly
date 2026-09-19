@@ -159,6 +159,16 @@ Someone walking in at 1 m/s, sampled at a range of distances:
 
 Walking away produces nothing, because receding is not looming.
 
+**Do not also feed it the presence sensor.** A PIR going high carries no
+distance at all, so HouseFly delivers it as a flat startle — which is honest for
+a PIR and above the escape threshold by design. But a presence binary sensor
+*derived from* a ranging sensor is the same event arriving twice, and the boolean
+gets there first: on the demo box the fly bolted at 3.5 m, on the occupancy flag,
+several seconds before the graded pathway had anything to say. Feed HouseFly the
+range and leave the flag out, or the r² is decorative again for a different
+reason. Both radar sensors in `packages/demo_radar.yaml` are still wired up; only
+`binary_sensor.radar_presence` is kept out of `input_entities`.
+
 Note the shape: nothing at all until about 2.4 m, then the same full burst at
 every distance inside it. That is not a rounding artefact, it is the pathway —
 the giant-fibre escape is a trigger, so the interesting quantity is *where* the
