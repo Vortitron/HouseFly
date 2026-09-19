@@ -87,12 +87,22 @@ DISTANCE_UNITS = {"cm": 0.01, "mm": 0.001, "m": 1.0, "km": 1000.0}
 #                   sits between them rather than at either end.
 # UNUSUAL_SECONDS   it has to stay there. A single odd tick is a sensor
 #                   twitching; two minutes of it is the house being different.
-# SETTLED_FLOOR     and the fly must have learned something first. A fresh
-#                   install has habituated nothing, so everything is novel and
-#                   an alert would be worthless.
+# And the fly must have learned something first, or a fresh install cries wolf
+# about a house it has never seen.
+#
+# That guard used to be a floor on the population-mean habituation, and it was
+# a bad measure: only the active few per cent of Kenyon cells ever habituate, so
+# the mean is bounded by the sparseness target and may simply never reach a
+# fixed threshold. Measured on the demo it was 0.007 after an hour and 0.025
+# after six, against a floor of 0.10 -- on that trajectory the alert might never
+# have armed at all, and the feature would have been quietly dead.
+#
+# What actually has to be true is simpler and is not a magic number: the fly
+# must at some point have found the house *familiar*. Until that has happened
+# once, "this looks unfamiliar" carries no information, because everything does.
 NOVELTY_UNUSUAL = 0.35
 UNUSUAL_SECONDS = 120.0
-SETTLED_FLOOR = 0.10
+FAMILIAR_ONCE = 0.5     # novelty below this means it has learned the place
 
 # Learning where this house's dawn and dusk actually are.
 #
@@ -270,6 +280,7 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._wander_bearing = 0.0
         self._unusual_since: float | None = None
         self._unusual = False
+        self._ever_familiar = False
         # Learned photoperiod. Starts at the textbook 06:00/18:43 and moves to
         # wherever this house's light actually goes on and off.
         self._dawn_phase = 0.25
@@ -450,8 +461,24 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._dead_inputs = dead
 
         # --- looming: something moved suddenly -------------------------------
+        #
+        # Only entities somebody *listed*. Whole-house watching means "smell
+        # everything", not "be startled by everything", and conflating the two
+        # undoes the fix two sections down: a motion or occupancy flag arrives
+        # as a flat 0.9, which is over the escape threshold on its own, so any
+        # presence sensor derived from a ranging sensor fires the escape before
+        # the graded looming pathway gets a look at it.
+        #
+        # Measured on the demo after whole-house watching went in: the sweep
+        # pulled in binary_sensor.radar_presence and four simulated-occupancy
+        # sensors, and the fly bolted three times per ninety-second cycle all
+        # night instead of once per approach.
+        #
+        # Listing a motion sensor by hand says "startle the fly with this".
+        # Sweeping the house says nothing of the kind.
         motion_now = set()
-        for eid, st in states.items():
+        for eid in self.input_entities:
+            st = states.get(eid)
             if st is None or st.state != "on":
                 continue
             if st.attributes.get("device_class") in MOTION_CLASSES:
@@ -802,12 +829,14 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         now = dt_util.utcnow().timestamp()
         fired_before = self._unusual
 
-        if settled < SETTLED_FLOOR:
+        if novelty <= FAMILIAR_ONCE:
+            self._ever_familiar = True
+        if not self._ever_familiar:
             self._unusual_since = None
             self._unusual = False
             return {"unusual": False, "reason": "still learning what normal looks like",
                     "novelty": round(novelty, 4), "settled": round(settled, 4),
-                    "for_seconds": 0}
+                    "learned_the_place": False, "for_seconds": 0}
 
         if novelty >= NOVELTY_UNUSUAL:
             if self._unusual_since is None:
@@ -823,6 +852,7 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "unusual": self._unusual,
             "novelty": round(novelty, 4),
             "settled": round(settled, 4),
+            "learned_the_place": True,
             "for_seconds": int(held),
             "suspects": self._suspects() if self._unusual else [],
             "reason": ("the house does not look like itself" if self._unusual
@@ -1039,6 +1069,7 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 # actually having them.
                 "photoperiod": [self._dawn_phase, self._dusk_phase,
                                 self._photoperiod_seen],
+                "ever_familiar": bool(self._ever_familiar),
                 "adaptation": {
                     eid: [c.lo, c.hi, c.seen] for eid, c in self._adaptation.items()
                 },
@@ -1057,6 +1088,7 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._birth = dt_util.parse_datetime(saved["birth"]) or self._birth
             if saved.get("position"):
                 self.pos = np.asarray(saved["position"], dtype=np.float64)
+            self._ever_familiar = bool(saved.get("ever_familiar", False))
             if saved.get("photoperiod"):
                 dawn, dusk, seen = saved["photoperiod"]
                 self._dawn_phase, self._dusk_phase = float(dawn), float(dusk)

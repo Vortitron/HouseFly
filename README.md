@@ -323,6 +323,19 @@ changes, so including them would make every upgrade look like an intruder. So
 are HouseFly's own entities, which would otherwise have it smelling itself
 thinking.
 
+**Sweeping the house does not make it startle at everything.** A motion or
+occupancy flag arrives as a flat startle, which is over the escape threshold on
+its own — that is honest for a PIR, which carries no distance, and it is why a
+presence sensor *derived* from a ranging sensor has to be kept out of the
+inputs. Whole-house mode would have swept those straight back in, so the
+startle path reads only entities somebody listed by hand. Listing a motion
+sensor says "startle the fly with this"; sweeping the house says nothing of the
+kind.
+
+The demo found this the hard way: the sweep pulled in a radar-presence sensor
+and four simulated-occupancy sensors, and the fly bolted three times per
+ninety-second cycle all night instead of once per approach.
+
 **What it may touch** stays exactly what it was: a short, explicit list, capped
 at 16, restricted to a handful of domains, vetted by name, rate-limited, and
 off entirely until you turn it on. Locks, alarms, covers, climate, water
