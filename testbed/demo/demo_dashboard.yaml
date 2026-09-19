@@ -1,0 +1,164 @@
+# The public demo's Overview dashboard (url_path: lovelace, so it is what a
+# visitor lands on). Push it with:
+#   ha_save_dashboard(url_path="lovelace", config=<this file as JSON>)
+#
+# Hand-written rather than generated: the prose is the point. The entity ids
+# carry _2 suffixes where an earlier config entry left an orphan registry
+# entry behind and Home Assistant de-duplicated the slug.
+title: HouseFly
+views:
+- title: The fly
+  path: fly
+  icon: mdi:butterfly
+  cards:
+  - type: custom:housefly-overlay
+  - type: markdown
+    content: |-
+      # There is a fly on this page
+
+      It is **walking on these cards**. Every one is a landmark it can take a bearing to, and it moves on a real alternating tripod gait — feet planted while the body travels over them.
+
+      Its brain is **4,724 identified *Drosophila* neurons** wired by **126,108 measured synapses**, from the Janelia hemibrain and FlyWire connectomes. Nothing about it is a cartoon: the compass below is a ring attractor that falls out of the measured wiring, not something anyone programmed.
+
+      **Click the fly to swat at it.** Or use the slider below — that is the good one.
+  - type: entities
+    title: 🪰 Make it panic
+    show_header_toggle: false
+    entities:
+    - entity: input_number.approach_distance
+      name: Drag me down — how close you are
+    - entity: binary_sensor.housefly_escaping
+      name: Escaping (LPLC2 → DNp09/10/11)
+    - entity: sensor.approach_distance_2
+      name: What the fly senses
+  - type: markdown
+    content: |-
+      Closing the distance is what a real fly's **LPLC2** neurons are built to notice. They respond to an object *expanding* in the visual field, and the expansion rate goes as **θ̇ = v / r²** — so the same movement counts for far more up close than far away. That r² is why a real fly leaves it so late and then goes all at once.
+
+      Drag the slider from 5 m down to half a metre and watch **Escaping** flick on. It lasts about two seconds and then shuts off by itself, because escape is a burst, not a mood. Walking *away* does nothing — receding is not looming.
+  - type: entities
+    title: 📡 …or let the radar do it
+    show_header_toggle: false
+    entities:
+    - entity: binary_sensor.radar_presence
+      name: Presence
+    - entity: sensor.radar_moving_distance
+      name: Range to moving target
+    - entity: sensor.radar_moving_energy
+      name: Moving energy
+    - entity: input_boolean.simulated_occupant
+      name: Simulated occupant (turn off for an empty room)
+  - type: markdown
+    content: |-
+      The slider needs someone to drag it. This is the same signal **arriving on its own**: a simulated 24 GHz mmWave radar, modelled on an LD2410 in engineering mode, with someone walking past it every three minutes. They approach over about fourteen seconds, and then leave.
+
+      That is the honest version of the demo. A real radar reports the **range to a moving target** and how much energy it is seeing — and a range that is *closing* is precisely the quantity LPLC2 exists to compute. So the fly startles at a stranger walking up to the sensor without anyone touching anything, and settles again once they have gone.
+
+      It updates every five seconds, because a looming detector differencing samples a minute apart is measuring nothing at all.
+  - type: custom:housefly-brain-card
+  - type: entities
+    title: What it is doing
+    show_header_toggle: false
+    entities:
+    - {entity: sensor.housefly_mode, name: Mode}
+    - {entity: binary_sensor.housefly_awake, name: Awake}
+    - {entity: sensor.housefly_arousal, name: Arousal (its body clock)}
+    - {entity: sensor.housefly_heading, name: Heading (compass bump)}
+    - {entity: sensor.housefly_hunger, name: Hunger}
+  - type: entities
+    title: What it is thinking
+    show_header_toggle: false
+    entities:
+    - {entity: sensor.housefly_valence, name: Valence (approach / avoid)}
+    - {entity: sensor.housefly_memory, name: Memory (synapses depressed)}
+    - {entity: sensor.housefly_kenyon_cells_active, name: Kenyon cells active}
+    - {entity: sensor.housefly_network_activity, name: Network activity}
+  - type: entities
+    title: Interfere with it
+    show_header_toggle: false
+    entities:
+    - {type: call-service, name: Loom at it, icon: 'mdi:hand-back-right', service: fly_house.loom, service_data: {strength: 2}}
+    - {type: call-service, name: Feed it, icon: 'mdi:candy', service: fly_house.feed, service_data: {amount: 1}}
+    - {type: call-service, name: Wipe its memory, icon: 'mdi:delete-sweep', service: fly_house.reset_memory}
+- title: The house
+  path: house
+  icon: mdi:home
+  cards:
+  - type: custom:housefly-overlay
+  - type: markdown
+    content: Every device here is **fake** — a template on top of a toggle. Nothing
+      is wired to anything. Play with them freely; the fly is watching them and may
+      land on one and nudge it.
+  - type: entities
+    title: Lights — the fly may change these
+    entities: [light.kitchen_2, light.living_room, light.hallway, light.bedroom]
+  - type: entities
+    title: Sockets — the fly may change these
+    entities: [switch.kitchen_socket, switch.living_room_socket, switch.hallway_socket, switch.bedroom_socket]
+  - type: markdown
+    content: |-
+      ### These four it will not touch
+
+      HouseFly refuses them outright, by name, whatever anyone configures. A fly is not something you give write access to a boiler.
+
+      The safety layer also blocks whole domains it can never reach — locks, alarms, covers, climate, water heaters, valves — and rate-limits everything else. You can toggle them yourself; the fly cannot.
+  - type: entities
+    title: ⛔ Refused by the safety layer
+    entities: [switch.boiler_relay_2, switch.freezer_socket, switch.network_rack, switch.garage_door_motor]
+  - type: entities
+    title: Startle it with motion
+    entities: [input_boolean.kitchen_motion_trigger, input_boolean.living_room_motion_trigger, input_boolean.hallway_motion_trigger, input_boolean.bedroom_motion_trigger]
+  - type: entities
+    title: The radar in the hallway
+    entities: [binary_sensor.radar_presence, sensor.radar_moving_distance, sensor.radar_moving_energy, input_boolean.simulated_occupant]
+  - type: entities
+    title: What the rooms smell like to it
+    entities: [sensor.kitchen_temperature, sensor.living_room_temperature, sensor.hallway_temperature, sensor.bedroom_temperature]
+  - type: entities
+    title: Safety budget
+    entities:
+    - {entity: sensor.housefly_actuations_this_hour, name: Actuations this hour}
+- title: History
+  path: history
+  icon: mdi:chart-line
+  cards:
+  - type: custom:housefly-overlay
+  - type: markdown
+    content: |-
+      The fly has a **body clock** made of real clock neurons — s-LNv and l-LNv for morning, LNd and DN1 for evening. Nothing tells it to be active at dawn; those cells are driven by the time of day and arousal is read off their firing rate.
+
+      Over a day it should show the shape a real *Drosophila* does: a morning peak, a midday siesta, an evening peak, and quiet nights. If you have found it asleep in the middle of the day, that is not a fault — that is the siesta.
+  - type: history-graph
+    title: Arousal — dawn peak, midday siesta, evening peak
+    hours_to_show: 48
+    entities: [{entity: sensor.housefly_arousal, name: Arousal}]
+  - type: history-graph
+    title: Mode — it sleeps through the night and the early afternoon
+    hours_to_show: 48
+    entities: [{entity: sensor.housefly_mode, name: Mode}]
+  - type: history-graph
+    title: Escape — each spike is something that came at it
+    hours_to_show: 6
+    entities:
+    - {entity: binary_sensor.housefly_escaping, name: Escaping}
+    - {entity: sensor.approach_distance_2, name: Slider}
+    - {entity: sensor.radar_moving_distance, name: Radar}
+  - type: history-graph
+    title: The radar — someone walks past every three minutes
+    hours_to_show: 1
+    entities:
+    - {entity: sensor.radar_moving_distance, name: Range}
+    - {entity: binary_sensor.radar_presence, name: Presence}
+  - type: history-graph
+    title: Heading — a compass bump, integrated from its own turns
+    hours_to_show: 12
+    entities: [{entity: sensor.housefly_heading, name: Heading}]
+  - type: history-graph
+    title: Mushroom body — about 5% of Kenyon cells active at a time
+    hours_to_show: 12
+    entities: [{entity: sensor.housefly_kenyon_cells_active, name: Kenyon cells active}]
+  - type: markdown
+    content: |-
+      Written up in full at **[housefly.vome.io](https://housefly.vome.io)** · source at **[github.com/Vortitron/HouseFly](https://github.com/Vortitron/HouseFly)**
+
+      Hosted on [Vome](https://vome.io).
