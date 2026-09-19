@@ -152,6 +152,39 @@ TAU_ADAPT = 1.2
 ADAPT_GAIN = 3.0
 KC_SPARSENESS_TARGET = 0.05   # ~5% of Kenyon cells active, as measured in vivo
 
+# Familiarity, in the alpha'3 compartment.
+#
+# This is the one part of the fly that answers "what is it *for*". The mushroom
+# body's job is not to control anything -- it is to tell the animal whether it
+# has met this situation before. Dasgupta, Stevens & Navlakha (2017, Science)
+# showed the Kenyon cell layer is a locality-sensitive hash: a sparse random
+# projection whose codes stay close for similar inputs and separate for
+# different ones, which is an efficient novelty detector and was published as
+# one. Hattori et al. (2017, Cell) found the circuit that reads it out --
+# repeated exposure to an odour depresses KC->MBON-alpha'3 synapses whether or
+# not anything good or bad happened, so those cells fire hard for something new
+# and barely at all for something the fly has met many times.
+#
+# The compartment matters. Depressing the valence MBONs would confound "I have
+# seen this" with "this was bad", and they are genuinely separate compartments
+# in the animal: alpha'3 is MBON16, MBON17 and MBON28 in the hemibrain naming,
+# and none of them is one of the approach/avoid cells.
+#
+# Timescales are set for a house rather than for an odour-delivery rig. A
+# pattern that persists for a few minutes stops being news; six hours of not
+# seeing it makes it news again.
+NOVELTY_COMPARTMENT = ("MBON16", "MBON17", "MBON28")
+NOVELTY_DEPRESSION = 0.02     # per tick, at full presynaptic activity
+NOVELTY_RECOVERY = 1.2e-4     # per tick, back towards naive
+# A Kenyon cell counts as part of the code only above this rate. Without a
+# floor, the whole population habituates: every cell carries a little activity,
+# and over a few hundred ticks that is enough to make nothing novel ever again.
+# Measured with a graded trace, a genuinely new pattern sharing 12% of its cells
+# with a familiar one still read 0.386 instead of the ~0.88 the overlap implies.
+# The floor is the same one the sparse-code readout uses, which is the point --
+# it is the code, or it is not.
+KC_ACTIVE_FLOOR = 0.05
+
 
 def _threshold(x: np.ndarray) -> np.ndarray:
     """Threshold-linear rectification.
@@ -539,6 +572,33 @@ class FlyBrain:
         self.kc_mbon_gain = np.ones(len(self.kc_mbon_edges), dtype=np.float32)
         self.kc_mbon_base = d.weight[self.kc_mbon_edges].copy()
 
+        # The alpha'3 compartment, and the subset of KC->MBON synapses landing
+        # in it. Habituation acts on these and on nothing else.
+        types = np.asarray(d.types)
+        self.i_novelty = np.asarray(
+            [i for i in self.i_mbon if types[i] in NOVELTY_COMPARTMENT], dtype=np.int32)
+        in_novelty = np.zeros(d.n, dtype=bool)
+        in_novelty[self.i_novelty] = True
+        self.kc_novelty_mask = in_novelty[d.post[self.kc_mbon_edges]]
+        # Naive: every synapse at full strength, so the first thing it ever
+        # sees is maximally surprising. That is the correct starting state and
+        # it is why a fresh install reports everything as novel for a while.
+        # Habituation is held per Kenyon cell rather than per synapse, and the
+        # reason is a limit of the data rather than a modelling preference: the
+        # pack reconstructs 623 of the KC->alpha'3 synapses out of 20,391
+        # KC->MBON synapses in total, from 330 of 1,927 Kenyon cells. With ~25
+        # cells active at a time that is about four synapses carrying the
+        # readout, which is too thin to read a rate from -- measured, it sat at
+        # exactly zero for a hundred ticks and then jumped to 0.999.
+        #
+        # A presynaptic trace is well sampled, it is the same claim (a cell's
+        # output weakens where it has been active before), and it still drives
+        # the network through the alpha'3 edges.
+        self.kc_habituation = np.ones(len(self.i_kc), dtype=np.float32)
+        self.kc_slot = np.full(d.n, -1, dtype=np.int32)
+        self.kc_slot[self.i_kc] = np.arange(len(self.i_kc), dtype=np.int32)
+        self.novelty = 1.0
+
         # Compartment assignment, derived rather than hard-coded: an MBON
         # belongs to the compartment of whichever DAN class synapses onto it
         # most strongly. PAM compartments report reward, PPL1 punishment.
@@ -573,6 +633,7 @@ class FlyBrain:
         # Map each plastic edge to its postsynaptic MBON slot.
         self.kc_mbon_mbon_slot = slot[d.post[self.kc_mbon_edges]].astype(np.int32)
         self.kc_mbon_pre = d.pre[self.kc_mbon_edges]
+        self.kc_novelty_slot = self.kc_slot[self.kc_mbon_pre]
 
     # --------------------------------------------------------------- input
     def _sensory_drive(self, senses: "Senses") -> np.ndarray:
@@ -723,7 +784,15 @@ class FlyBrain:
         adapt_decay = np.float32(DT / TAU_ADAPT)
 
         w = d.weight.copy()
-        w[self.kc_mbon_edges] = self.kc_mbon_base * self.kc_mbon_gain
+        # Both plasticities ride on the same measured synapses, in different
+        # compartments: the valence memory everywhere, habituation only in
+        # alpha'3. The mask is what keeps them from becoming the same thing.
+        # Both plasticities ride on the same measured synapses, in different
+        # compartments: the valence memory everywhere, habituation only in
+        # alpha'3. The mask is what keeps them from becoming the same thing.
+        hab = np.where(self.kc_novelty_mask,
+                       self.kc_habituation[self.kc_novelty_slot], 1.0).astype(np.float32)
+        w[self.kc_mbon_edges] = self.kc_mbon_base * self.kc_mbon_gain * hab
 
         for _ in range(sub_steps):
             # Recurrent drive: every measured synapse, every step.
@@ -752,9 +821,34 @@ class FlyBrain:
         self.time_s += self._last_seconds
         self.tick += 1
         self._learn(senses)
+        self._habituate()
         return self._readout(senses)
 
     # ------------------------------------------------------------- learning
+    def _kc_code(self) -> np.ndarray:
+        """The active Kenyon ensemble, as a weight per cell.
+
+        Above the floor it is graded rather than binary, because a cell that is
+        barely in the code should not habituate as fast as one driven hard.
+        """
+        return np.tanh(np.maximum(self.rate[self.i_kc] - KC_ACTIVE_FLOOR, 0.0) * 12.0)
+
+    def _habituate(self) -> None:
+        """Depress KC->alpha'3 synapses for whatever is active, regardless of
+        whether anything good or bad happened.
+
+        No dopamine gate, which is the whole difference between this and
+        _learn: the valence memory needs a teacher and this does not. It is
+        unsupervised, and it is why the fly can tell you something is unusual
+        about a house nobody has ever labelled for it.
+        """
+        if not len(self.kc_mbon_edges):
+            return
+        act = self._kc_code()
+        self.kc_habituation -= NOVELTY_DEPRESSION * act
+        self.kc_habituation += NOVELTY_RECOVERY * (1.0 - self.kc_habituation)
+        np.clip(self.kc_habituation, 0.02, 1.0, out=self.kc_habituation)
+
     def _learn(self, senses: "Senses") -> None:
         """Dopamine-gated depression of KC->MBON synapses.
 
@@ -828,6 +922,21 @@ class FlyBrain:
             (clock - AROUSAL_LO) / (AROUSAL_HI - AROUSAL_LO), 0.0, 1.0
         ))
 
+        # Familiarity, read off the alpha'3 cells the way an experimenter
+        # would: their firing rate *is* the novelty signal, high for something
+        # new and low for something met many times. Reported against the
+        # un-habituated drive the same Kenyon ensemble would have produced when
+        # naive, so it is a proportion rather than a raw rate and does not
+        # depend on how many cells happen to be active.
+        if len(self.i_kc):
+            act = self._kc_code()
+            total = float(act.sum())
+            # No active Kenyon cells is not the same as "completely familiar",
+            # and reporting 0.0 for it said exactly the wrong thing. Nothing is
+            # being smelled, so the last real answer stands.
+            if total > 1e-6:
+                self.novelty = float(np.clip(
+                    float((act * self.kc_habituation).sum()) / total, 0.0, 1.0))
         kc = r[self.i_kc]
         kc_active = int((kc > 0.05).sum()) if kc.size else 0
 
@@ -863,6 +972,13 @@ class FlyBrain:
             "kc_sparseness": round(kc_active / max(kc.size, 1), 4),
             "mbon_activity": round(float(mbon.mean()) if mbon.size else 0.0, 4),
             "memory_depression": round(float(1.0 - self.kc_mbon_gain.mean()), 4),
+            "novelty": round(float(self.novelty), 4),
+            "familiarity": round(float(1.0 - self.novelty), 4),
+            # How much of the Kenyon population has been habituated at all.
+            # A fresh install has seen nothing, so everything is novel and
+            # "unusual" would mean nothing -- this is what lets the coordinator
+            # hold its tongue until the fly has some basis for an opinion.
+            "settled": round(float(1.0 - self.kc_habituation.mean()), 4),
             "network_activity": round(float(r.mean()), 5),
             "active_neurons": int((r > 0.05).sum()),
         }

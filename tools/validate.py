@@ -265,6 +265,41 @@ def main() -> int:
     check("the memory is a real population", len(brain.kc_mbon_gain) > 10_000,
           f"{len(brain.kc_mbon_gain):,} plastic synapses")
 
+    print("\n5b. It can tell familiar from unfamiliar, with nobody labelling anything")
+    # The claim behind binary_sensor.housefly_unusual. The Kenyon layer is a
+    # locality-sensitive hash (Dasgupta, Stevens & Navlakha 2017) and the
+    # alpha'3 compartment habituates to whatever it has met before (Hattori et
+    # al. 2017), so novelty falls with exposure and rises for something new --
+    # with no teaching signal anywhere, which is what separates this from the
+    # valence memory above.
+    def smell(seed):
+        rng = np.random.default_rng(seed)
+        v = np.zeros(40, dtype=np.float32)
+        v[rng.choice(40, 8, replace=False)] = rng.uniform(0.5, 1.2, 8)
+        return v
+
+    nov = circ.FlyBrain()
+    nov.settle()
+    first = nov.step(circ.Senses(odour=smell(1), time_of_day=0.4))["novelty"]
+    for _ in range(400):
+        out = nov.step(circ.Senses(odour=smell(1), time_of_day=0.4))
+    learned = out["novelty"]
+    stranger = nov.step(circ.Senses(odour=smell(2), time_of_day=0.4))["novelty"]
+    for _ in range(300):
+        nov.step(circ.Senses(odour=smell(2), time_of_day=0.4))
+    back = nov.step(circ.Senses(odour=smell(1), time_of_day=0.4))["novelty"]
+
+    check("something new registers as novel", first > 0.8,
+          f"first sight {first:.3f}")
+    check("and stops being novel once it has been around a while",
+          learned < 0.15, f"after 400 ticks {learned:.3f}")
+    check("a pattern it has never met reads as more novel than one it knows",
+          stranger > back * 2.0,
+          f"stranger {stranger:.3f} against the familiar one at {back:.3f}")
+    check("none of which needed a teaching signal",
+          abs(nov.kc_mbon_gain.mean() - 1.0) < 1e-3,
+          "the valence memory is untouched -- this is unsupervised habituation")
+
     print("\n6. Looming drives the escape pathway, then stops")
     brain = circ.FlyBrain()
     brain.settle()

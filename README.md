@@ -253,6 +253,48 @@ stays undirected, which is at least true to DNp09. `tools/validate.py` checks
 those counts, so the day someone builds a pack from a whole-brain
 reconstruction, the check fails and this paragraph becomes wrong on purpose.
 
+### What it is *for*
+
+The honest answer is not "it saves you power". A fly has no concept of your
+electricity bill, and bolting one on would be a rules engine in a fly costume.
+But the mushroom body — the largest thing modelled here — does compute
+something a house genuinely wants, and it is the thing rules engines are worst
+at.
+
+**It tells familiar from unfamiliar.** Dasgupta, Stevens & Navlakha (2017,
+*Science*) showed the Kenyon cell layer is a locality-sensitive hash: a sparse
+random projection whose codes stay close for similar inputs and far apart for
+different ones, which is an efficient novelty detector and was published as
+one. Hattori et al. (2017, *Cell*) found the readout — repeated exposure
+depresses KC→MBON synapses in the α′3 compartment whether or not anything good
+or bad happened, so those cells fire hard for something new and barely at all
+for something met many times.
+
+Both are in the pack: α′3 is MBON16, MBON17 and MBON28, and none of them is one
+of the approach/avoid cells, so familiarity cannot be confused with valence.
+
+```
+ first sight of a pattern       novelty 0.989
+ after 400 ticks of it          novelty 0.025
+ a pattern never met before     novelty 0.558
+ the familiar one, for contrast novelty 0.123
+```
+
+`binary_sensor.housefly_unusual` is that, made slow enough to be worth saying:
+it stays silent until it has actually learned something, then wants two minutes
+of sustained strangeness before it speaks. **No training set, no labels, no
+cloud** — it learns what your house is like by living in it. And it will never
+tell you *what* changed, only that something has, which is precisely the thing
+a rule cannot do, because you would have had to write the rule first.
+
+One implementation note, because it is a limit of the data rather than a
+choice. Habituation is held per Kenyon cell, not per synapse: the pack
+reconstructs 623 of the KC→α′3 synapses out of 20,391 KC→MBON synapses, from
+330 of 1,927 Kenyon cells. With about 25 cells active at a time that is roughly
+four synapses carrying the readout — measured, it sat at exactly zero for a
+hundred ticks and then jumped to 0.999. A presynaptic trace is well sampled, it
+is the same claim, and it still drives the network through the α′3 edges.
+
 ### It has a memory, and the memory is synapses
 
 Learning in *Drosophila* happens at Kenyon cell → MBON synapses: a Kenyon cell

@@ -138,6 +138,30 @@ SENSORS: tuple[FlySensorDescription, ...] = (
         },
     ),
     FlySensorDescription(
+        key="familiarity",
+        name="Familiarity",
+        icon="mdi:head-question-outline",
+        native_unit_of_measurement=PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        # How much of the house, right now, looks like something it has met
+        # before. This is the mushroom body doing the job it evolved for.
+        #
+        # Dasgupta, Stevens & Navlakha (2017) showed the Kenyon cell layer is a
+        # locality-sensitive hash: a sparse random projection whose codes stay
+        # close for similar inputs and separate for different ones. Hattori et
+        # al. (2017) found the readout -- repeated exposure depresses KC->MBON
+        # synapses in the alpha'3 compartment whether or not anything good or
+        # bad happened, so those cells answer "have I met this?" and nothing
+        # else. No labels, no training set, no cloud: it learns what your house
+        # is like by living in it.
+        value=lambda d, c: round(100.0 * (1.0 - d.get("novelty", 0.0)), 1),
+        attrs=lambda d, c: {
+            "novelty": d.get("novelty", 0.0),
+            **{k: v for k, v in d.get("unusual", {}).items() if k != "novelty"},
+            "compartment": "MBON16 / MBON17 / MBON28 (alpha-prime-3)",
+        },
+    ),
+    FlySensorDescription(
         key="approach",
         name="Approach",
         icon="mdi:arrow-collapse-right",

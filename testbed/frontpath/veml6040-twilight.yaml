@@ -1,0 +1,241 @@
+# Additions for FrontPath_BLE_Processing_v3.yaml — colour as a twilight cue.
+#
+# NOT a replacement firmware. Paste these pieces into v3 and the rest stays as
+# it is. Nothing here has been flashed or compiled; the device was offline.
+#
+# ---------------------------------------------------------------------------
+# Why colour is the right sensor for this, and why intensity never worked
+# ---------------------------------------------------------------------------
+#
+# A path light wants to know "is the sun going down", and a lux threshold
+# cannot answer that, because a dark cloud at two in the afternoon and civil
+# twilight look identical to it. That is almost certainly why the TEMT6000
+# never gave a usable number: it was being asked a question it does not have
+# the information to answer.
+#
+# Colour does have the information. At twilight the sun is below the horizon
+# and the sky is lit by light that has taken a long slant path through the
+# atmosphere, where ozone's Chappuis band absorbs in the orange and red. The
+# result is the blue hour: the sky goes strongly blue-shifted. A cloud does
+# nothing of the sort -- cloud droplets are large compared with the wavelength,
+# so they scatter more or less neutrally and dim the sky without much changing
+# its colour.
+#
+# So **B/R separates sunset from weather, and lux alone cannot**. That is the
+# whole idea, and it is one measurement rather than a pile of heuristics.
+#
+# It is also what the animal does. Drosophila entrains its clock on both
+# intensity and spectral composition -- cryptochrome is blue-sensitive and the
+# eye contributes its own opsins -- which is how a fly tells dusk from shade.
+#
+# ---------------------------------------------------------------------------
+# 1. Auto-ranging integration time
+# ---------------------------------------------------------------------------
+#
+# v3 fixes the VEML6040 at 80 ms (CONF 0x10), which is 0.12584 lx per count.
+# At dusk that is a coarse ruler for exactly the range that matters: the
+# difference between "nearly dark" and "dark" is a handful of counts, and it
+# will look like noise.
+#
+# At 1280 ms it is 0.007865 lx per count -- sixteen times finer. So use the
+# short integration in daylight, where the sensor would otherwise saturate, and
+# the long one once it gets dim.
+#
+# One gotcha that bites: **after changing the integration time the next reading
+# is stale.** The part needs a full integration period before the new setting
+# means anything, so a read immediately after a write returns the previous
+# conversion. v3's poll writes CONF then reads straight away; at a fixed 80 ms
+# that is harmless because the setting never changes, but with auto-ranging it
+# would report the wrong scale on every switch. The script below handles it by
+# only changing range at the *end* of a poll, so the next poll is 10 s later.
+
+globals:
+  # Current integration-time index: 1 = 80 ms (bright), 5 = 1280 ms (dim).
+  - id: veml_it_index
+    type: int
+    restore_value: no
+    initial_value: '1'
+
+  # Smoothed twilight index, so a passing headlight does not redefine dusk.
+  - id: twilight_smoothed
+    type: float
+    restore_value: no
+    initial_value: '1.2'
+
+script:
+  # Replaces the poll_veml6040 script in v3.
+  - id: poll_veml6040
+    then:
+      - lambda: |-
+          const uint8_t addr = ${veml6040_address};
+          static uint32_t last_fail_log_ms = 0;
+
+          // CONF bits 6:4 are the integration time. Bit 1 = AF (0 = auto),
+          // bit 0 = SD (0 = powered on).
+          //   index 0 = 40 ms   0x00     index 3 = 320 ms  0x30
+          //   index 1 = 80 ms   0x10     index 4 = 640 ms  0x40
+          //   index 2 = 160 ms  0x20     index 5 = 1280 ms 0x50
+          static const uint8_t IT_CONF[6] = {0x00, 0x10, 0x20, 0x30, 0x40, 0x50};
+          // Lux per green count, from the Vishay application note. Each step
+          // doubles the integration and halves the coefficient.
+          static const float IT_LUX[6] = {0.25168f, 0.12584f, 0.06292f,
+                                          0.03146f, 0.01573f, 0.007865f};
+          // Full scale in counts is the same (16 bit); what changes is what it
+          // is worth. Switch down before clipping and up before losing detail.
+          static const uint16_t COUNT_HIGH = 55000;   // approaching saturation
+          static const uint16_t COUNT_LOW  = 2000;    // wasting resolution
+
+          int it = id(veml_it_index);
+          if (it < 0) it = 0;
+          if (it > 5) it = 5;
+
+          auto fail = [&](const char *why) -> void {
+            uint32_t now = millis();
+            if (now - last_fail_log_ms > 60000) {
+              ESP_LOGW("veml6040", "%s (addr=0x%02X SDA=GPIO4 SCL=GPIO5).", why, addr);
+              last_fail_log_ms = now;
+            }
+            id(veml_lux).publish_state(NAN);
+            id(veml_twilight).publish_state(NAN);
+            id(veml_greyness).publish_state(NAN);
+            id(light_level).publish_state(NAN);
+            id(veml_sky).publish_state("unavailable");
+          };
+
+          const uint8_t conf[2] = {IT_CONF[it], 0x00};
+          if (id(frontpath_i2c)->write_register(addr, 0x00, conf, 2) != i2c::ERROR_OK) {
+            fail("VEML6040 configure failed");
+            return;
+          }
+
+          auto read_u16 = [&](uint8_t reg, uint16_t *out) -> bool {
+            uint8_t data[2];
+            if (id(frontpath_i2c)->read_register(addr, reg, data, 2) != i2c::ERROR_OK) return false;
+            *out = (uint16_t) data[0] | ((uint16_t) data[1] << 8);
+            return true;
+          };
+
+          uint16_t raw_r = 0, raw_g = 0, raw_b = 0, raw_w = 0;
+          if (!read_u16(0x08, &raw_r) || !read_u16(0x09, &raw_g) ||
+              !read_u16(0x0A, &raw_b) || !read_u16(0x0B, &raw_w)) {
+            fail("VEML6040 read failed");
+            return;
+          }
+
+          const float lux = (float) raw_g * IT_LUX[it];
+          float light_pct = lux / ${veml6040_lux_full_scale} * 100.0f;
+          if (light_pct < 0.0f) light_pct = 0.0f;
+          if (light_pct > 100.0f) light_pct = 100.0f;
+
+          // The twilight index. Blue over red, straight from the counts -- no
+          // colour-space conversion, nothing to get wrong, and it is monotonic
+          // in exactly the thing being asked about.
+          //
+          //   clear midday       ~1.2 - 1.6
+          //   overcast           ~1.0 - 1.3   (dim, but NOT blue)
+          //   civil twilight     ~1.8 - 3.0   (the blue hour)
+          //   sodium street lamp ~0.3 - 0.6   (strongly red; a useful negative)
+          //
+          // Note the last one. If the path light itself is warm, it will drag
+          // this down once it comes on, so read this before switching, or gate
+          // it on the light being off.
+          float twilight = NAN;
+          if (raw_r > 8) {
+            twilight = (float) raw_b / (float) raw_r;
+            if (twilight > 10.0f) twilight = 10.0f;
+            // Smooth hard: dusk takes twenty minutes, a car takes two seconds.
+            float a = 0.15f;
+            if (std::isnan(id(twilight_smoothed))) id(twilight_smoothed) = twilight;
+            id(twilight_smoothed) = a * twilight + (1.0f - a) * id(twilight_smoothed);
+          }
+          const float tw = id(twilight_smoothed);
+
+          float greyness = NAN;
+          float maxc = std::max((float) raw_r, std::max((float) raw_g, (float) raw_b));
+          float minc = std::min((float) raw_r, std::min((float) raw_g, (float) raw_b));
+          if (maxc > 0.0f && lux >= 2.0f) greyness = (1.0f - ((maxc - minc) / maxc)) * 100.0f;
+
+          // Classification, now able to tell dim-because-evening from
+          // dim-because-weather, which the intensity-only version could not.
+          const char *sky = "Night";
+          bool is_dusk = false;
+          if (lux < 1.0f) {
+            sky = "Night";
+          } else if (lux < 120.0f && tw >= 1.75f) {
+            sky = "Twilight";          // dim AND blue: the sun is going down
+            is_dusk = true;
+          } else if (lux < 120.0f) {
+            sky = "Dark overcast";     // dim but neutral: it is just weather
+          } else if (!std::isnan(greyness) && greyness >= 75.0f) {
+            sky = "Overcast";
+          } else if (tw >= 1.6f) {
+            sky = "Clear blue";
+          } else {
+            sky = "Sun";
+          }
+
+          id(veml_lux).publish_state(lux);
+          id(veml_twilight).publish_state(tw);
+          id(veml_greyness).publish_state(greyness);
+          id(light_level).publish_state(light_pct);
+          id(veml_sky).publish_state(sky);
+          id(veml_is_dusk).publish_state(is_dusk);
+          id(veml_red).publish_state((float) raw_r);
+          id(veml_green).publish_state((float) raw_g);
+          id(veml_blue).publish_state((float) raw_b);
+          id(veml_white).publish_state((float) raw_w);
+
+          // Re-range LAST, so the next poll (10 s away) reads the new setting
+          // after a full integration period rather than returning the old one.
+          uint16_t peak = std::max(raw_r, std::max(raw_g, std::max(raw_b, raw_w)));
+          if (peak > COUNT_HIGH && it > 0) {
+            id(veml_it_index) = it - 1;
+            ESP_LOGI("veml6040", "Bright (peak=%u) -> integration index %d", peak, it - 1);
+          } else if (peak < COUNT_LOW && it < 5) {
+            id(veml_it_index) = it + 1;
+            ESP_LOGI("veml6040", "Dim (peak=%u) -> integration index %d", peak, it + 1);
+          }
+
+          ESP_LOGD("veml6040", "R=%u G=%u B=%u W=%u it=%d lux=%.2f B/R=%.2f grey=%.0f%% sky=%s",
+                   raw_r, raw_g, raw_b, raw_w, it, lux, tw, greyness, sky);
+
+sensor:
+  - platform: template
+    name: "Twilight Index"
+    id: veml_twilight
+    state_class: measurement
+    accuracy_decimals: 2
+    icon: mdi:weather-sunset
+    update_interval: never
+
+binary_sensor:
+  # The one to drive the lights from. True when it is dim *and* blue, so a
+  # cloud at midday does not switch the path on and a warm lamp does not
+  # convince it the sun came back up.
+  - platform: template
+    name: "Dusk"
+    id: veml_is_dusk
+    device_class: light
+    filters:
+      - delayed_on: 120s
+      - delayed_off: 300s
+
+# ---------------------------------------------------------------------------
+# 2. What to do with it, and what HouseFly would add
+# ---------------------------------------------------------------------------
+#
+# On its own: `binary_sensor.dusk` AND `sensor.path_person_position` closing is
+# the whole rule. Dusk says "lights are allowed"; theta-dot says "somebody is
+# actually walking up". Neither is a threshold on a noisy number.
+#
+# HouseFly's part is theta-dot, which it already publishes as
+# sensor.housefly_approach -- v/r^2 from the ranging sensor, near zero for
+# someone far off or dawdling and climbing steeply as they close. Add
+# sensor.path_person_position to its approach_entities and read that sensor.
+#
+# The obvious next step, not built yet: feed lux and the twilight index to the
+# clock neurons as a zeitgeber. HouseFly's circadian circuit currently runs on
+# the clock alone, and a real fly entrains to light -- which is precisely what
+# the blue hour is for. That would make its dawn and dusk yours rather than the
+# calendar's, and it is a genuine use for the colour channel rather than a
+# decorative one.

@@ -73,6 +73,24 @@ LOOM_MAX_RANGE = 8.0       # metres; beyond this it is not looming at anything
 LOOM_MAX_AGE = 6.0         # seconds; older readings cannot be differenced
 DISTANCE_UNITS = {"cm": 0.01, "mm": 0.001, "m": 1.0, "km": 1000.0}
 
+# Calling something unusual.
+#
+# The mushroom body reports how novel the house looks right now, and that is a
+# per-tick figure that flickers. Saying "this is unusual" is a slower claim and
+# needs two guards.
+#
+# NOVELTY_UNUSUAL   measured separation is about 0.56 for a pattern the fly has
+#                   never met against 0.12 for one it knows well, so the line
+#                   sits between them rather than at either end.
+# UNUSUAL_SECONDS   it has to stay there. A single odd tick is a sensor
+#                   twitching; two minutes of it is the house being different.
+# SETTLED_FLOOR     and the fly must have learned something first. A fresh
+#                   install has habituated nothing, so everything is novel and
+#                   an alert would be worthless.
+NOVELTY_UNUSUAL = 0.35
+UNUSUAL_SECONDS = 120.0
+SETTLED_FLOOR = 0.10
+
 # How long a state change stays interesting, and how much it pulls.
 NOVELTY_SECONDS = 90.0
 NOVELTY_APPEAL = 0.8
@@ -218,6 +236,8 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._goal_entity: str | None = None
         self._goal_bearing = 0.0
         self._wander_bearing = 0.0
+        self._unusual_since: float | None = None
+        self._unusual = False
         self._position_from_card = False
         self._actions: list[dict[str, Any]] = []
         self._birth = dt_util.utcnow()
@@ -596,6 +616,7 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             result["dead_inputs"] = self._dead_inputs
             result["approach_sensors"] = len(self.approach_entities)
             result["approach"] = self._approach
+            result["unusual"] = self._assess_novelty(result)
             result["goal_bearing_deg"] = round(math.degrees(self._goal_bearing), 1)
             result["live_inputs"] = len(self.input_entities) - len(self._dead_inputs)
             result["recent_actions"] = self._actions[-5:]
@@ -603,6 +624,46 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return result
         except Exception as err:  # noqa: BLE001
             raise UpdateFailed(f"HouseFly tick failed: {err}") from err
+
+    def _assess_novelty(self, result: dict[str, Any]) -> dict[str, Any]:
+        """Turn the per-tick novelty figure into a claim worth making.
+
+        This is the closest thing the fly has to a purpose, and it is not one
+        that was grafted on: telling familiar from unfamiliar is what the
+        mushroom body is *for*. It needs no training data, no labels and no
+        cloud, because it is unsupervised by construction -- it learns what your
+        house is like by living in it, and says so when the house stops looking
+        like that.
+        """
+        novelty = float(result.get("novelty", 0.0))
+        settled = float(result.get("settled", 0.0))
+        now = dt_util.utcnow().timestamp()
+
+        if settled < SETTLED_FLOOR:
+            self._unusual_since = None
+            self._unusual = False
+            return {"unusual": False, "reason": "still learning what normal looks like",
+                    "novelty": round(novelty, 4), "settled": round(settled, 4),
+                    "for_seconds": 0}
+
+        if novelty >= NOVELTY_UNUSUAL:
+            if self._unusual_since is None:
+                self._unusual_since = now
+            held = now - self._unusual_since
+            self._unusual = held >= UNUSUAL_SECONDS
+        else:
+            self._unusual_since = None
+            self._unusual = False
+            held = 0.0
+
+        return {
+            "unusual": self._unusual,
+            "novelty": round(novelty, 4),
+            "settled": round(settled, 4),
+            "for_seconds": int(held),
+            "reason": ("the house does not look like itself" if self._unusual
+                       else "nothing it has not seen before"),
+        }
 
     def _advance_position(self, result: dict[str, Any]) -> None:
         """Move the body the way the motor output says to.
