@@ -1,0 +1,1682 @@
+substitutions:
+  ld2410_sensor1_mac: B8:BE:51:7D:71:44
+  ld2410_sensor2_mac: 14:AA:8C:58:66:02
+  ld2410_password: "HiLink"
+  sensor_throttle: '500ms'
+
+esphome:
+  name: frontpath
+  friendly_name: FrontPath BLE Processing
+  on_boot:
+    priority: -100
+    then:
+      - binary_sensor.template.publish:
+          id: sensor1_connected
+          state: OFF
+      - binary_sensor.template.publish:
+          id: sensor2_connected
+          state: OFF
+
+esp32:
+  board: esp32-c3-devkitm-1
+  framework:
+    type: esp-idf
+    sdkconfig_options:
+      CONFIG_BT_BLE_42_FEATURES_SUPPORTED: y
+
+logger:
+  level: INFO
+  logs:
+    sensor: WARN
+    ble_sensor: WARN
+    esp32_ble_client: INFO
+    detect: INFO
+
+api:
+  encryption:
+    key: !secret frontpath_encryption_key
+  reboot_timeout: 15min
+
+ota:
+  - platform: esphome
+    password: !secret frontpath_ota_password
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  power_save_mode: NONE
+  fast_connect: false
+  reboot_timeout: 15min
+  output_power: 13.5dB
+
+# Globals for detection state
+globals:
+  - id: sensor1_gates
+    type: float[9]
+    restore_value: no
+    initial_value: '{0,0,0,0,0,0,0,0,0}'
+  
+  - id: sensor2_gates
+    type: float[9]
+    restore_value: no
+    initial_value: '{0,0,0,0,0,0,0,0,0}'
+  
+  - id: sensor1_gate_avg
+    type: float[9]
+    restore_value: no
+    initial_value: '{20,20,20,20,20,20,20,20,20}'  # Start at 20 to reduce false positives on boot
+  
+  - id: sensor2_gate_avg
+    type: float[9]
+    restore_value: no
+    initial_value: '{20,20,20,20,20,20,20,20,20}'  # Start at 20 to reduce false positives on boot
+
+  # Last time each gate was "active" (used to make binary pattern sticky / avoid flicker)
+  - id: sensor1_gate_last_on_ms
+    type: uint32_t[9]
+    restore_value: no
+    initial_value: '{0,0,0,0,0,0,0,0,0}'
+  
+  - id: sensor2_gate_last_on_ms
+    type: uint32_t[9]
+    restore_value: no
+    initial_value: '{0,0,0,0,0,0,0,0,0}'
+  
+  - id: sensor1_moving_energy
+    type: float
+    restore_value: no
+    initial_value: '0'
+  
+  - id: sensor2_moving_energy
+    type: float
+    restore_value: no
+    initial_value: '0'
+  
+  - id: sensor1_moving_avg
+    type: float
+    restore_value: no
+    initial_value: '20'  # Start at 20 to reduce false positives on boot
+  
+  - id: sensor2_moving_avg
+    type: float
+    restore_value: no
+    initial_value: '20'  # Start at 20 to reduce false positives on boot
+
+  # Stationary/static energy (helps reject wind/leaf/string flutter)
+  - id: sensor1_static_energy
+    type: float
+    restore_value: no
+    initial_value: '0'
+  
+  - id: sensor2_static_energy
+    type: float
+    restore_value: no
+    initial_value: '0'
+  
+  - id: sensor1_static_avg
+    type: float
+    restore_value: no
+    initial_value: '20'
+  
+  - id: sensor2_static_avg
+    type: float
+    restore_value: no
+    initial_value: '20'
+  
+  - id: sensor1_has_target
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+  
+  - id: sensor2_has_target
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+  - id: sensor1_has_static_target
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+  
+  - id: sensor2_has_static_target
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+  # Internal fast person-detected state (no HA delay filters); used to allow stationary gating once we know it's a person
+  - id: person_detected_internal
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+  # Last parsed moving gate index (0=closest..8=farthest from that sensor). -1 = none.
+  - id: sensor1_motion_gate_idx
+    type: int
+    restore_value: no
+    initial_value: '-1'
+  
+  - id: sensor2_motion_gate_idx
+    type: int
+    restore_value: no
+    initial_value: '-1'
+
+  # Door-side quick trigger: both sensors are mounted mid-path and point outward.
+  # Gate numbering matches LD2410 distance gates: gate 1 is near the sensor, gate 8 is the far end.
+  # For the DOOR-pointing sensor, "door_8" should correspond to the actual door (farthest gate).
+  # If we see valid motion in far gates, treat it as a person immediately.
+  - id: door_quick_trigger_raw_gate_max
+    type: int
+    restore_value: no
+    initial_value: '8'
+  
+  - id: door_quick_trigger_raw_gate_min
+    type: int
+    restore_value: no
+    initial_value: '7'
+  
+  - id: energy_margin_pct
+    type: float
+    restore_value: no
+    initial_value: '12.0'  # Hardcoded (v3): match current tuned value
+  
+  - id: gate_trigger_floor_pct
+    type: float
+    restore_value: no
+    initial_value: '10.0'  # Hardcoded (v3): match current tuned value
+  
+  - id: gate_delta_margin_pct
+    type: float
+    restore_value: no
+    initial_value: '2.0'  # Hardcoded (v3): match current tuned value
+  
+  - id: path_length_m
+    type: float
+    restore_value: no
+    initial_value: '16.0'
+  
+  - id: avg_alpha
+    type: float
+    restore_value: no
+    initial_value: '0.0083'
+
+  # When energy drops below baseline, decay baseline faster so calm days recover quickly
+  - id: avg_alpha_down
+    type: float
+    restore_value: no
+    initial_value: '0.05'
+
+  # Require stationary/static confirmation to count as "real" movement (filters wind/string)
+  - id: require_static_confirmation
+    type: bool
+    restore_value: no
+    initial_value: 'true'
+
+  - id: static_energy_min
+    type: float
+    restore_value: no
+    initial_value: '23.0'
+
+  # Require static energy to rise above its baseline by this amount (adaptive vs wind)
+  - id: static_energy_delta_min
+    type: float
+    restore_value: no
+    initial_value: '12.0'
+
+  # Static confirmation is very effective against wind flutter, but it can be too strict at long range.
+  # Only require static confirmation up to this gate index (near the sensor box); allow far gates to use moving-only.
+  # 0 disables this feature (static confirmation applies to all gates if require_static_confirmation is on).
+  - id: static_confirmation_max_gate
+    type: int
+    restore_value: no
+    initial_value: '3'
+
+  # NOTE (legacy): kept for backwards-compatibility with older configs.
+  # Current mapping uses direct gate numbering (door_1..door_8 == LD2410 gates 1..8).
+  # This value is no longer used for clamping/merging.
+  - id: door_max_gate_reported
+    type: int
+    restore_value: no
+    initial_value: '8'
+
+  # Adaptive sensitivity bias for the door-side sensor (sensor2).
+  # Negative = more sensitive (smaller LD2410 sensitivity values).
+  - id: door_sensitivity_bias
+    type: int
+    restore_value: no
+    initial_value: '-3'
+
+  # Door-end (far gates 7-8) extra sensitivity boost for the DOOR-pointing sensor (sensor2).
+  # This is applied on top of the existing distance bias. Higher = more sensitive.
+  - id: door_far_sensitivity_boost
+    type: int
+    restore_value: no
+    initial_value: '22'
+  
+  # Door-end (gates 7-8) extra floor bonus (reduces dynamic gate floor, making it easier to trigger).
+  - id: door_far_floor_bonus
+    type: float
+    restore_value: no
+    initial_value: '14.5'
+
+  # Street-side tuning (sensor1): increase sensitivity for far gates, and reduce sensitivity for near gates.
+  - id: street_far_sensitivity_boost
+    type: int
+    restore_value: no
+    initial_value: '8'
+  
+  - id: street_near_sensitivity_penalty
+    type: int
+    restore_value: no
+    initial_value: '6'
+  
+  - id: street_far_floor_bonus
+    type: float
+    restore_value: no
+    initial_value: '6.0'
+  
+  - id: ignore_gate0
+    type: bool
+    restore_value: no
+    initial_value: 'true'  # Completely ignore gate 0 (0-75cm) from both sensors
+  
+  - id: ignore_gate1
+    type: bool
+    restore_value: no
+    initial_value: 'false'  # Optionally ignore gate 1 (75-150cm) from both sensors
+  
+  - id: require_sequential_gates
+    type: bool
+    restore_value: no
+    initial_value: 'true'
+  
+  - id: enable_overall_energy_detection
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+  # Wind hardening: near gates (closest to the radars) can spike with small flutter.
+  # This adds a small "persistence" requirement ONLY when the activity is near-only
+  # (i.e., no far gates are active). Far-end/door detection remains immediate.
+  - id: near_gate_guard_enabled
+    type: bool
+    restore_value: no
+    initial_value: 'true'
+  
+  # Gates <= this index are treated as "near" (1 is near sensor, 8 is far/end).
+  - id: near_gate_idx_max
+    type: int
+    restore_value: no
+    initial_value: '3'
+  
+  # How many consecutive near-only hits are required to trigger (with 500ms throttle, 2 ~= ~1s).
+  - id: near_gate_streak_required
+    type: int
+    restore_value: no
+    initial_value: '3'
+  
+  # Time window for consecutive near-only hits to count as a streak.
+  - id: near_gate_streak_window_ms
+    type: uint32_t
+    restore_value: no
+    initial_value: '1200'
+  
+  # Near-only trigger hardening: a single near gate can chatter in wind. Require it to look "person-like".
+  - id: near_gate_hot_required
+    type: int
+    restore_value: no
+    initial_value: '1'   # keep default permissive; tune to 2 if you want stricter near-only behaviour
+  
+  - id: near_gate_change_window_ms
+    type: uint32_t
+    restore_value: no
+    initial_value: '1500'
+  
+  # If only one near gate is hot, require at least this moving energy to allow triggering.
+  - id: near_single_gate_energy_min
+    type: float
+    restore_value: no
+    initial_value: '55.0'
+  
+  - id: light_min_voltage
+    type: float
+    restore_value: no
+    initial_value: '0.05'  # Nighttime voltage (V)
+  
+  - id: light_max_voltage
+    type: float
+    restore_value: no
+    initial_value: '2.0'  # Bright day voltage (V)
+  
+  - id: last_active_gate_str
+    type: std::string
+    restore_value: no
+    initial_value: '"none"'
+  
+  - id: last_active_gate_time
+    type: uint32_t
+    restore_value: no
+    initial_value: '0'
+  
+  - id: gate_hold_time_ms
+    type: uint32_t
+    restore_value: no
+    initial_value: '5000'  # Hold active gate for 5 seconds after it drops
+  
+  # Track when gate 2+ was last active (for sequential validation with history)
+  - id: sensor1_gate2plus_last_active
+    type: uint32_t
+    restore_value: no
+    initial_value: '0'
+  
+  - id: sensor2_gate2plus_last_active
+    type: uint32_t
+    restore_value: no
+    initial_value: '0'
+  
+  - id: sequential_lookback_ms
+    type: uint32_t
+    restore_value: no
+    initial_value: '5000'  # Hardcoded (v3): match current tuned value
+  
+  # Track last active gate number for sequential validation
+  - id: last_triggered_gate
+    type: int
+    restore_value: no
+    initial_value: '-1'  # -1 = no gate, 0-8 = gate number
+  
+  - id: last_triggered_gate_time
+    type: uint32_t
+    restore_value: no
+    initial_value: '0'
+  
+  # Adaptive sensitivity settings
+  - id: adaptive_sensitivity_enabled
+    type: bool
+    restore_value: no
+    initial_value: 'true'
+  
+  - id: sensitivity_update_interval_ms
+    type: uint32_t
+    restore_value: no
+    initial_value: '300000'  # 5 minutes default
+  
+  - id: last_sensitivity_update
+    type: uint32_t
+    restore_value: no
+    initial_value: '0'
+  
+  # Store current device sensitivities (0-100, lower = more sensitive)
+  - id: sensor1_gate_sensitivity
+    type: int[9]
+    restore_value: yes
+    initial_value: '{40,40,38,36,32,28,26,24,22}'  # Bias far gates to be more sensitive
+  
+  - id: sensor2_gate_sensitivity
+    type: int[9]
+    restore_value: yes
+    initial_value: '{40,40,38,36,32,28,26,24,22}'
+
+# LD2410 BLE Command Helper Functions
+script:
+  # Send LD2410 command to sensor 1
+  - id: send_ld2410_command_sensor1
+    parameters:
+      command_data: std::vector<uint8_t>
+    then:
+      - ble_client.ble_write:
+          id: ld2410_sensor1
+          service_uuid: 0000fff0-0000-1000-8000-00805f9b34fb
+          characteristic_uuid: 0000fff2-0000-1000-8000-00805f9b34fb
+          value: !lambda |-
+            // Build LD2410 command frame
+            std::vector<uint8_t> frame;
+            frame.push_back(0xFD); frame.push_back(0xFC); frame.push_back(0xFB); frame.push_back(0xFA);  // Header
+            
+            uint16_t len = command_data.size();
+            frame.push_back(len & 0xFF); frame.push_back((len >> 8) & 0xFF);  // Length
+            
+            frame.insert(frame.end(), command_data.begin(), command_data.end());  // Command data
+            
+            frame.push_back(0x04); frame.push_back(0x03); frame.push_back(0x02); frame.push_back(0x01);  // Tail
+            ESP_LOGI("ld2410_cmd", "Sensor 1: Sending command (%d bytes)", frame.size());
+            return frame;
+  
+  # Send LD2410 command to sensor 2
+  - id: send_ld2410_command_sensor2
+    parameters:
+      command_data: std::vector<uint8_t>
+    then:
+      - ble_client.ble_write:
+          id: ld2410_sensor2
+          service_uuid: 0000fff0-0000-1000-8000-00805f9b34fb
+          characteristic_uuid: 0000fff2-0000-1000-8000-00805f9b34fb
+          value: !lambda |-
+            std::vector<uint8_t> frame;
+            frame.push_back(0xFD); frame.push_back(0xFC); frame.push_back(0xFB); frame.push_back(0xFA);
+            
+            uint16_t len = command_data.size();
+            frame.push_back(len & 0xFF); frame.push_back((len >> 8) & 0xFF);
+            
+            frame.insert(frame.end(), command_data.begin(), command_data.end());
+            
+            frame.push_back(0x04); frame.push_back(0x03); frame.push_back(0x02); frame.push_back(0x01);
+            ESP_LOGI("ld2410_cmd", "Sensor 2: Sending command (%d bytes)", frame.size());
+            return frame;
+  
+  # Auto-calibrate sensor 1
+  - id: auto_calibrate_sensor1
+    then:
+      - if:
+          condition:
+            binary_sensor.is_on: sensor1_connected
+          then:
+            - lambda: |-
+                ESP_LOGI("ld2410_cal", "Sensor 1: Starting auto-calibration (keep area clear for 20s)");
+                // Enter config mode
+                std::vector<uint8_t> enter_config = {0xFF, 0x00, 0x01, 0x00};
+                id(send_ld2410_command_sensor1).execute(enter_config);
+            - delay: 100ms
+            - lambda: |-
+                // Auto calibrate command
+                std::vector<uint8_t> auto_cal = {0xA3, 0x00};
+                id(send_ld2410_command_sensor1).execute(auto_cal);
+            - delay: 20s  # Wait longer to stabilize baseline
+            - lambda: |-
+                if (!id(sensor1_connected)) {
+                  ESP_LOGW("ld2410_cal", "Sensor 1: waiting for reconnect to exit config");
+                }
+            - wait_until:
+                condition:
+                  lambda: 'return id(sensor1_connected);'
+            - lambda: |-
+                // Exit config mode after reconnect
+                std::vector<uint8_t> exit_config = {0xFE, 0x00};
+                id(send_ld2410_command_sensor1).execute(exit_config);
+                ESP_LOGI("ld2410_cal", "Sensor 1: Auto-calibration complete (20s)");
+          else:
+            - logger.log: "Sensor 1 not connected - skipping calibration"
+  
+  # Auto-calibrate sensor 2
+  - id: auto_calibrate_sensor2
+    then:
+      - if:
+          condition:
+            binary_sensor.is_on: sensor2_connected
+          then:
+            - lambda: |-
+                ESP_LOGI("ld2410_cal", "Sensor 2: Starting auto-calibration (keep area clear for 20s)");
+                std::vector<uint8_t> enter_config = {0xFF, 0x00, 0x01, 0x00};
+                id(send_ld2410_command_sensor2).execute(enter_config);
+            - delay: 100ms
+            - lambda: |-
+                std::vector<uint8_t> auto_cal = {0xA3, 0x00};
+                id(send_ld2410_command_sensor2).execute(auto_cal);
+            - delay: 20s  # Wait longer to stabilize baseline
+            - lambda: |-
+                if (!id(sensor2_connected)) {
+                  ESP_LOGW("ld2410_cal", "Sensor 2: waiting for reconnect to exit config");
+                }
+            - wait_until:
+                condition:
+                  lambda: 'return id(sensor2_connected);'
+            - lambda: |-
+                std::vector<uint8_t> exit_config = {0xFE, 0x00};
+                id(send_ld2410_command_sensor2).execute(exit_config);
+                ESP_LOGI("ld2410_cal", "Sensor 2: Auto-calibration complete (20s)");
+          else:
+            - logger.log: "Sensor 2 not connected - skipping calibration"
+  
+  # Write sensitivity to sensor 1 device
+  - id: write_sensitivity_sensor1
+    then:
+      - if:
+          condition:
+            binary_sensor.is_on: sensor1_connected
+          then:
+            - lambda: |-
+                std::vector<uint8_t> enter_config = {0xFF, 0x00, 0x01, 0x00};
+                id(send_ld2410_command_sensor1).execute(enter_config);
+            - delay: 100ms
+            - lambda: |-
+                std::vector<uint8_t> sens_data;
+                sens_data.push_back(0x64); sens_data.push_back(0x00);
+                for (int i = 0; i < 9; i++) {
+                  sens_data.push_back((uint8_t)id(sensor1_gate_sensitivity)[i]);
+                }
+                for (int i = 0; i < 9; i++) {
+                  sens_data.push_back((uint8_t)id(sensor1_gate_sensitivity)[i]);
+                }
+                id(send_ld2410_command_sensor1).execute(sens_data);
+                ESP_LOGI("adaptive", "S1: Sent sensitivity update");
+            - delay: 100ms
+            - lambda: |-
+                std::vector<uint8_t> exit_config = {0xFE, 0x00};
+                id(send_ld2410_command_sensor1).execute(exit_config);
+          else:
+            - logger.log: "Sensor 1 not connected - skip sensitivity write"
+  
+  # Write sensitivity to sensor 2 device
+  - id: write_sensitivity_sensor2
+    then:
+      - if:
+          condition:
+            binary_sensor.is_on: sensor2_connected
+          then:
+            - lambda: |-
+                std::vector<uint8_t> enter_config = {0xFF, 0x00, 0x01, 0x00};
+                id(send_ld2410_command_sensor2).execute(enter_config);
+            - delay: 100ms
+            - lambda: |-
+                std::vector<uint8_t> sens_data;
+                sens_data.push_back(0x64); sens_data.push_back(0x00);
+                for (int i = 0; i < 9; i++) {
+                  sens_data.push_back((uint8_t)id(sensor2_gate_sensitivity)[i]);
+                }
+                for (int i = 0; i < 9; i++) {
+                  sens_data.push_back((uint8_t)id(sensor2_gate_sensitivity)[i]);
+                }
+                id(send_ld2410_command_sensor2).execute(sens_data);
+                ESP_LOGI("adaptive", "S2: Sent sensitivity update");
+            - delay: 100ms
+            - lambda: |-
+                std::vector<uint8_t> exit_config = {0xFE, 0x00};
+                id(send_ld2410_command_sensor2).execute(exit_config);
+          else:
+            - logger.log: "Sensor 2 not connected - skip sensitivity write"
+  
+  # Update adaptive sensitivity for both sensors
+  - id: update_adaptive_sensitivity
+    then:
+      - lambda: |-
+          if (!id(adaptive_sensitivity_enabled)) return;
+          
+          uint32_t now = millis();
+          if ((now - id(last_sensitivity_update)) < id(sensitivity_update_interval_ms)) return;
+          
+          id(last_sensitivity_update) = now;
+          
+          ESP_LOGI("adaptive", "Updating device sensitivity based on learned baselines");
+          
+          // For each gate 1-8, calculate target sensitivity based on baseline noise
+          // Higher baseline = more noise = need higher sensitivity value (less sensitive)
+          // Target sensitivity = 30 + (baseline * 0.5), clamped to 20-80
+          
+          for (int i = 1; i < 9; i++) {
+            // Sensor 1
+            float baseline1 = id(sensor1_gate_avg)[i];
+            int target_sens1 = 30 + (int)(baseline1 * 0.5);
+            // Bias far gates (higher index) to be more sensitive (helps detection at the ends)
+            int bias = (i - 1) * 3;          // 0..21 for gates 1..8
+            target_sens1 -= bias;
+            // Extra street-side tuning knobs:
+            // - near gates are most prone to flutter => make them less sensitive
+            // - far gates need to pick up people at the street end => make them more sensitive
+            if (i <= 3) target_sens1 += id(street_near_sensitivity_penalty);
+            if (i >= 7) target_sens1 -= id(street_far_sensitivity_boost);
+            // Clamp: allow far end to get more sensitive than the near end
+            int min_s1 = (i >= 7) ? 10 : 15;
+            if (target_sens1 < min_s1) target_sens1 = min_s1;
+            if (target_sens1 > 80) target_sens1 = 80;
+            
+            if (target_sens1 != id(sensor1_gate_sensitivity)[i]) {
+              id(sensor1_gate_sensitivity)[i] = target_sens1;
+              ESP_LOGI("adaptive", "S1 Gate %d: baseline=%.1f → sensitivity=%d", i, baseline1, target_sens1);
+            }
+            
+            // Sensor 2
+            float baseline2 = id(sensor2_gate_avg)[i];
+            int target_sens2 = 30 + (int)(baseline2 * 0.5);
+            int bias2 = (i - 1) * 3;
+            target_sens2 -= bias2;
+            // Door-side bias (negative => more sensitive)
+            target_sens2 += id(door_sensitivity_bias);
+            // Extra boost for far end (door side needs to pick up motion at ~6m)
+            if (i >= 7) target_sens2 -= id(door_far_sensitivity_boost);
+            // Allow more sensitivity at the far end than the near gates
+            int min_s2 = (i >= 7) ? 5 : 10;
+            if (target_sens2 < min_s2) target_sens2 = min_s2;
+            // Keep door side from becoming *too* insensitive (helps "moving" classification)
+            if (target_sens2 > 65) target_sens2 = 65;
+            
+            if (target_sens2 != id(sensor2_gate_sensitivity)[i]) {
+              id(sensor2_gate_sensitivity)[i] = target_sens2;
+              ESP_LOGI("adaptive", "S2 Gate %d: baseline=%.1f → sensitivity=%d", i, baseline2, target_sens2);
+            }
+          }
+          
+          // Queue sensitivity write scripts
+          id(write_sensitivity_sensor1).execute();
+          id(write_sensitivity_sensor2).execute();
+          ESP_LOGI("adaptive", "Queued sensitivity write to devices");
+  
+  - id: start_sensor1
+    then:
+      - delay: !lambda 'return (rand() % 3000) + 1000;'
+      - lambda: id(ld2410_sensor1)->set_enabled(true);
+  
+  - id: start_sensor2
+    then:
+      - delay: !lambda 'return (rand() % 3000) + 3000;'
+      - lambda: id(ld2410_sensor2)->set_enabled(true);
+  
+  - id: calculate_person_detection
+    then:
+      - lambda: |-
+          const char *TAG = "detect";
+          
+          float margin = id(energy_margin_pct);
+          float gate_floor = id(gate_trigger_floor_pct);
+          float gate_delta_margin = id(gate_delta_margin_pct);
+          
+          // Per-sensor dynamic per-gate floors:
+          // - Near gates (1-2) are the noisiest (wind/string sway close to the radar) => require a higher margin.
+          // - Door sensor far gates (7-8) are where the physical door end is => allow a little extra sensitivity.
+          float gate_floor_s1[9];
+          float gate_floor_s2[9];
+          // Wind hardening: gates 1-3 are physically closest to the radar and most prone to “small stuff” noise.
+          const float NEAR_GATE_PENALTY = 14.0f;  // harder to trigger near the sensor
+          float door_far_bonus = id(door_far_floor_bonus);  // easier to trigger at the far end on the door-pointing sensor
+          if (door_far_bonus < 0.0f) door_far_bonus = 0.0f;
+          float street_far_bonus = id(street_far_floor_bonus);  // easier to trigger at the far end on the street-pointing sensor
+          if (street_far_bonus < 0.0f) street_far_bonus = 0.0f;
+
+          for (int i = 0; i < 9; i++) {
+            float base1 = id(sensor1_gate_avg)[i];
+            float base2 = id(sensor2_gate_avg)[i];
+            float f1 = std::max(gate_floor, base1 + gate_delta_margin);
+            float f2 = std::max(gate_floor, base2 + gate_delta_margin);
+
+            if (i >= 1 && i <= 3) {
+              f1 += NEAR_GATE_PENALTY;
+              f2 += NEAR_GATE_PENALTY;
+            }
+
+            // Door sensor (sensor2) far end boost (gates 7-8): prioritize sensitivity at the actual door end
+            if (i >= 7) {
+              f2 = std::max(gate_floor, f2 - door_far_bonus);
+            }
+            // Street sensor (sensor1) far end boost (gates 7-8): prioritize sensitivity at the actual street end
+            if (i >= 7) {
+              f1 = std::max(gate_floor, f1 - street_far_bonus);
+            }
+
+            gate_floor_s1[i] = f1;
+            gate_floor_s2[i] = f2;
+          }
+          
+          // Overall energy check
+          float s1 = id(sensor1_moving_energy);
+          float s2 = id(sensor2_moving_energy);
+          float base1 = id(sensor1_moving_avg);
+          float base2 = id(sensor2_moving_avg);
+          float delta1 = s1 - base1;
+          float delta2 = s2 - base2;
+          bool moving1_raw = id(sensor1_has_target);
+          bool moving2_raw = id(sensor2_has_target);
+          bool static1_raw = id(sensor1_has_static_target);
+          bool static2_raw = id(sensor2_has_static_target);
+          float st1 = id(sensor1_static_energy);
+          float st2 = id(sensor2_static_energy);
+          
+          bool require_static = id(require_static_confirmation);
+          float static_min = id(static_energy_min);
+          float static_delta_min = id(static_energy_delta_min);
+          
+          float st1_base = id(sensor1_static_avg);
+          float st2_base = id(sensor2_static_avg);
+          float st1_delta = st1 - st1_base;
+          float st2_delta = st2 - st2_base;
+          
+          // Static confirmation is adaptive: must either (a) stationary flag, or (b) exceed baseline by delta,
+          // and also exceed an absolute minimum (so baseline at 0 doesn't let tiny deltas through).
+          bool static_ok_1 = static1_raw || ((st1 >= static_min) && (st1_delta >= static_delta_min));
+          bool static_ok_2 = static2_raw || ((st2 >= static_min) && (st2_delta >= static_delta_min));
+          
+          // IMPORTANT:
+          // We already apply "static confirmation only for near gates" inside the BLE parsers via
+          // `static_confirmation_max_gate`. The parsers set `*_motion_gate_idx` to -1 when motion is not valid.
+          // So here, treat "moving" as "parser accepted motion", otherwise far-gate motion can never trigger.
+          bool moving1 = (id(sensor1_motion_gate_idx) >= 0);
+          bool moving2 = (id(sensor2_motion_gate_idx) >= 0);
+          
+          // Gate analysis with dynamic per-gate floor
+          float gate_peak = 0;
+          int gates_hot = 0;
+          float gate_delta_max = 0;
+          float gate_over_base_max = 0;
+          bool ignore_g0 = id(ignore_gate0);
+          bool ignore_g1 = id(ignore_gate1);
+          bool require_seq = id(require_sequential_gates);
+          uint32_t now = millis();
+          uint32_t seq_lookback = id(sequential_lookback_ms);
+          
+          // Near-only activity tracking (anti-wind): require a short streak before triggering.
+          int near_max = id(near_gate_idx_max);
+          if (near_max < 1) near_max = 1;
+          if (near_max > 8) near_max = 8;
+          bool near_active = false;
+          bool far_active  = false;
+          
+          static uint32_t near_last_ms = 0;
+          static int near_streak = 0;
+          static int near_last_gate_idx = -1;
+          static uint32_t near_gate_changed_ms = 0;
+          // Physical layout:
+          // - Sensor 1 points toward the street end; Sensor 2 points toward the door end.
+          // - Gate numbering matches LD2410: gate 1 is near the sensor, gate 8 is far (end of path).
+          // Naming we publish:
+          // - street_N == LD2410 gate N on sensor 1
+          // - door_N   == LD2410 gate N on sensor 2
+          
+           // Check if any gate 1+ is currently active AND update last-seen timers (skip only gate 0 = door itself)
+           bool sensor1_gate2plus_now = false;
+           bool sensor2_gate2plus_now = false;
+           std::string active_gates_str = "";
+           
+           // Build active gate list in a predictable order for humans:
+           // door_8..door_1, then street_1..street_8.
+           // Also update the "last active" timers for sequential lookback.
+           for (int i = 8; i >= 1; i--) {
+             float gf2 = gate_floor_s2[i];
+             if (id(sensor2_gates)[i] >= gf2) {
+               sensor2_gate2plus_now = true;
+               id(sensor2_gate2plus_last_active) = now;
+               if (active_gates_str != "") active_gates_str += ",";
+               active_gates_str += "door_" + std::to_string(i);
+             }
+           }
+           for (int i = 1; i < 9; i++) {
+             float gf1 = gate_floor_s1[i];
+             if (id(sensor1_gates)[i] >= gf1) {
+               sensor1_gate2plus_now = true;
+               id(sensor1_gate2plus_last_active) = now;
+               if (active_gates_str != "") active_gates_str += ",";
+               active_gates_str += "street_" + std::to_string(i);
+             }
+           }
+           // Track near vs far activity using either sensor's per-gate floors.
+           for (int i = 1; i < 9; i++) {
+             float gf1 = gate_floor_s1[i];
+             float gf2 = gate_floor_s2[i];
+             bool any_here = (id(sensor1_gates)[i] >= gf1) || (id(sensor2_gates)[i] >= gf2);
+             if (any_here) {
+               if (i <= near_max) near_active = true;
+               else far_active = true;
+             }
+           }
+           
+           // Log which gates 1+ are active (1=door threshold, 2+=further out)
+           static std::string last_active_gates = "";
+           if (active_gates_str != last_active_gates && active_gates_str != "") {
+             ESP_LOGI(TAG, "  Gates 1+: %s", active_gates_str.c_str());
+             last_active_gates = active_gates_str;
+           } else if (active_gates_str == "" && last_active_gates != "") {
+             last_active_gates = "";
+           }
+          
+          // Check if gate 2+ was RECENTLY active (within lookback window)
+          bool sensor1_gate2plus_recent = (now - id(sensor1_gate2plus_last_active)) < seq_lookback;
+          bool sensor2_gate2plus_recent = (now - id(sensor2_gate2plus_last_active)) < seq_lookback;
+          bool gate2plus_active = sensor1_gate2plus_now || sensor2_gate2plus_now;  // For other checks
+          bool gate2plus_recent = sensor1_gate2plus_recent || sensor2_gate2plus_recent;
+          
+          for (int i = 0; i < 9; i++) {
+            // Skip only gate 0 (0-75cm, literally the door); gate 1+ (75cm+) is valid
+            if (i < 1) continue;
+            
+            // Legacy gate 0 ignore (already handled above)
+            if (i == 0 && ignore_g0) continue;
+            
+            // Legacy gate 1 ignore (but we want gate 1 for door detection now)
+            if (i == 1 && ignore_g1) continue;
+            
+            float gf1 = gate_floor_s1[i];
+            float gf2 = gate_floor_s2[i];
+            float g1 = id(sensor1_gates)[i];
+            float g2 = id(sensor2_gates)[i];
+            float b1 = id(sensor1_gate_avg)[i];
+            float b2 = id(sensor2_gate_avg)[i];
+
+            float peak_here = std::max(g1, g2);
+            if (peak_here > gate_peak) gate_peak = peak_here;
+
+            if (g1 >= gf1 || g2 >= gf2) gates_hot++;
+
+            float delta_g1 = g1 - gf1;
+            float delta_g2 = g2 - gf2;
+            if (delta_g1 > gate_delta_max) gate_delta_max = delta_g1;
+            if (delta_g2 > gate_delta_max) gate_delta_max = delta_g2;
+
+            // How far above the learned baseline (not the raised floor) are we?
+            // This avoids “double counting” gate_delta_margin when used as a guard.
+            float ob1 = g1 - b1;
+            float ob2 = g2 - b2;
+            if (ob1 > gate_over_base_max) gate_over_base_max = ob1;
+            if (ob2 > gate_over_base_max) gate_over_base_max = ob2;
+          }
+          
+          // Find which gate is currently most active (for sequential validation)
+          int current_hot_gate = -1;
+          float current_hot_energy = 0;
+          for (int i = 1; i < 9; i++) {  // Check gates 1-8
+            float g1 = id(sensor1_gates)[i];
+            float g2 = id(sensor2_gates)[i];
+            float gf1 = gate_floor_s1[i];
+            float gf2 = gate_floor_s2[i];
+            float best_here = 0;
+            if (g1 >= gf1) best_here = std::max(best_here, g1);
+            if (g2 >= gf2) best_here = std::max(best_here, g2);
+            if (best_here > current_hot_energy) {
+              current_hot_energy = best_here;
+              current_hot_gate = i;
+            }
+          }
+          
+          // Sequential gate validation: require any 2 consecutive descending gates to TRIGGER
+          // E.g., 8→7, 7→6, 6→5, or 5→4
+          // Once triggered, any gate keeps detection active
+          bool sequential_valid = false;
+          
+          if (current_hot_gate >= 2) {
+            int last_gate = id(last_triggered_gate);
+            uint32_t time_since_last = now - id(last_triggered_gate_time);
+            
+            // Only consider sequential if at least one sensor reports moving
+            bool any_moving = moving1 || moving2;
+            
+            // If no previous gate, allow and track it (but do not trigger yet)
+            if (last_gate == -1) {
+              id(last_triggered_gate) = current_hot_gate;
+              id(last_triggered_gate_time) = now;
+              sequential_valid = false;  // Need 2 gates, not just 1
+            }
+            // If current gate is exactly 1 less than previous (descending) AND moving, trigger!
+            else if (current_hot_gate == last_gate - 1 && time_since_last <= 3000 && any_moving) {
+              sequential_valid = true;
+              id(last_triggered_gate) = current_hot_gate;
+              id(last_triggered_gate_time) = now;
+            }
+            // If same gate or time expired, just update tracking
+            else if (time_since_last > 3000) {
+              id(last_triggered_gate) = current_hot_gate;
+              id(last_triggered_gate_time) = now;
+              sequential_valid = false;
+            }
+          }
+          
+          // Reset sequential tracking if no gates active for 3 seconds
+          if (current_hot_gate == -1 && (now - id(last_triggered_gate_time)) > 3000) {
+            id(last_triggered_gate) = -1;
+          }
+          
+          // Detection
+          bool use_overall_energy = id(enable_overall_energy_detection);
+          bool cond_energy = use_overall_energy && (delta1 >= margin || delta2 >= margin) && (moving1 || moving2);
+          // Gate condition: only when moving is detected and a gate beats its per-sensor dynamic floor
+          bool cond_gate = false;
+          if ((moving1 || moving2)) {
+            for (int i = 1; i < 9; i++) {
+              if (id(sensor1_gates)[i] >= gate_floor_s1[i] || id(sensor2_gates)[i] >= gate_floor_s2[i]) {
+                cond_gate = true;
+                break;
+              }
+            }
+          }
+          // IMPORTANT:
+          // `gate_delta_max` is a noise metric (how far a gate exceeds its dynamic floor).
+          // It must NOT be allowed to trigger detection on its own, otherwise wind can latch us "detected"
+          // with `moving=0`. Only use it as an additional guard *together with* motion / sequential mode.
+          // Guard against small flutter: require a meaningful rise above baseline (not just barely beating floor).
+          bool cond_delta_guard = gate_over_base_max >= gate_delta_margin;
+          
+          // Near-door quick trigger (so lights reliably come on when you reach the door)
+          int s2_gate = id(sensor2_motion_gate_idx);
+          bool door_quick = moving2 &&
+                            (s2_gate >= id(door_quick_trigger_raw_gate_min)) &&
+                            (s2_gate <= id(door_quick_trigger_raw_gate_max));
+          
+          // If sequential mode is enabled, require the actual sequential validation (and it already requires moving).
+          bool cond_sequential = require_seq && sequential_valid;
+
+          // Gate trigger should only happen on real motion, and we also apply the delta guard to reject flutter.
+          bool cond_gate_strict = cond_gate && cond_delta_guard;
+
+          bool detected_raw = cond_energy || cond_gate_strict || cond_sequential || door_quick;
+          
+          // Apply near-only streak guard:
+          // - If ONLY near gates are active (near_active && !far_active), require a short streak before allowing detection.
+          // - Far-end detection stays immediate (far_active), and door_quick always bypasses (it's inherently far-end).
+          bool near_only = near_active && !far_active;
+          if (id(near_gate_guard_enabled) && near_only && !door_quick) {
+            uint32_t win = id(near_gate_streak_window_ms);
+            int req = id(near_gate_streak_required);
+            if (req < 1) req = 1;
+            if (win < 250) win = 250;
+            
+            if (detected_raw) {
+              if (near_last_ms != 0 && (now - near_last_ms) <= win) near_streak++;
+              else near_streak = 1;
+              near_last_ms = now;
+            } else {
+              if (near_last_ms != 0 && (now - near_last_ms) > win) near_streak = 0;
+            }
+            
+            if (near_streak < req) {
+              detected_raw = false;
+            }
+
+            // Additional near-only hardening: if we're still a candidate, make sure it looks "person-like".
+            if (detected_raw) {
+              // Track gate changes while in near-only mode.
+              if (current_hot_gate >= 1 && current_hot_gate <= near_max) {
+                if (near_last_gate_idx != -1 && current_hot_gate != near_last_gate_idx) {
+                  near_gate_changed_ms = now;
+                }
+                near_last_gate_idx = current_hot_gate;
+              }
+
+              int hot_req = id(near_gate_hot_required);
+              if (hot_req < 1) hot_req = 1;
+
+              uint32_t change_win = id(near_gate_change_window_ms);
+              if (change_win < 250) change_win = 250;
+              bool gate_changed_recently = (near_gate_changed_ms != 0) && ((now - near_gate_changed_ms) <= change_win);
+
+              float single_gate_min_e = id(near_single_gate_energy_min);
+              if (single_gate_min_e < 0.0f) single_gate_min_e = 0.0f;
+              float move_e_max = std::max(s1, s2);
+
+              // If only 1 gate is hot, require either a recent gate-change OR higher moving energy.
+              // If multiple gates are hot (across both sensors), treat as person-sized.
+              bool ok_person_like = (gates_hot >= hot_req) || gate_changed_recently || (move_e_max >= single_gate_min_e);
+              if (!ok_person_like) detected_raw = false;
+            }
+          } else {
+            // If we're not in near-only mode, don't let old near streaks influence anything.
+            near_streak = 0;
+            near_last_ms = 0;
+            near_last_gate_idx = -1;
+            near_gate_changed_ms = 0;
+          }
+          
+          // SIMPLIFIED HYSTERESIS: Trigger immediately, but require sustained clearing to turn off
+          static int clear_count = 0;
+          static bool last_detected_state = false;
+          static uint32_t detected_since_ms = 0;
+          bool detected = last_detected_state;
+          
+          if (detected_raw) {
+            // Immediate trigger - no waiting
+            detected = true;
+            clear_count = 0;
+            if (!last_detected_state) detected_since_ms = now;
+          } else {
+            // Count consecutive clears to turn off
+            if (detected) {
+              // Keep detected ON for a minimum time so HA's delayed_on can actually turn lights on.
+              const uint32_t MIN_ON_MS = 1200;
+              if (detected_since_ms != 0 && (now - detected_since_ms) < MIN_ON_MS) {
+                // Hold ON, do not advance clear_count yet
+              } else {
+                clear_count++;
+                if (clear_count >= 5) {  // Need 5 consecutive clears to turn OFF
+                  detected = false;
+                  clear_count = 0;
+                  detected_since_ms = 0;
+                }
+              }
+            }
+          }
+          last_detected_state = detected;
+           
+           // VERBOSE LOGGING - Show what's happening
+           static bool last_detected = false;
+           static uint32_t last_log_time = 0;
+           uint32_t now_ms = millis();
+           
+          // Log clearing state
+          if (!detected_raw && detected && clear_count > 0) {
+            static int last_clear_count = 0;
+            if (clear_count != last_clear_count) {
+              ESP_LOGI(TAG, "  Waiting to clear... (%d/5)", clear_count);
+              last_clear_count = clear_count;
+            }
+          }
+           
+           // Log detection changes
+           if (detected != last_detected) {
+             if (detected) {
+               ESP_LOGI(TAG, ">>> PERSON DETECTED <<<");
+              ESP_LOGI(TAG, "  Trigger: energy=%d gate=%d sequential=%d door_quick=%d near_only=%d", cond_energy, cond_gate_strict, cond_sequential, door_quick, (int) (near_active && !far_active));
+               ESP_LOGI(TAG, "  Gates: peak=%.1f hot=%d (floor=%.1f)", gate_peak, gates_hot, gate_floor);
+               ESP_LOGI(TAG, "  Motion: S1=%d E=%.0f | S2=%d E=%.0f", moving1, id(sensor1_moving_energy), moving2, id(sensor2_moving_energy));
+             } else {
+               ESP_LOGI(TAG, "<<< PERSON CLEARED >>> (after %d clears)", clear_count);
+             }
+             last_detected = detected;
+             last_log_time = now_ms;
+           }
+           
+           // Periodic status while detected (every 2 seconds)
+           if (detected && (now_ms - last_log_time > 2000)) {
+             ESP_LOGI(TAG, "  Still detected: peak=%.1f hot=%d delta_max=%.1f", gate_peak, gates_hot, gate_delta_max);
+             last_log_time = now_ms;
+           }
+          
+          id(person_detected_internal) = detected;
+          id(person_detected).publish_state(detected);
+          
+          // Calculate position (best-effort; accuracy is secondary to reliable detection)
+          const float GATE_SPAN = 0.75;
+          float path_length = id(path_length_m);
+
+          // Sensor 1 = street direction, Sensor 2 = door direction
+          int door_idx = -1, street_idx = -1;
+          float door_energy = 0, street_energy = 0;
+          
+          for (int i = 0; i < 9; i++) {
+            // Skip gate 0 if ignore flag is set
+            if (i == 0 && ignore_g0) continue;
+            
+            // Skip gate 1 if ignore flag is set OR sequential required and no gate 2+ recently active
+            if (i == 1 && (ignore_g1 || (require_seq && !gate2plus_recent))) continue;
+            
+            // Street-facing sensor gates
+            float g1 = id(sensor1_gates)[i];
+            // Door-facing sensor gates
+            float g2 = id(sensor2_gates)[i];
+            if (g2 > door_energy) {
+              door_energy = g2;
+              door_idx = i;
+            }
+            if (g1 > street_energy) {
+              street_energy = g1;
+              street_idx = i;
+            }
+          }
+          
+          // Door-end gating is special: door_7/8 can represent the physical door opening/closing.
+          // We want it to be able to TRIGGER (lights on), but we do NOT want it to steal the active gate/position
+          // while someone is walking mid-path.
+          bool door_end_gate = (door_idx >= 7);
+          bool prefer_non_door_end_for_position = door_end_gate && (street_energy >= gate_floor) && (street_idx >= 1);
+          
+          // Prefer the farthest recently-active door gate for publishing (helps show progression toward the end),
+          // but ONLY when we don't have strong street-side activity (otherwise door movement can dominate).
+          uint32_t hold_time = id(gate_hold_time_ms);
+          if (!prefer_non_door_end_for_position) {
+            for (int i = 8; i >= 1; i--) {
+              if ((now - id(sensor2_gate_last_on_ms)[i]) < hold_time) {
+                door_idx = i;
+                // Ensure door_energy stays above floor so position/active_gate logic can use it
+                door_energy = std::max(door_energy, gate_floor);
+                break;
+              }
+            }
+          }
+          
+          float pos = 0;
+          if (door_energy >= gate_floor || street_energy >= gate_floor) {
+            if (!prefer_non_door_end_for_position && door_energy >= street_energy) {
+              pos = path_length - (door_idx + 0.5) * GATE_SPAN;
+            } else {
+              pos = (street_idx + 0.5) * GATE_SPAN;
+            }
+          }
+          
+          if (pos < 0) pos = 0;
+          if (pos > path_length) pos = path_length;
+          id(person_position).publish_state(pos);
+          
+          // Active gate with sticky/hold logic
+          std::string active_gate = "none";
+          uint32_t hold_time2 = id(gate_hold_time_ms);
+          
+          // Determine current active gate (without hold)
+          // Gate numbering is direct: 1 near sensor, 8 far end.
+          if (!prefer_non_door_end_for_position && door_energy >= gate_floor && door_energy >= street_energy) {
+            if (door_idx >= 1) active_gate = "door_" + std::to_string(door_idx);
+          } else if (street_energy >= gate_floor) {
+            if (street_idx >= 1) active_gate = "street_" + std::to_string(street_idx);
+          }
+          
+           // If a gate is currently active, update the hold timer
+           static std::string last_published_gate = "none";
+           if (active_gate != "none") {
+             id(last_active_gate_str) = active_gate;
+             id(last_active_gate_time) = now;
+             if (active_gate != last_published_gate) {
+              ESP_LOGI(TAG, "  Active Gate: %s (door_energy=%.1f street_energy=%.1f)",
+                       active_gate.c_str(), door_energy, street_energy);
+              ESP_LOGI(TAG, "    Motion:   S1 move=%d E=%.0f | S2 move=%d E=%.0f",
+                       id(sensor1_has_target), id(sensor1_moving_energy),
+                       id(sensor2_has_target), id(sensor2_moving_energy));
+              ESP_LOGI(TAG, "    Static:   S1 stat=%d E=%.0f base=%.0f d=%.0f | S2 stat=%d E=%.0f base=%.0f d=%.0f (min=%.0f dmin=%.0f req=%d)",
+                       id(sensor1_has_static_target), id(sensor1_static_energy),
+                       id(sensor1_static_avg), id(sensor1_static_energy) - id(sensor1_static_avg),
+                       id(sensor2_has_static_target), id(sensor2_static_energy),
+                       id(sensor2_static_avg), id(sensor2_static_energy) - id(sensor2_static_avg),
+                       id(static_energy_min), id(static_energy_delta_min),
+                       id(require_static_confirmation));
+             }
+           }
+           // Otherwise, check if we should hold the last gate
+           else if ((now - id(last_active_gate_time)) < hold_time2) {
+             active_gate = id(last_active_gate_str);  // Hold previous gate
+             if (active_gate != last_published_gate) {
+               ESP_LOGI(TAG, "  Holding Gate: %s (%.1fs remain)", 
+                        active_gate.c_str(), (hold_time2 - (now - id(last_active_gate_time))) / 1000.0f);
+             }
+           } else if (active_gate != last_published_gate && last_published_gate != "none") {
+             ESP_LOGI(TAG, "  Active Gate: none (hold expired)");
+           }
+           
+           last_published_gate = active_gate;
+           id(active_gate_sensor).publish_state(active_gate);
+          
+          // Update per-gate "last on" timers so the binary pattern doesn't flicker
+          for (int i = 0; i < 9; i++) {
+            if (id(sensor1_gates)[i] >= gate_floor_s1[i]) id(sensor1_gate_last_on_ms)[i] = now;
+            if (id(sensor2_gates)[i] >= gate_floor_s2[i]) id(sensor2_gate_last_on_ms)[i] = now;
+          }
+          
+          // Binary gate pattern (sticky for hold_time), ordered by physical position along the path (street → door):
+          // - Sensor 1 (points toward street): gates 8..0 (REVERSED)
+          // - Sensor 2 (points toward door):   gates 0..8 (NORMAL)
+          // This makes walking street→door flip bits from left→right in order.
+          std::string gate_pattern = "";
+          
+          // Sensor 1 (street direction): gates 8..0 (reversed)
+          for (int i = 8; i >= 0; i--) {
+            // Gate 0: treat as off (too close / noisy) unless explicitly enabled
+            if (i == 0) {
+              gate_pattern += "0";
+              continue;
+            }
+            if ((i == 1 && ignore_g1) || (i == 0 && ignore_g0)) {
+              gate_pattern += "0";
+            } else {
+              bool on = (now - id(sensor1_gate_last_on_ms)[i]) < hold_time;
+              gate_pattern += on ? "1" : "0";
+            }
+          }
+          
+          // Sensor 2 (door direction): gates 0-8
+          for (int i = 0; i < 9; i++) {
+            if (i == 0) {
+              gate_pattern += "0";
+              continue;
+            }
+            if ((i == 1 && ignore_g1) || (i == 0 && ignore_g0)) {
+              gate_pattern += "0";
+            } else {
+              bool on = (now - id(sensor2_gate_last_on_ms)[i]) < hold_time;
+              gate_pattern += on ? "1" : "0";
+            }
+          }
+          
+           // Log pattern changes
+           static std::string last_pattern = "";
+           if (gate_pattern != last_pattern && gate_pattern != "000000000000000000") {
+             ESP_LOGI(TAG, "  Binary Pattern: %s", gate_pattern.c_str());
+             last_pattern = gate_pattern;
+           } else if (gate_pattern == "000000000000000000" && last_pattern != "") {
+             ESP_LOGI(TAG, "  Binary Pattern: all clear");
+             last_pattern = "";
+           }
+           
+           id(gate_pattern_sensor).publish_state(gate_pattern);
+
+# BLE Clients
+ble_client:
+  - mac_address: ${ld2410_sensor1_mac}
+    id: ld2410_sensor1
+    on_disconnect:
+      then:
+        - logger.log:
+            format: "Sensor 1 disconnected"
+            tag: "sensor1"
+        - lambda: id(sensor1_connected).publish_state(false);
+        - delay: 500ms
+        - script.execute: start_sensor1
+    on_connect:
+      then:
+        - logger.log:
+            format: "Sensor 1 connecting..."
+            tag: "sensor1"
+        - delay: 100ms
+        # Auth
+        - ble_client.ble_write:
+            id: ld2410_sensor1
+            service_uuid: 0000fff0-0000-1000-8000-00805f9b34fb
+            characteristic_uuid: 0000fff2-0000-1000-8000-00805f9b34fb
+            value: !lambda |-
+              std::vector<uint8_t> data = { 0xfd, 0xfc, 0xfb, 0xfa, 0x08, 0x00, 0xa8, 0x00 };
+              std::vector<uint8_t> postamble = { 0x04, 0x03, 0x02, 0x01 };
+              std::string pw = {"${ld2410_password}"};
+              for (auto& c : pw) data.push_back(c);
+              data.insert(data.end(), postamble.begin(), postamble.end());
+              return data;
+        - delay: 250ms
+        # Enable config
+        - ble_client.ble_write:
+            id: ld2410_sensor1
+            service_uuid: 0000fff0-0000-1000-8000-00805f9b34fb
+            characteristic_uuid: 0000fff2-0000-1000-8000-00805f9b34fb
+            value: [0xfd, 0xfc, 0xfb, 0xfa, 0x04, 0x00, 0xff, 0x00, 0x01, 0x00, 0x04, 0x03, 0x02, 0x01]
+        - delay: 250ms
+        # Enable engineering mode
+        - ble_client.ble_write:
+            id: ld2410_sensor1
+            service_uuid: 0000fff0-0000-1000-8000-00805f9b34fb
+            characteristic_uuid: 0000fff2-0000-1000-8000-00805f9b34fb
+            value: [0xfd, 0xfc, 0xfb, 0xfa, 0x02, 0x00, 0x62, 0x00, 0x04, 0x03, 0x02, 0x01]
+        - delay: 250ms
+        # Disable config
+        - ble_client.ble_write:
+            id: ld2410_sensor1
+            service_uuid: 0000fff0-0000-1000-8000-00805f9b34fb
+            characteristic_uuid: 0000fff2-0000-1000-8000-00805f9b34fb
+            value: [0xfd, 0xfc, 0xfb, 0xfa, 0x02, 0x00, 0xfe, 0x00, 0x04, 0x03, 0x02, 0x01]
+        - delay: 250ms
+        - logger.log:
+            format: "Sensor 1 configured"
+            tag: "sensor1"
+        - lambda: |-
+            auto *x = id(ld2410_sensor1);
+            auto handle = id(sensor1_parser)->handle;
+            auto status = esp_ble_gattc_register_for_notify(x->get_gattc_if(), x->get_remote_bda(), handle);
+            ESP_LOGI("sensor1", "Registered notify, handle=%d, status=%d", handle, status);
+            if (status == ESP_GATT_OK) {
+              id(sensor1_connected).publish_state(true);
+            }
+
+  - mac_address: ${ld2410_sensor2_mac}
+    id: ld2410_sensor2
+    on_disconnect:
+      then:
+        - logger.log:
+            format: "Sensor 2 disconnected"
+            tag: "sensor2"
+        - lambda: id(sensor2_connected).publish_state(false);
+        - delay: 500ms
+        - script.execute: start_sensor2
+    on_connect:
+      then:
+        - logger.log:
+            format: "Sensor 2 connecting..."
+            tag: "sensor2"
+        - delay: 100ms
+        - ble_client.ble_write:
+            id: ld2410_sensor2
+            service_uuid: 0000fff0-0000-1000-8000-00805f9b34fb
+            characteristic_uuid: 0000fff2-0000-1000-8000-00805f9b34fb
+            value: !lambda |-
+              std::vector<uint8_t> data = { 0xfd, 0xfc, 0xfb, 0xfa, 0x08, 0x00, 0xa8, 0x00 };
+              std::vector<uint8_t> postamble = { 0x04, 0x03, 0x02, 0x01 };
+              std::string pw = {"${ld2410_password}"};
+              for (auto& c : pw) data.push_back(c);
+              data.insert(data.end(), postamble.begin(), postamble.end());
+              return data;
+        - delay: 250ms
+        - ble_client.ble_write:
+            id: ld2410_sensor2
+            service_uuid: 0000fff0-0000-1000-8000-00805f9b34fb
+            characteristic_uuid: 0000fff2-0000-1000-8000-00805f9b34fb
+            value: [0xfd, 0xfc, 0xfb, 0xfa, 0x04, 0x00, 0xff, 0x00, 0x01, 0x00, 0x04, 0x03, 0x02, 0x01]
+        - delay: 250ms
+        - ble_client.ble_write:
+            id: ld2410_sensor2
+            service_uuid: 0000fff0-0000-1000-8000-00805f9b34fb
+            characteristic_uuid: 0000fff2-0000-1000-8000-00805f9b34fb
+            value: [0xfd, 0xfc, 0xfb, 0xfa, 0x02, 0x00, 0x62, 0x00, 0x04, 0x03, 0x02, 0x01]
+        - delay: 250ms
+        - ble_client.ble_write:
+            id: ld2410_sensor2
+            service_uuid: 0000fff0-0000-1000-8000-00805f9b34fb
+            characteristic_uuid: 0000fff2-0000-1000-8000-00805f9b34fb
+            value: [0xfd, 0xfc, 0xfb, 0xfa, 0x02, 0x00, 0xfe, 0x00, 0x04, 0x03, 0x02, 0x01]
+        - delay: 250ms
+        - logger.log:
+            format: "Sensor 2 configured"
+            tag: "sensor2"
+        - lambda: |-
+            auto *x = id(ld2410_sensor2);
+            auto handle = id(sensor2_parser)->handle;
+            auto status = esp_ble_gattc_register_for_notify(x->get_gattc_if(), x->get_remote_bda(), handle);
+            ESP_LOGI("sensor2", "Registered notify, handle=%d, status=%d", handle, status);
+            if (status == ESP_GATT_OK) {
+              id(sensor2_connected).publish_state(true);
+            }
+
+switch:
+  # v3: keep HA controls minimal. Tuning switches are hardcoded in `globals` above.
+  - platform: template
+    name: "Enable Sensor 1 BLE"
+    id: enable_sensor1_ble
+    icon: mdi:bluetooth
+    entity_category: config
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+    turn_on_action:
+      - lambda: |-
+          id(ld2410_sensor1)->set_enabled(true);
+          ESP_LOGI("ble_control", "Sensor 1 BLE enabled");
+    turn_off_action:
+      - lambda: |-
+          id(ld2410_sensor1)->set_enabled(false);
+          id(sensor1_connected).publish_state(false);
+          ESP_LOGI("ble_control", "Sensor 1 BLE disabled - HLKRadarTool app can now connect");
+    lambda: 'return id(ld2410_sensor1)->enabled;'
+  
+  - platform: template
+    name: "Enable Sensor 2 BLE"
+    id: enable_sensor2_ble
+    icon: mdi:bluetooth
+    entity_category: config
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+    turn_on_action:
+      - lambda: |-
+          id(ld2410_sensor2)->set_enabled(true);
+          ESP_LOGI("ble_control", "Sensor 2 BLE enabled");
+    turn_off_action:
+      - lambda: |-
+          id(ld2410_sensor2)->set_enabled(false);
+          id(sensor2_connected).publish_state(false);
+          ESP_LOGI("ble_control", "Sensor 2 BLE disabled - HLKRadarTool app can now connect");
+    lambda: 'return id(ld2410_sensor2)->enabled;'
+  
+button:
+  - platform: template
+    name: "Auto Calibrate Sensor 1"
+    id: calibrate_sensor1_button
+    icon: mdi:auto-fix
+    entity_category: config
+    on_press:
+      - script.execute: auto_calibrate_sensor1
+  
+  - platform: template
+    name: "Auto Calibrate Sensor 2"
+    id: calibrate_sensor2_button
+    icon: mdi:auto-fix
+    entity_category: config
+    on_press:
+      - script.execute: auto_calibrate_sensor2
+
+binary_sensor:
+  - platform: template
+    name: "Sensor 1 Connected"
+    id: sensor1_connected
+    device_class: connectivity
+  
+  - platform: template
+    name: "Sensor 2 Connected"
+    id: sensor2_connected
+    device_class: connectivity
+  
+  - platform: template
+    name: "Path Person Detected"
+    id: person_detected
+    device_class: occupancy
+    filters:
+      - delayed_on: 1s
+      - delayed_off: 15s
+
+text_sensor:
+  - platform: template
+    name: "Active Gate"
+    id: active_gate_sensor
+    icon: mdi:gate
+  
+  - platform: template
+    name: "Gate Pattern Binary"
+    id: gate_pattern_sensor
+    icon: mdi:gate-alert
+    # 18-character binary string, ordered by physical position along the path (street → door):
+    # - Positions 0-8:  Sensor 1 (points toward street) gates 8..0 (REVERSED)
+    #                  - bit 0 corresponds to street_8 (at the street end)
+    #                  - bit 8 corresponds to street_0 (at the sensor, normally forced 0)
+    # - Positions 9-17: Sensor 2 (points toward door) gates 0..8 (NORMAL)
+    #                  - bit 9 corresponds to door_0 (at the sensor, normally forced 0)
+    #                  - bit 17 corresponds to door_8 (at the door end)
+    # Gate numbering matches LD2410 distance gates: 1 is near the sensor, 8 is far end.
+    # Gate 0 is normally kept at 0 (too close/noisy).
+    # Each gate is ~75cm.
+
+sensor:
+  # Sensor 1 parser - handles notifications
+  - platform: ble_client
+    type: characteristic
+    ble_client_id: ld2410_sensor1
+    service_uuid: '0000fff0-0000-1000-8000-00805f9b34fb'
+    characteristic_uuid: '0000fff1-0000-1000-8000-00805f9b34fb'
+    update_interval: never
+    notify: true
+    internal: true
+    id: sensor1_parser
+    filters:
+      - throttle: ${sensor_throttle}
+    lambda: |-
+      if (x.size() < 17) {
+        return NAN;
+      }
+      
+      if (x[0] == 0xf4 && x[1] == 0xf3 && x[2] == 0xf2 && x[3] == 0xf1) {
+        bool moving = x[8] & 0x01;
+        bool stationary = x[8] & 0x02;
+        float motion_distance = x[9] + (x[10] << 8);
+        float motion_energy = x[11];
+        float stationary_distance = x[12] + (x[13] << 8);
+        float stationary_energy = x[14];
+        
+        id(sensor1_has_target) = moving;
+        id(sensor1_moving_energy) = motion_energy;
+        id(sensor1_has_static_target) = stationary;
+        id(sensor1_static_energy) = stationary_energy;
+        
+        float alpha_up = id(avg_alpha);
+        float alpha_down = id(avg_alpha_down);
+        // Faster “noise learning” when we are NOT currently detecting a person (windy days):
+        // raise baselines quickly so floors climb and chatter stops.
+        float alpha_up_eff = id(person_detected_internal) ? alpha_up : alpha_down;
+        float a_move = (motion_energy > id(sensor1_moving_avg)) ? alpha_up_eff : alpha_down;
+        id(sensor1_moving_avg) = a_move * motion_energy + (1 - a_move) * id(sensor1_moving_avg);
+        float a_stat = (stationary_energy > id(sensor1_static_avg)) ? alpha_up_eff : alpha_down;
+        id(sensor1_static_avg) = a_stat * stationary_energy + (1 - a_stat) * id(sensor1_static_avg);
+        
+        bool require_static = id(require_static_confirmation);
+        float static_min = id(static_energy_min);
+        float static_delta_min = id(static_energy_delta_min);
+        float st_base = id(sensor1_static_avg);
+        float st_delta = stationary_energy - st_base;
+        bool static_ok = stationary || ((stationary_energy >= static_min) && (st_delta >= static_delta_min));
+        
+        int gate_idx_m = (int)(motion_distance / 75.0);
+        if (gate_idx_m > 8) gate_idx_m = 8;
+        int static_gate_max = id(static_confirmation_max_gate);
+        if (static_gate_max < 0) static_gate_max = 0;
+        if (static_gate_max > 8) static_gate_max = 8;
+        bool gate_needs_static = (static_gate_max > 0) && (gate_idx_m <= static_gate_max);
+        bool valid_motion = moving && (!require_static || !gate_needs_static || static_ok);
+        bool allow_stationary_when_person = id(person_detected_internal);
+        bool valid_stationary_for_gate = allow_stationary_when_person && stationary && static_ok;
+        
+        // Map to gates using MOVING target.
+        // If we've already confirmed a person, allow STATIONARY target to update gates too (helps at door end when you slow/stop).
+        int gate_idx_s = (int)(stationary_distance / 75.0);
+        if (gate_idx_s > 8) gate_idx_s = 8;
+        for (int i = 0; i < 9; i++) {
+          float energy = 0;
+          if (valid_motion && i == gate_idx_m) energy = motion_energy;
+          if (valid_stationary_for_gate && i == gate_idx_s) energy = std::max(energy, stationary_energy);
+          id(sensor1_gates)[i] = energy;
+          float a_gate = (energy > id(sensor1_gate_avg)[i]) ? alpha_up_eff : alpha_down;
+          id(sensor1_gate_avg)[i] = a_gate * energy + (1 - a_gate) * id(sensor1_gate_avg)[i];
+        }
+        
+        // Save last motion gate for detection logic
+        id(sensor1_motion_gate_idx) = valid_motion ? gate_idx_m : -1;
+        
+        id(calculate_person_detection).execute();
+      }
+      return NAN;
+  
+  # Sensor 2 parser
+  - platform: ble_client
+    type: characteristic
+    ble_client_id: ld2410_sensor2
+    service_uuid: '0000fff0-0000-1000-8000-00805f9b34fb'
+    characteristic_uuid: '0000fff1-0000-1000-8000-00805f9b34fb'
+    update_interval: never
+    notify: true
+    internal: true
+    id: sensor2_parser
+    filters:
+      - throttle: ${sensor_throttle}
+    lambda: |-
+      if (x.size() < 17) {
+        return NAN;
+      }
+      
+      if (x[0] == 0xf4 && x[1] == 0xf3 && x[2] == 0xf2 && x[3] == 0xf1) {
+        bool moving = x[8] & 0x01;
+        bool stationary = x[8] & 0x02;
+        float motion_distance = x[9] + (x[10] << 8);
+        float motion_energy = x[11];
+        float stationary_distance = x[12] + (x[13] << 8);
+        float stationary_energy = x[14];
+        
+        id(sensor2_has_target) = moving;
+        id(sensor2_moving_energy) = motion_energy;
+        id(sensor2_has_static_target) = stationary;
+        id(sensor2_static_energy) = stationary_energy;
+        
+        float alpha_up = id(avg_alpha);
+        float alpha_down = id(avg_alpha_down);
+        // Faster “noise learning” when we are NOT currently detecting a person (windy days)
+        float alpha_up_eff = id(person_detected_internal) ? alpha_up : alpha_down;
+        float a_move = (motion_energy > id(sensor2_moving_avg)) ? alpha_up_eff : alpha_down;
+        id(sensor2_moving_avg) = a_move * motion_energy + (1 - a_move) * id(sensor2_moving_avg);
+        float a_stat = (stationary_energy > id(sensor2_static_avg)) ? alpha_up_eff : alpha_down;
+        id(sensor2_static_avg) = a_stat * stationary_energy + (1 - a_stat) * id(sensor2_static_avg);
+        
+        bool require_static = id(require_static_confirmation);
+        float static_min = id(static_energy_min);
+        float static_delta_min = id(static_energy_delta_min);
+        float st_base = id(sensor2_static_avg);
+        float st_delta = stationary_energy - st_base;
+        bool static_ok = stationary || ((stationary_energy >= static_min) && (st_delta >= static_delta_min));
+        
+        int gate_idx_m = (int)(motion_distance / 75.0);
+        if (gate_idx_m > 8) gate_idx_m = 8;
+        int static_gate_max = id(static_confirmation_max_gate);
+        if (static_gate_max < 0) static_gate_max = 0;
+        if (static_gate_max > 8) static_gate_max = 8;
+        bool gate_needs_static = (static_gate_max > 0) && (gate_idx_m <= static_gate_max);
+        bool valid_motion = moving && (!require_static || !gate_needs_static || static_ok);
+        bool allow_stationary_when_person = id(person_detected_internal);
+        bool valid_stationary_for_gate = allow_stationary_when_person && stationary && static_ok;
+        
+        int gate_idx_s = (int)(stationary_distance / 75.0);
+        if (gate_idx_s > 8) gate_idx_s = 8;
+
+        // Debug (low-noise): log when the interpreted door gate changes
+        static int last_gate_m = -1;
+        static int last_gate_s = -1;
+        static bool last_valid_motion = false;
+        static bool last_stationary_gate = false;
+        if (gate_idx_m != last_gate_m || gate_idx_s != last_gate_s || valid_motion != last_valid_motion || valid_stationary_for_gate != last_stationary_gate) {
+          // Published door number mapping: door_n == LD2410 gate n (1 near sensor, 8 far/end)
+          int door_pub_m = gate_idx_m;
+          int door_pub_s = gate_idx_s;
+          ESP_LOGI("sensor2_map", "S2 dist: move=%.0fcm->gate=%d (door_%d) E=%.0f valid=%d | stat=%.0fcm->gate=%d (door_%d) E=%.0f ok=%d person=%d",
+                   motion_distance, gate_idx_m, door_pub_m, motion_energy, valid_motion,
+                   stationary_distance, gate_idx_s, door_pub_s, stationary_energy, valid_stationary_for_gate, (int) id(person_detected_internal));
+          ESP_LOGI("sensor2_map", "S2 flags: moving=%d stationary=%d static_base=%.1f d=%.1f (min=%.0f dmin=%.0f req=%d)",
+                   (int) moving, (int) stationary, st_base, st_delta, static_min, static_delta_min, (int) require_static);
+          last_gate_m = gate_idx_m;
+          last_gate_s = gate_idx_s;
+          last_valid_motion = valid_motion;
+          last_stationary_gate = valid_stationary_for_gate;
+        }
+        for (int i = 0; i < 9; i++) {
+          float energy = 0;
+          if (valid_motion && i == gate_idx_m) energy = motion_energy;
+          if (valid_stationary_for_gate && i == gate_idx_s) energy = std::max(energy, stationary_energy);
+          id(sensor2_gates)[i] = energy;
+          float a_gate = (energy > id(sensor2_gate_avg)[i]) ? alpha_up_eff : alpha_down;
+          id(sensor2_gate_avg)[i] = a_gate * energy + (1 - a_gate) * id(sensor2_gate_avg)[i];
+        }
+        
+        // Save last motion gate for detection logic
+        id(sensor2_motion_gate_idx) = valid_motion ? gate_idx_m : -1;
+        
+        id(calculate_person_detection).execute();
+      }
+      return NAN;
+  
+  # Position output
+  - platform: template
+    name: "Path Person Position"
+    id: person_position
+    device_class: distance
+    unit_of_measurement: "m"
+    accuracy_decimals: 2
+    icon: mdi:map-marker-path
+  
+  # Light sensor (TEMT6000 on GPIO0)
+  - platform: adc
+    pin: GPIO0
+    name: "Light Level Voltage"
+    id: light_level_voltage
+    update_interval: 32s
+    attenuation: 12db
+    filters:
+      - exponential_moving_average:
+          alpha: 0.1
+          send_every: 1
+  
+  - platform: template
+    name: "Light Level"
+    id: light_level
+    update_interval: 33s
+    unit_of_measurement: "%"
+    accuracy_decimals: 1
+    icon: mdi:brightness-6
+    lambda: |-
+      float volts = id(light_level_voltage).state;
+      if (isnan(volts)) return NAN;
+      
+      // Calibrated mapping using adjustable min/max voltages
+      float min_volts = id(light_min_voltage);
+      float max_volts = id(light_max_voltage);
+      
+      float clamped = volts;
+      if (clamped < min_volts) clamped = min_volts;
+      if (clamped > max_volts) clamped = max_volts;
+      
+      float ratio = (clamped - min_volts) / (max_volts - min_volts);
+      return ratio * 100.0f;
+  
+  - platform: wifi_signal
+    name: "WiFi Signal"
+    update_interval: 30s
+
+interval:
+  # Periodically update adaptive sensitivity
+  - interval: 60s
+    then:
+      - script.execute: update_adaptive_sensitivity
+
+output:
+  - platform: gpio
+    id: person_indicator_led
+    pin:
+      number: GPIO8
+    inverted: true
+
+light:
+  - platform: binary
+    name: "Person Indicator LED"
+    output: person_indicator_led

@@ -97,13 +97,15 @@
     <h1>A <em>real fly brain</em>,<br>running your house.</h1>
     <p class="sub">HouseFly runs a rate model of 4,724 identified <em>Drosophila</em> neurons,
       wired together by 126,108 measured synapses, inside Home Assistant. Your sensors go to the
-      neurons that carry that kind of information in the animal. It walks across your dashboard.
-      It learns which rooms it likes.</p>
+      neurons that carry that kind of information in the animal. It walks across your dashboard,
+      it startles when something comes at the camera, and — because that is what a mushroom body is
+      for — it tells you when your house stops looking like your house.</p>
     <div class="stats">
       <div class="stat"><b>4,724</b><span>NEURONS</span></div>
       <div class="stat"><b>126,108</b><span>SYNAPSES</span></div>
       <div class="stat"><b>20,391</b><span>PLASTIC SYNAPSES</span></div>
       <div class="stat"><b>432&nbsp;KB</b><span>DATA PACK</span></div>
+      <div class="stat"><b>50</b><span>CHECKS, ALL PASSING</span></div>
       <div class="stat"><b>0</b><span>GPUS</span></div>
     </div>
     <div class="cta">
@@ -127,6 +129,8 @@
   <a href="#realhouse">What a real house exposed</a>
   <a href="#looming">Approach as looming</a>
   <a href="#eye">It has an eye</a>
+  <a href="#purpose">What it is for</a>
+  <a href="#clock">It learns your day</a>
   <a href="#limits">Honest limits</a>
   <a href="#demo">Try the demo</a>
   <a href="#install">Install</a>
@@ -421,6 +425,108 @@ reconstruction, the check fails and this paragraph becomes wrong on purpose.</p>
 second, which is roughly what a real LPLC2 population sends down its axons: a magnitude and a
 retinotopic address, not a picture.</p>
 
+<h2 id="purpose">What it is <em>for</em></h2>
+<p>The fair question about all of this is "why". A fly that walks across a dashboard is a pretty
+picture, and bolting a utility function onto it — save power, learn my habits — would be a rules
+engine in a fly costume, which is the other failure mode and the worse one.</p>
+
+<p>There is a real answer in between, and it is not a graft. <strong>The mushroom body — the largest
+thing modelled here — exists to tell familiar from unfamiliar</strong>, and that happens to be the
+thing rules engines are worst at.</p>
+
+<p>Dasgupta, Stevens &amp; Navlakha (2017, <em>Science</em>) showed the Kenyon cell layer is a
+locality-sensitive hash: a sparse random projection whose codes stay close for similar inputs and
+far apart for different ones, which is an efficient novelty detector and was published as one.
+Hattori et al. (2017, <em>Cell</em>) found the circuit that reads it out — repeated exposure
+depresses KC→MBON synapses in the α′3 compartment <em>whether or not anything good or bad
+happened</em>, so those cells fire hard for something new and barely at all for something met many
+times.</p>
+
+<p>Both are in the pack. α′3 is MBON16, MBON17 and MBON28, and none of them is one of the
+approach/avoid cells — which is the whole reason for using that compartment rather than depressing
+the valence MBONs and calling the result novelty.</p>
+
+<figure>
+<div class="panel bars">
+  <div class="peak">first sight of a pattern&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;novelty 0.989&nbsp;&nbsp;<span class="bar">▉▉▉▉▉▉▉▉▉▉▉</span></div>
+  <div>after 400 ticks of it&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;novelty 0.025</div>
+  <div>a pattern never met before&nbsp;&nbsp;&nbsp;&nbsp;novelty 0.558&nbsp;&nbsp;<span class="bar">▉▉▉▉▉▉</span></div>
+  <div>the familiar one, for contrast&nbsp;novelty 0.123&nbsp;&nbsp;<span class="bar">▉</span></div>
+</div>
+<figcaption>Unsupervised throughout: the valence memory is untouched, because there is no teaching
+signal anywhere in this.</figcaption>
+</figure>
+
+<p><code>binary_sensor.housefly_unusual</code> is that, made slow enough to be worth saying. It
+holds its tongue entirely until it has learned something, then wants two minutes of sustained
+strangeness before it speaks. <strong>No training set, no labels, nothing sent anywhere</strong> —
+it learns what your house is like by living in it. And it will never tell you <em>what</em> changed,
+only that something has, which is precisely the thing a rule cannot do, because you would have had
+to write the rule first.</p>
+
+<div class="panel">
+<h3>The useful shape of this is a trigger, not an answer</h3>
+<p>A sparse hash ticking twice a second on a CPU costs nothing. Asking a language model to go and
+look at a whole house costs real money. So let the fly decide when it is worth asking.</p>
+<p>HouseFly fires a <code>fly_house_unusual</code> event on the rising edge, carrying the novelty
+figure, how long it has held, and a shortlist of <strong>suspects</strong> — which configured inputs
+the surprise is arriving through, obtained by reading the measured PN→KC wiring backwards from the
+cells that are active and have not habituated.</p>
+<p>Not "what is wrong": the Kenyon code is a hash and a hash does not invert, and channels collide
+because a random projection with more entities than glomeruli must. Measured on a synthetic input,
+three of the top four channels were among the eight genuinely driven and one was not. It narrows the
+field, which is the right job for something whose next step is to hand the question to a system that
+can actually go and look.</p>
+</div>
+
+<div class="panel">
+<h3>And why it is not a power saver</h3>
+<p>A fly has no concept of your electricity bill, and the honest thing is to say so rather than
+build something that pretends otherwise. The punishment pathway is real — PPL1 dopaminergic neurons
+depress KC→MBON, which is genuine operant conditioning — so feeding consumption in as aversive would
+<em>work</em> mechanically. It would not save you anything: the actuation budget is sixty calls an
+hour with deadbands and quiet hours, and the motor output is not a controller. You would get a fly
+that avoids the expensive rooms. A demonstrable behaviour, not an energy saving.</p>
+<p>The version that does work is the one above. Power is just another input channel, so adding a
+consumption sensor to the inputs means "unusual" covers it for free — it will tell you when your
+electricity stops looking like your electricity, which is the failure mode that actually costs money
+and exactly the one you cannot write a rule for in advance.</p>
+</div>
+
+<h2 id="clock">It learns when your day is</h2>
+<p>The clock used to peak at a fixed 06:00 and 18:43. That is nobody's daylight, and at this
+latitude it is not close for most of the year. It now watches whatever light the house reports — an
+illuminance sensor if there is one, <code>sun.sun</code>'s elevation otherwise — learns where dawn
+and dusk actually fall, and moves the morning and evening oscillators there.</p>
+
+<figure>
+<div class="panel bars">
+  <div>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;02&nbsp;&nbsp;&nbsp;&nbsp;04&nbsp;&nbsp;&nbsp;&nbsp;06&nbsp;&nbsp;&nbsp;&nbsp;08&nbsp;&nbsp;&nbsp;&nbsp;12&nbsp;&nbsp;&nbsp;&nbsp;16&nbsp;&nbsp;&nbsp;&nbsp;20&nbsp;&nbsp;&nbsp;&nbsp;22</div>
+  <div>textbook 06:00/18:43&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;0.17&nbsp;&nbsp;0.33&nbsp;&nbsp;<b>0.83</b>&nbsp;&nbsp;0.33&nbsp;&nbsp;0.17&nbsp;&nbsp;0.30&nbsp;&nbsp;<b>0.68</b>&nbsp;&nbsp;0.22</div>
+  <div>summer, dawn 04:00&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;0.31&nbsp;&nbsp;<b>0.73</b>&nbsp;&nbsp;0.43&nbsp;&nbsp;0.20&nbsp;&nbsp;0.17&nbsp;&nbsp;0.21&nbsp;&nbsp;0.52&nbsp;&nbsp;<b>0.76</b></div>
+  <div>winter, 08:30 to 15:30&nbsp;&nbsp;&nbsp;0.17&nbsp;&nbsp;0.20&nbsp;&nbsp;0.35&nbsp;&nbsp;<b>0.70</b>&nbsp;&nbsp;0.20&nbsp;&nbsp;<b>0.75</b>&nbsp;&nbsp;0.31&nbsp;&nbsp;0.18</div>
+</div>
+<figcaption>In the short day the two peaks close up to seven hours apart, which is what the morning
+and evening oscillators do in a real fly (Rieger et al. 2003; Stoleru et al. 2007).</figcaption>
+</figure>
+
+<p><strong>This is photoperiod tracking and not entrainment</strong>, and the difference is worth
+being exact about. Entrainment is a free-running oscillator being pulled into phase by a zeitgeber,
+and there is no free-running oscillator here — the clock in this model is a function of local time.
+So moving where the peaks sit is the honest version of the claim, and estimating dawn from the light
+happens in the coordinator and is labelled a stand-in rather than dressed up as neural.</p>
+
+<p>Separately and acutely, light drives <strong>l-LNv</strong>, the arousal-promoting clock cells,
+which are genuinely light-responsive (Shang et al. 2008). Arousal measured 0.17 in the dark at 00:30
+and 0.51 with the light on. The photoperiod shifts <em>when</em> it is active; this makes it active
+<em>now</em>.</p>
+
+<p>Averaging times of day is where this goes wrong, twice. The mean of 23:50 and 00:10 is not
+midday, so the learned phases are dragged round the circle; and a dusk learned at 23:30 against a
+time of 00:15 is forty-five minutes apart, not three quarters of a day, so the Gaussian needed the
+same treatment. Before that fix it reported <em>no evening at all</em> — a bug that only shows up in
+winter, or in a house that gets up late.</p>
+
 <h2 id="limits">Honest limits</h2>
 <p>This is a real model of real circuits, and it is still a model.</p>
 <ul>
@@ -438,23 +544,48 @@ are large and almost entirely excitatory with no matching inhibitory population 
 subnetwork, so without it they flood.</li>
 <li><strong>Two brains, spliced.</strong> Connectivity is hemibrain; positions and transmitters are
 FlyWire — a different fly. Joined by cell type, which is standard practice and still an approximation.</li>
+<li><strong>The compass responds to turns but does not integrate them.</strong> A <em>change</em> in
+commanded angular velocity rotates the bump, correctly signed, over roughly ±2 rad/s. A
+<em>sustained</em> one does not keep rotating it: hold the command constant and the bump shifts once,
+by a few tens of degrees, and stops. It is a position offset rather than a velocity, because angular
+velocity is injected into one hemisphere's PENs additively, whereas in the animal PEN firing is the
+conjunction of heading and turning and that multiplication is what makes the loop integrate.
+Multiplicative gating was tried across PEN gains from 2 to 40 and did not recover it. Checked both
+ways, so the failure is visible rather than implied.</li>
+<li><strong>A directed escape is impossible with this data pack.</strong> LPLC2 is retinotopic, so in
+the animal the population says <em>where</em> the threat is and the fly turns away from it. Ours
+cannot: the hemibrain is a <em>hemi</em>brain, and the looming pathway here is 0 left, 130 right, 147
+unlabelled, with 1 left and 12 right descending neurons. There is no left population to compare
+against. The central complex is balanced 23/23, 21/21 and 12/12, so the compass and steering are
+unaffected — but the escape burst stays undirected, which is at least true to DNp09. The validation
+suite checks those counts, so the day someone builds a pack from a whole-brain reconstruction the
+check fails and this paragraph becomes wrong on purpose.</li>
+<li><strong>Clutter costs the eye about 25×</strong>, and an approach that happens while the camera
+is panning is missed entirely — a fly has the same blind spot during a saccade.</li>
 </ul>
 <p>It is not conscious, it is not an agent, it does not understand your house, and it is not a
 scientific instrument. It is a small animal's wiring diagram with your sensors plugged into it.</p>
 
 <h3>Everything above is checkable</h3>
-<p><code>python3 tools/validate.py</code> runs the shipped brain and checks all
-twenty-nine claims, printing the numbers — including the marginal ones. CI runs
-it on every push, alongside HACS's own validation action and Home Assistant's
-hassfest.</p>
-<pre><code>a bump forms                               peak 0.223, trough 0.000     <span class="pass">PASS</span>
+<p><code>python3 tools/validate.py</code> runs the shipped brain and checks every number on this
+page, printing them all — including the marginal ones and the two that are documented failures. CI
+runs it on every push, alongside HACS's own validation action and Home Assistant's hassfest, and it
+installs Node because the eye's suite runs where the frames do.</p>
+<pre><code>a bump forms                               peak 0.231, trough 0.000     <span class="pass">PASS</span>
 it holds still with no self-motion         0 deg of drift               <span class="pass">PASS</span>
-turning rotates the bump, right direction  correlation +0.99            <span class="pass">PASS</span>
+turning rotates the bump, right direction  correlation +0.98            <span class="pass">PASS</span>
+a constant turn does NOT keep rotating it  an offset, not a velocity    <span class="pass">PASS</span>
+the looming pathway has no left hemisphere 0 left, 130 right            <span class="pass">PASS</span>
 punishment depresses KC→MBON synapses      20,391 plastic synapses      <span class="pass">PASS</span>
-looming raises descending drive            0.0000 → 0.2452              <span class="pass">PASS</span>
-  ...and the escape is transient           fell back to 0.0000          <span class="pass">PASS</span>
-PFL3 cells are not all at the same rate    spread 0.0038                <span class="pass">PASS</span>
-arousal  03:00 0.17  06:00 1.00  12:00 0.08  18:45 1.00  23:00 0.10     <span class="pass">PASS</span></code></pre>
+something new registers as novel           first sight 0.989            <span class="pass">PASS</span>
+  ...and stops being novel with exposure   after 400 ticks 0.025        <span class="pass">PASS</span>
+  ...with no teaching signal at all        valence memory untouched     <span class="pass">PASS</span>
+a trivial expansion triggers nothing       1e-5..1e-2 gave 0.0000       <span class="pass">PASS</span>
+a camera panning produces nothing          textured pan 0.0000          <span class="pass">PASS</span>
+dawn at 04:00 gives a fly that wakes at 4  peak moved 06:00 → 04:00     <span class="pass">PASS</span>
+an empty quiet-hours window means never    not, as it did, always       <span class="pass">PASS</span>
+
+50/50 checks passed</code></pre>
 
 <h2 id="demo">Try it without installing anything</h2>
 <p>There is a hosted demo: a real Home Assistant, on a real

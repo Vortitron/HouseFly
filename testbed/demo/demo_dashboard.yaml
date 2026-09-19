@@ -88,6 +88,27 @@ views:
     - {type: call-service, name: Loom at it, icon: 'mdi:hand-back-right', service: fly_house.loom, service_data: {strength: 2}}
     - {type: call-service, name: Feed it, icon: 'mdi:candy', service: fly_house.feed, service_data: {amount: 1}}
     - {type: call-service, name: Wipe its memory, icon: 'mdi:delete-sweep', service: fly_house.reset_memory}
+  - type: entities
+    title: 🧠 What it is for
+    show_header_toggle: false
+    entities:
+    - entity: sensor.housefly_familiarity
+      name: "Familiarity — does this look like home?"
+    - entity: binary_sensor.housefly_something_unusual
+      name: "Something unusual"
+    - entity: sensor.housefly_approach
+      name: "θ̇ — expansion rate, before the brain touches it"
+  - type: markdown
+    content: |-
+      A fly that walks across a dashboard is a pretty picture, and bolting a utility function onto it — *save power, learn my habits* — would be a rules engine in a fly costume. There is a real answer in between, and it is not a graft: **telling familiar from unfamiliar is what a mushroom body is for.**
+
+      The Kenyon cell layer is a locality-sensitive hash (Dasgupta, Stevens & Navlakha 2017) and the **α′3 compartment** is the circuit that reads it out (Hattori et al. 2017) — repeated exposure depresses KC→MBON synapses there whether or not anything good or bad happened. Both are in the pack: α′3 is MBON16, MBON17 and MBON28, and none of them is an approach/avoid cell, so familiarity cannot be confused with valence.
+
+      **No training set, no labels, nothing sent anywhere.** It learns what this house is like by living in it, and says so when the house stops looking like that. It will never tell you *what* changed — a hash does not invert — only that something has, which is the one thing a rule cannot do because you would have had to write the rule first.
+
+      The useful shape is as a **trigger**: a sparse hash ticking twice a second costs nothing, asking a language model to inspect a whole house costs real money. HouseFly fires a `fly_house_unusual` event with a shortlist of suspects, and lets the expensive thing run only when it is worth it.
+
+      *It will say "still learning what normal looks like" for a while after a restart, which is correct — a fly that has seen nothing finds everything novel, and an alert from it would mean nothing.*
 - title: The house
   path: house
   icon: mdi:home
