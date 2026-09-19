@@ -614,7 +614,22 @@ class FlyBrain:
         # not this comment, that says the sign is right.
         av = float(np.clip(senses.angular_velocity, -2.0, 2.0))
         inj[self.i_pen] += (PEN_GAIN * np.maximum(av * self.pen_side, 0.0)).astype(np.float32)
-        inj += np.float32(TONIC_DRIVE)  # stands in for the un-modelled brain
+        # The tonic stand-in goes to the tonically-driven circuits only. Giving
+        # it to the phasic ones too parks them exactly at ACTIVATION_THRESHOLD,
+        # since TONIC_DRIVE and that threshold are the same number, and a
+        # pathway sitting precisely at its own firing threshold will fire for
+        # any input at all. Measured before this line was qualified: a looming
+        # input of 1e-5 produced escape 0.286 and an input of 1.25 produced
+        # 0.284 -- the same burst, so theta-dot = v/r^2 was computed upstream
+        # and then thrown away, and the fly startled at everything equally.
+        #
+        # DNp09 and its LPLC2 inputs are silent at rest in the animal, which is
+        # what makes them a trigger rather than a readout, so withholding the
+        # resting drive from exactly the circuits already marked phasic is the
+        # assumption that matches them. Escape now needs looming >= ~0.1, about
+        # 1.4 m for something closing at walking pace, and stays all-or-nothing
+        # above that -- which is also how the giant-fibre pathway behaves.
+        inj += np.float32(TONIC_DRIVE) * (1.0 - self.adapting)
 
         # --- Fan-shaped body and PFL3: the goal direction -------------------
         # A goal bump in the fan-shaped body columns is what the steering cells

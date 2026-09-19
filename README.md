@@ -141,14 +141,35 @@ v by differencing, so it delivers exactly the quantity the circuit is built for,
 by radar instead of by photons. Point HouseFly at one and someone walking up to
 the door produces a genuine looming response:
 
+Someone walking in at 1 m/s, sampled at a range of distances:
+
 ```
- 5.3 m closing   θ̇ 0.022   escape 0.0000
- 2.5 m closing   θ̇ 0.101   escape 0.1931
- 1.1 m closing   θ̇ 0.521   escape 0.2217
- 0.6 m closing   θ̇ 1.250   escape 0.2381
+ 5.0 m closing   θ̇ 0.040   escape 0.0000
+ 3.0 m closing   θ̇ 0.111   escape 0.0000
+ 2.2 m closing   θ̇ 0.207   escape 0.2714
+ 2.0 m closing   θ̇ 0.250   escape 0.2893
+ 1.4 m closing   θ̇ 0.510   escape 0.2627
+ 0.6 m closing   θ̇ 2.778   escape 0.2725
 ```
 
 Walking away produces nothing, because receding is not looming.
+
+Note the shape: nothing at all until about 2.4 m, then the same full burst at
+every distance inside it. That is not a rounding artefact, it is the pathway —
+the giant-fibre escape is a trigger, so the interesting quantity is *where* the
+threshold falls, and the r² is what puts it there. Halve the walking speed and
+the fly lets you get to 1.7 m instead; the response itself does not get smaller.
+
+This took a correction to get right. The resting drive that stands in for the
+parts of the brain not modelled was applied to every neuron, including this
+pathway — and since that drive and the firing threshold are the same number, it
+parked the escape circuit exactly at threshold, where a looming input of 1e-5
+fired precisely the same burst as one of 1.25. The r² was computed faithfully
+upstream and then thrown away. DNp09 and its LPLC2 inputs are silent at rest in
+the animal, which is what makes them a trigger at all, so the fix was to
+withhold the resting drive from the circuits already marked phasic.
+`tools/validate.py` now measures the onset response across four decades, which
+is the check that would have caught it.
 
 **A camera is usually the wrong source.** Optic flow needs frames close enough
 together to correspond. The first install this was tried on had one camera, a

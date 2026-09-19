@@ -239,6 +239,29 @@ def main() -> int:
     check("something far off does not", far_result["escape"] < near_result["escape"] * 0.5,
           f"at 5 m closing: escape {far_result['escape']:.4f}")
 
+    # The check above holds the stimulus on for twelve steps, so a weak one
+    # adapts away. A real approach is a *transient*, and that is where this
+    # pathway went wrong: with a resting drive parked exactly at the firing
+    # threshold, a looming input of 1e-5 fired the same full escape as one of
+    # 1.25, so theta-dot = v/r^2 was computed and then discarded. Measure the
+    # onset response directly, across four decades.
+    def first_burst(loom: float) -> float:
+        b = circ.FlyBrain()
+        b.settle()
+        peak = 0.0
+        for _ in range(12):
+            peak = max(peak, b.step(circ.Senses(looming=loom, time_of_day=0.5))["escape"])
+        return peak
+
+    trivial = max(first_burst(v) for v in (1e-5, 1e-3, 1e-2))
+    real = first_burst(0.5)
+    check("a trivial expansion rate does not trigger anything",
+          trivial < 0.05,
+          f"strongest burst from 1e-5..1e-2 was {trivial:.4f}")
+    check("so the escape has a real threshold, not a nominal one",
+          real > 0.15 and real > trivial * 4,
+          f"1e-2 -> {first_burst(1e-2):.4f}, 0.5 -> {real:.4f}")
+
     print("\n7. Steering output is differentiated, not saturated")
     brain = circ.FlyBrain()
     brain.settle()
