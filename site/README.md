@@ -17,12 +17,18 @@ and a redeploy. A copy of the vhost lives here as
 `nginx-housefly.vome.io.conf`, for reference only -- the live one is the file
 under `/etc/nginx`, because certbot edits it in place.
 
-The current link is a non-admin guest that **expires 2026-10-19**. To reissue:
-create a new guest link for the demo instance with `dashboard: lovelace`, put it
-in that `location = /demo` block, `nginx -t`, reload. Anyone who follows the
-link is signed straight in as the Guest user, which is the point -- but it does
-mean the link should only ever point at the demo instance and never at a real
-house.
+The link points at `lovelace/fly`, so a visitor arrives on the fly itself
+rather than on whichever view Home Assistant would otherwise have picked.
+
+**Guest links expire**, and when one does the demo breaks silently: the button
+still looks fine and drops the visitor on a login page. There is nothing
+watching for that, so it is worth checking after any long gap. To reissue,
+create a guest link for the demo instance with `dashboard: lovelace/fly`, put it
+in the `location = /demo` block, `nginx -t`, reload.
+
+Anyone who follows the link is signed straight in as the non-admin Guest user,
+which is the entire point of a public demo -- but it does mean the link must
+only ever point at the demo instance and never at a real house.
 
 ## How it is served
 
