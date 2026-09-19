@@ -50,11 +50,19 @@ views:
       name: Simulated occupant (turn off for an empty room)
   - type: markdown
     content: |-
-      The slider needs someone to drag it. This is the same signal **arriving on its own**: a simulated 24 GHz mmWave radar, modelled on an LD2410 in engineering mode, with someone walking past it every three minutes. They approach over about fourteen seconds, and then leave.
+      The slider needs someone to drag it. This is the same signal **arriving on its own**: a simulated 24 GHz mmWave radar, modelled on an LD2410 in engineering mode, with someone walking past it every ninety seconds. They approach over about six seconds, stand still for three, and then leave.
 
       That is the honest version of the demo. A real radar reports the **range to a moving target** and how much energy it is seeing — and a range that is *closing* is precisely the quantity LPLC2 exists to compute. So the fly startles at a stranger walking up to the sensor without anyone touching anything, and settles again once they have gone.
 
-      It updates every five seconds, because a looming detector differencing samples a minute apart is measuring nothing at all.
+      It updates once a second. That is not a detail: looming is a *derivative*, so the sample interval sets the shortest approach that can be measured at all. The first version of this sampled every five seconds, which is longer than a person takes to cross the range that matters — the expansion was there and simply could not be seen.
+  - type: custom:housefly-eye-card
+  - type: markdown
+    content: |-
+      The card above is not a camera feed with a box drawn on it. Each circle is one **LPLC2 cell**, lit by its own response this instant — 63 of them tiling the visual field, the way they tile a real one. Watch a patch light up where your hand is: that is retinotopy, and it is how the population says *where* rather than merely *whether*.
+
+      Behind it is the published circuit and not a motion detector: photoreceptors on a 32×24 grid (a fly's eye has about 750 ommatidia at ~5°), then Hassenstein–Reichardt correlators giving the four direction-selective layers of the lobula plate, then the cells. Each cell reads all four layers through branches placed where the motion points *away* from its own centre, and it needs **all four at once** — which is why waving sideways does nothing, receding does nothing, and a light switching on does nothing. Only something actually coming at you drives all four.
+
+      **Nothing leaves this page.** Frames are read into a canvas in your browser; what reaches Home Assistant is an expansion rate and an angle, about ten times a second. It works far better against a plain wall than a bookshelf — clutter costs it about 25× — and it switches itself off if the camera is moving, because a fly does the same thing during a saccade.
   - type: custom:housefly-brain-card
   - type: entities
     title: What it is doing
@@ -144,7 +152,7 @@ views:
     - {entity: sensor.approach_distance_2, name: Slider}
     - {entity: sensor.radar_moving_distance, name: Radar}
   - type: history-graph
-    title: The radar — someone walks past every three minutes
+    title: The radar — someone walks past every ninety seconds
     hours_to_show: 1
     entities:
     - {entity: sensor.radar_moving_distance, name: Range}

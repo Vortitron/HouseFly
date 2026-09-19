@@ -120,6 +120,7 @@
   <a href="#notthere">What isn't in the connectome</a>
   <a href="#realhouse">What a real house exposed</a>
   <a href="#looming">Approach as looming</a>
+  <a href="#eye">It has an eye</a>
   <a href="#limits">Honest limits</a>
   <a href="#install">Install</a>
   <a href="#safety">Safety</a>
@@ -337,13 +338,81 @@ across four decades.</p>
 </div>
 
 <div class="panel">
-<h3>A camera is usually the wrong source</h3>
+<h3>Frame rate is what kills most cameras</h3>
 <p>Optic flow needs frames close enough together to correspond. The first house this ran on had
 exactly one camera — a motorway traffic camera whose own <code>photo_time</code> showed it updating
 <strong>every five minutes</strong>. At that spacing there is no correspondence between frames at
 all: flow would be noise, and a looming detector fed from it would fire constantly and mean
-nothing. The radar in the hallway was the better eye.</p>
+nothing. The radar in the hallway was the better eye. The same mistake was made again in the
+simulated radar on the demo box, at five seconds instead of five minutes, and it had the same
+character: looming is a derivative, so the sample interval decides the shortest approach that can
+be measured at all.</p>
 </div>
+
+<h2 id="eye">It has an eye</h2>
+<p>The ranging-sensor path is honest, but it is not how the animal does it. A fly computes expansion
+from photons, in the optic lobe, before anything central hears about it — so now it does that too,
+in the browser, because that is where the frames are.</p>
+
+<p>It is the published circuit rather than a motion detector: photoreceptors on a 32×24 grid (a
+<em>Drosophila</em> eye has about 750 ommatidia at roughly 5°, so that is the number and not an
+approximation), a lamina high-pass, Hassenstein–Reichardt correlators giving the four
+direction-selective layers of the lobula plate, and then 63 LPLC2 cells tiling the field.</p>
+
+<p><strong>The LPLC2 stage is the whole thing.</strong> Klapoetke and colleagues showed in 2017 that
+each cell has four dendritic branches, one in each layer, each offset so it reads motion pointing
+<em>away</em> from that cell's receptive-field centre — and that the cell needs all four driven at
+once. That coincidence requirement is the entire selectivity. Getting it wrong is instructive:
+summing the four branches instead scored a drifting grating at <strong>nine times</strong> an actual
+approach, and a disc crossing the view at <strong>thirty times</strong>, because one large branch
+carried the sum on its own. A geometric mean cannot be carried by one term. With it, both score
+exactly zero.</p>
+
+<figure>
+<div class="panel bars">
+  <div class="peak">approach, plain background&nbsp;&nbsp;&nbsp;3.121&nbsp;&nbsp;<span class="bar">▉▉▉▉▉▉▉▉▉▉▉</span></div>
+  <div>approach, cluttered room&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;0.124&nbsp;&nbsp;<span class="bar">▉</span></div>
+  <div>distant approach (6.0–4.0 m)&nbsp;&nbsp;0.047</div>
+  <div>receding&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;0.000</div>
+  <div>drifting grating&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;0.000</div>
+  <div>object crossing laterally&nbsp;&nbsp;&nbsp;&nbsp;0.000</div>
+  <div>full-field flicker&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;0.000</div>
+  <div>camera panning across a room&nbsp;&nbsp;0.000</div>
+  <div>hand-held camera wandering&nbsp;&nbsp;&nbsp;&nbsp;0.003</div>
+</div>
+<figcaption>Every number from <code>tools/test_vision.mjs</code>, all against the same approach. The
+escape threshold is about 0.1 and is enforced by the network, not by the eye.</figcaption>
+</figure>
+
+<p>Three other things had to be measured rather than assumed. Normalising a local response by a
+field-wide contrast let a small object on a plain wall score a hundred times an approach, so
+contrast is now measured inside each cell's own receptive field. Taking the peak over 63 cells and
+60 frames was measuring the maximum of noise, so each cell integrates over 120 ms first. And a
+camera panning across a textured room <em>still</em> beat a real approach fourfold — no read-out
+fixed that, and five were tried, because it is not a read-out problem. It is a self-motion problem,
+and the fly's own answer works: flow coherence is 0.00 for an approach and 0.76 to 0.84 for a pan,
+which leaves a gap nobody had to tune a threshold into.</p>
+
+<div class="panel">
+<h3>Two limits, stated</h3>
+<p><strong>Clutter costs it about 25×.</strong> Real LPLC2 is also less sensitive in a textured
+scene, but in practice this works far better against a plain wall than against a bookshelf. It still
+clears the escape threshold in clutter, at 0.124 against about 0.1, which is not much margin.</p>
+<p><strong>An approach during a camera pan is missed entirely</strong>, because the self-motion gate
+cannot tell the difference. A fly has exactly the same blind spot during a saccade.</p>
+<p><strong>And a directed escape is not possible with this data pack.</strong> LPLC2 is retinotopic,
+so in the animal the population says where the threat is and the fly turns away from it. Ours
+cannot: the hemibrain is a <em>hemi</em>brain, and the looming pathway in the pack is 0 left, 130
+right, 147 unlabelled, with 1 left and 12 right descending neurons. There is no left population to
+compare against. The central complex is balanced 23/23, 21/21 and 12/12, so the compass and steering
+are unaffected — but the escape burst stays undirected, which is at least true to DNp09. The
+validation suite checks those counts, so the day someone builds a pack from a whole-brain
+reconstruction, the check fails and this paragraph becomes wrong on purpose.</p>
+</div>
+
+<p>Nothing leaves the page. Home Assistant receives an expansion rate and an angle about ten times a
+second, which is roughly what a real LPLC2 population sends down its axons: a magnitude and a
+retinotopic address, not a picture.</p>
 
 <h2 id="limits">Honest limits</h2>
 <p>This is a real model of real circuits, and it is still a model.</p>
