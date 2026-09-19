@@ -138,7 +138,12 @@ leaves it so late and then goes all at once.
 
 A ranging sensor — mmWave radar, ultrasonic, BLE distance — gives r directly and
 v by differencing, so it delivers exactly the quantity the circuit is built for,
-by radar instead of by photons. Point HouseFly at one and someone walking up to
+by radar instead of by photons. Difference against the sensor's *own* timestamps,
+not against the times you happened to look at it: a tick that straddles a reading
+sees a whole sampling interval of movement but only one tick of elapsed time, and
+the velocity comes out inflated by whatever that ratio happens to be. On the demo
+box, a 5 s sensor read on a 2 s tick fired escape at 4.0 m and then not at 3.1 m
+or 2.2 m — an ordering that is not distance at all, it is sampling jitter. Point HouseFly at one and someone walking up to
 the door produces a genuine looming response:
 
 Someone walking in at 1 m/s, sampled at a range of distances:

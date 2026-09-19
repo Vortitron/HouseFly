@@ -132,35 +132,51 @@ def build() -> tuple[dict, dict]:
     #
     # The slider above needs a person to drag it. This is the same signal
     # arriving on its own, so the demo does something while nobody is watching:
-    # every three minutes a simulated occupant walks up to the sensor, pauses,
-    # and walks away again. The fly startles at the approach and settles when it
-    # leaves, all by itself.
+    # every ninety seconds a simulated occupant walks up to the sensor, stands
+    # there a moment, and walks away again. The fly startles at the approach and
+    # settles when they leave, all by itself.
     #
     # Modelled on the LD2410 in engineering mode, which is what a real install
     # would have: it reports the range to a *moving* target and how much energy
     # it is seeing, and that range closing is exactly the event LPLC2 is built
-    # for. A 5-second cadence, because a looming detector differencing samples
-    # six seconds apart is measuring nothing.
-
-    # 0.00-0.72  far away        0.72-0.86  walking towards it
-    # 0.86-1.00  walking away
-    walk_phase = "{% set p = (as_timestamp(now()) % 180) / 180 %}"
-    # The phase has to be set BEFORE the if/elif chain, not inside it: Jinja
-    # evaluates each elif as it walks the chain, so a set placed after the first
-    # branch leaves p undefined for every comparison that follows.
+    # for.
+    #
+    # One second per sample, not five. A real mmWave module reports at around
+    # 10 Hz and this is as fast as a Home Assistant time_pattern trigger goes,
+    # but the reason matters more than the number: looming is a *derivative*, so
+    # the sample interval sets the shortest approach that can be measured at
+    # all. At five seconds a walking person crossed the useful range inside a
+    # single sample.
+    #
+    # And the walker walks at 0.75 m/s, which is a human being. The first
+    # version covered 4.5 m in twenty-five seconds -- 18 cm/s, a crawl -- which
+    # put theta-dot below the escape threshold at every range that mattered and
+    # made the circuit look broken when it was in fact working.
+    #
+    #   t < 60   nobody there             60-66  walking in, 5.0 m -> 0.5 m
+    #   66-69    standing still           69-75  walking away
+    #
+    # Ninety seconds, not three minutes. Nobody watches a demo for three
+    # minutes to find out whether it does anything.
+    walk_time = "{% set t = as_timestamp(now()) % 90 %}"
+    # `t` has to be set BEFORE the if/elif chain, not inside it: Jinja evaluates
+    # each elif as it walks the chain, so a set placed after the first branch
+    # leaves t undefined for every comparison that follows.
+    nobody = "{% if is_state('input_boolean.simulated_occupant', 'off') %}"
     radar_distance = (
-        walk_phase
-        + "{% if is_state('input_boolean.simulated_occupant', 'off') %}500"
-        "{% elif p < 0.72 %}500"
-        "{% elif p < 0.86 %}{{ (500 - (p - 0.72) / 0.14 * 450) | round(0) }}"
-        "{% else %}{{ (50 + (p - 0.86) / 0.14 * 450) | round(0) }}"
+        walk_time + nobody + "500"
+        + "{% elif t < 60 %}500"
+        "{% elif t < 66 %}{{ (500 - (t - 60) / 6 * 450) | round(0) }}"
+        "{% elif t < 69 %}50"
+        "{% elif t < 75 %}{{ (50 + (t - 69) / 6 * 450) | round(0) }}"
+        "{% else %}500"
         "{% endif %}"
     )
     radar_energy = (
-        walk_phase
-        + "{% if is_state('input_boolean.simulated_occupant', 'off') %}0"
-        "{% elif p < 0.72 %}0"
-        "{% else %}{{ range(60, 101) | random }}"
+        walk_time + nobody + "0"
+        + "{% elif t < 60 or t > 75 %}0"
+        "{% elif t < 69 %}{{ range(70, 101) | random }}"
+        "{% else %}{{ range(40, 71) | random }}"
         "{% endif %}"
     )
     radar_sensors = [
@@ -184,7 +200,7 @@ def build() -> tuple[dict, dict]:
             "simulated_occupant": {"name": "Simulated occupant", "icon": "mdi:walk"},
         },
         "template": [
-            {"trigger": [{"trigger": "time_pattern", "seconds": "/5"}],
+            {"trigger": [{"trigger": "time_pattern", "seconds": "/1"}],
              "sensor": radar_sensors},
             {"binary_sensor": [{
                 "name": "Radar Presence",

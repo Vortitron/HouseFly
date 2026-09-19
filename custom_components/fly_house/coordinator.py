@@ -20,7 +20,6 @@ import base64
 import hashlib
 import logging
 import math
-import time
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
@@ -221,7 +220,7 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._birth = dt_util.utcnow()
         # One adaptive gain channel per input entity.
         self._adaptation: dict[str, SensoryAdaptation] = {}
-        self._ranges: dict[str, tuple[float, float]] = {}   # entity -> (metres, monotonic)
+        self._ranges: dict[str, tuple[float, float]] = {}   # entity -> (metres, reading time)
         self._dead_inputs: list[str] = []
 
         self._store = Store(hass, STORAGE_VERSION, f"{STORAGE_KEY}_{entry_id}")
@@ -375,7 +374,6 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         Only closing counts. Something walking away is not looming at anything,
         and a fly that startled at departures would be a poor fly.
         """
-        now = time.monotonic()
         strongest = 0.0
         for entity_id in self.approach_entities:
             state = self.hass.states.get(entity_id)
@@ -389,12 +387,25 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             unit = str(state.attributes.get("unit_of_measurement") or "m").lower()
             metres = raw * DISTANCE_UNITS.get(unit, 1.0)
 
+            # Difference against the sensor's own timestamps, not against the
+            # times we happened to look. A ranging sensor reports on its own
+            # cadence, and our tick has no relation to it: a tick that straddles
+            # a reading sees a whole sampling interval of movement but only one
+            # tick of elapsed time, so the velocity comes out inflated by
+            # whatever the ratio happens to be, while a tick that falls between
+            # two readings sees no movement at all. Measured on the demo box at
+            # a 5 s cadence and a 2 s tick, one approach produced escape at 4.0 m
+            # and then nothing at 3.1 m or 2.2 m -- an ordering that is not
+            # distance at all, it is sampling jitter.
+            reading_at = state.last_changed.timestamp()
             previous = self._ranges.get(entity_id)
-            self._ranges[entity_id] = (metres, now)
+            if previous is not None and reading_at == previous[1]:
+                continue                       # same reading; nothing new to difference
+            self._ranges[entity_id] = (metres, reading_at)
             if previous is None:
                 continue
             last_metres, last_at = previous
-            dt = now - last_at
+            dt = reading_at - last_at
             if dt <= 0.0 or dt > LOOM_MAX_AGE:
                 continue
             if not (LOOM_MIN_RANGE <= metres <= LOOM_MAX_RANGE):
