@@ -58,8 +58,15 @@ def build() -> tuple[dict, dict]:
                       f"| float(0) * 2.55) | round(0) }}}}"),
             "turn_on": [act("input_boolean.turn_on", f"input_boolean.{slug}")],
             "turn_off": [act("input_boolean.turn_off", f"input_boolean.{slug}")],
-            "set_level": [act("input_number.set_value", f"input_number.{room}_brightness",
-                              {"value": "{{ (brightness / 2.55) | round(0) }}"})],
+            # set_level must ALSO turn the light on. Home Assistant calls it
+            # *instead of* turn_on when a brightness is supplied, so a set_level
+            # that only moves the number leaves the light off while reporting a
+            # brightness -- which looks like a broken light.
+            "set_level": [
+                act("input_number.set_value", f"input_number.{room}_brightness",
+                    {"value": "{{ (brightness / 2.55) | round(0) }}"}),
+                act("input_boolean.turn_on", f"input_boolean.{slug}"),
+            ],
         })
 
         sw = f"{room}_socket"

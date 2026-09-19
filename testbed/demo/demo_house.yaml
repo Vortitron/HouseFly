@@ -86,6 +86,9 @@ template:
         entity_id: input_number.kitchen_brightness
       data:
         value: '{{ (brightness / 2.55) | round(0) }}'
+    - action: input_boolean.turn_on
+      target:
+        entity_id: input_boolean.kitchen_light
   - name: Living Room
     unique_id: demo_living_room
     state: '{{ is_state(''input_boolean.living_room_light'', ''on'') }}'
@@ -104,6 +107,9 @@ template:
         entity_id: input_number.living_room_brightness
       data:
         value: '{{ (brightness / 2.55) | round(0) }}'
+    - action: input_boolean.turn_on
+      target:
+        entity_id: input_boolean.living_room_light
   - name: Hallway
     unique_id: demo_hallway
     state: '{{ is_state(''input_boolean.hallway_light'', ''on'') }}'
@@ -122,6 +128,9 @@ template:
         entity_id: input_number.hallway_brightness
       data:
         value: '{{ (brightness / 2.55) | round(0) }}'
+    - action: input_boolean.turn_on
+      target:
+        entity_id: input_boolean.hallway_light
   - name: Bedroom
     unique_id: demo_bedroom
     state: '{{ is_state(''input_boolean.bedroom_light'', ''on'') }}'
@@ -140,6 +149,9 @@ template:
         entity_id: input_number.bedroom_brightness
       data:
         value: '{{ (brightness / 2.55) | round(0) }}'
+    - action: input_boolean.turn_on
+      target:
+        entity_id: input_boolean.bedroom_light
 - switch:
   - name: Kitchen Socket
     unique_id: demo_kitchen_socket
