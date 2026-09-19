@@ -185,6 +185,25 @@ NOVELTY_RECOVERY = 1.2e-4     # per tick, back towards naive
 # it is the code, or it is not.
 KC_ACTIVE_FLOOR = 0.05
 
+# How hard ambient light drives l-LNv. Small on purpose: this should be able to
+# rouse a sleeping fly when someone turns a light on, and should not be able to
+# hold it awake all day against a clock that says otherwise.
+LIGHT_AROUSAL = 0.45
+
+
+def _circadian_bump(t: float, centre: float, width: float) -> float:
+    """A Gaussian on a circle.
+
+    The day wraps, and the plain squared difference does not. With dusk learned
+    at 23:30 and the time 00:15 the naive form measures three quarters of a day
+    of separation and reports no evening at all, which is a bug that only shows
+    up in winter or on a late-rising house.
+    """
+    d = (t - centre) % 1.0
+    if d > 0.5:
+        d -= 1.0
+    return math.exp(-(d * d) / width)
+
 
 def _threshold(x: np.ndarray) -> np.ndarray:
     """Threshold-linear rectification.
@@ -383,6 +402,7 @@ class FlyBrain:
         self.i_dnp = _typed(d, "DNp")
         self.i_dna = _typed(d, "DNa")
         self.i_clock_m = _typed(d, "s-LNv", "5th s-LNv", "l-LNv")   # morning
+        self.i_llnv = _typed(d, "l-LNv")                            # light-driven arousal
         self.i_clock_e = _typed(d, "LNd", "DN1", "LPN")             # evening
 
         # Escape command neurons: DNp09 and DNp10 are the giant-fibre-adjacent
@@ -633,6 +653,21 @@ class FlyBrain:
         # Map each plastic edge to its postsynaptic MBON slot.
         self.kc_mbon_mbon_slot = slot[d.post[self.kc_mbon_edges]].astype(np.int32)
         self.kc_mbon_pre = d.pre[self.kc_mbon_edges]
+
+        # Which projection-neuron channels feed which Kenyon cells. Used only
+        # to answer "which inputs is the surprise coming through", which is not
+        # something the fly knows -- it is something we can work out afterwards
+        # by following its own wiring backwards.
+        is_pn = np.zeros(d.n, dtype=bool)
+        is_pn[self.i_pn] = True
+        is_kc_post = np.zeros(d.n, dtype=bool)
+        is_kc_post[self.i_kc] = True
+        self.pn_kc_edges = np.where(is_pn[d.pre] & is_kc_post[d.post])[0].astype(np.int32)
+        pn_slot = np.full(d.n, -1, dtype=np.int32)
+        pn_slot[self.i_pn] = np.arange(len(self.i_pn), dtype=np.int32)
+        self.pn_kc_pn = pn_slot[d.pre[self.pn_kc_edges]]
+        self.pn_kc_kc = self.kc_slot[d.post[self.pn_kc_edges]]
+        self.pn_kc_w = np.abs(d.weight[self.pn_kc_edges]).astype(np.float32)
         self.kc_novelty_slot = self.kc_slot[self.kc_mbon_pre]
 
     # --------------------------------------------------------------- input
@@ -766,12 +801,37 @@ class FlyBrain:
         # Driving them with real local time makes the fly crepuscular in your
         # house without a single line of "if hour > 18" anywhere.
         t = senses.time_of_day  # 0..1
-        morning = math.exp(-((t - 0.25) ** 2) / 0.004)
-        evening = math.exp(-((t - 0.78) ** 2) / 0.006)
+
+        # The morning and evening peaks sit where this house's dawn and dusk
+        # actually are, rather than at a fixed 06:00 and 18:43.
+        #
+        # This is photoperiod tracking and not entrainment, and the difference
+        # is worth being exact about: entrainment is a free-running oscillator
+        # being pulled into phase by a zeitgeber, and there is no free-running
+        # oscillator here. The clock in this model is a function of local time.
+        # So the honest thing is to move where the peaks sit, which is a real
+        # behaviour -- the morning and evening oscillators separate in long
+        # days and close up in short ones (Rieger et al. 2003; Stoleru et al.
+        # 2007) -- rather than to claim a mechanism that is not implemented.
+        #
+        # The phases are learned in the coordinator, from the light the house
+        # actually reports, because estimating them is a house-level job and
+        # not a neural computation. It is a stand-in, and labelled one.
+        morning = _circadian_bump(t, senses.dawn_phase, 0.004)
+        evening = _circadian_bump(t, senses.dusk_phase, 0.006)
         if len(self.i_clock_m):
             inj[self.i_clock_m] += np.float32(0.6 * morning + 0.15)
         if len(self.i_clock_e):
             inj[self.i_clock_e] += np.float32(0.6 * evening + 0.15)
+
+        # Acute light onto l-LNv. These are the arousal-promoting clock cells
+        # and they respond to light directly rather than through the clock
+        # (Shang et al. 2008), which is why a light switched on at three in the
+        # morning wakes a fly that the clock says should be asleep. Separate
+        # from the photoperiod above: that shifts *when* it is active, this
+        # makes it active *now*.
+        if senses.light > 0.0 and len(self.i_llnv):
+            inj[self.i_llnv] += np.float32(LIGHT_AROUSAL * senses.light)
 
         return inj
 
@@ -825,6 +885,34 @@ class FlyBrain:
         return self._readout(senses)
 
     # ------------------------------------------------------------- learning
+    def novel_channels(self, top: int = 4) -> list[tuple[int, float]]:
+        """Which projection-neuron channels the current surprise arrives on.
+
+        The Kenyon code is a hash and a hash does not invert, so this is not
+        "the fly knows what changed" -- it does not, and never will. It is the
+        measured PN->KC wiring read backwards: of the cells that are active and
+        have *not* habituated, which input channels feed them hardest.
+
+        Channels collide, because a random projection with more entities than
+        glomeruli must. So this narrows the field rather than naming a culprit,
+        which is exactly the right job for something whose next step is to hand
+        the question to a system that can actually go and look.
+        """
+        if not len(self.pn_kc_edges) or not len(self.i_kc):
+            return []
+        act = self._kc_code()
+        if act.sum() <= 1e-6:
+            return []
+        surprise = act * self.kc_habituation          # active AND still novel
+        weight = surprise[self.pn_kc_kc] * self.pn_kc_w
+        scores = np.bincount(self.pn_kc_pn, weights=weight, minlength=len(self.i_pn))
+        total = float(scores.sum())
+        if total <= 1e-9:
+            return []
+        order = np.argsort(scores)[::-1][:top]
+        return [(int(i), round(float(scores[i] / total), 4))
+                for i in order if scores[i] > 0]
+
     def _kc_code(self) -> np.ndarray:
         """The active Kenyon ensemble, as a weight per cell.
 
@@ -1008,3 +1096,11 @@ class Senses:
     reward: float = 0.0
     punishment: float = 0.0
     time_of_day: float = 0.5
+    # Ambient light, 0..1. Drives l-LNv acutely -- those are the arousal cells
+    # and they are genuinely light-responsive, which is why a fly wakes up when
+    # you turn the kitchen light on at two in the morning.
+    light: float = 0.0
+    # Where the house's dawn and dusk actually are, as fractions of the day.
+    # Defaults are 06:00 and 18:43, which is nobody's actual daylight.
+    dawn_phase: float = 0.25
+    dusk_phase: float = 0.78

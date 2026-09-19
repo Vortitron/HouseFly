@@ -280,6 +280,22 @@ of the approach/avoid cells, so familiarity cannot be confused with valence.
  the familiar one, for contrast novelty 0.123
 ```
 
+**The useful shape of this is as a trigger, not an answer.** A sparse hash
+ticking twice a second costs nothing; asking a language model to go and look at
+the whole house costs real money. So let the fly decide when it is worth
+asking. HouseFly fires a `fly_house_unusual` event on the rising edge, carrying
+the novelty figure, how long it has held, and a shortlist of **suspects** —
+which configured inputs the surprise is arriving through, obtained by reading
+the measured PN→KC wiring backwards from the cells that are active and have not
+habituated.
+
+Not "what is wrong": the Kenyon code is a hash and a hash does not invert, and
+channels collide because a random projection with more entities than glomeruli
+must. Measured on a synthetic input, three of the top four channels were among
+the eight genuinely driven and one was not. It narrows the field, which is the
+right job for something whose next step is to hand the question to a system
+that can actually go and look.
+
 `binary_sensor.housefly_unusual` is that, made slow enough to be worth saying:
 it stays silent until it has actually learned something, then wants two minutes
 of sustained strangeness before it speaks. **No training set, no labels, no
@@ -294,6 +310,38 @@ reconstructs 623 of the KC→α′3 synapses out of 20,391 KC→MBON synapses, f
 four synapses carrying the readout — measured, it sat at exactly zero for a
 hundred ticks and then jumped to 0.999. A presynaptic trace is well sampled, it
 is the same claim, and it still drives the network through the α′3 edges.
+
+### It knows when this house's day is
+
+The clock used to peak at a fixed 06:00 and 18:43, which is nobody's daylight
+and at this latitude is not close for most of the year. It now watches whatever
+light the house reports — an illuminance sensor if there is one, `sun.sun`'s
+elevation otherwise — learns where dawn and dusk actually fall, and moves the
+morning and evening oscillators there.
+
+```
+                              02    04    06    08    12    16    20    22    23
+ textbook 06:00/18:43        0.17  0.33 [0.83] 0.33  0.17  0.30 [0.68] 0.22  0.17
+ summer, dawn 04:00          0.31 [0.73] 0.43  0.20  0.17  0.21  0.52 [0.76] 0.64
+ winter, 08:30 to 15:30      0.17  0.20  0.35 [0.70] 0.20 [0.75] 0.31  0.18  0.17
+```
+
+In the short day the two peaks close up to seven hours apart, which is what the
+morning and evening oscillators do in a real fly (Rieger et al. 2003; Stoleru
+et al. 2007).
+
+**This is photoperiod tracking, not entrainment, and the difference is worth
+being exact about.** Entrainment is a free-running oscillator being pulled into
+phase by a zeitgeber. There is no free-running oscillator here — the clock in
+this model is a function of local time — so moving where the peaks sit is the
+honest version of the claim, and estimating dawn from the light is done in the
+coordinator and labelled a stand-in rather than dressed up as neural.
+
+Separately and acutely, light drives **l-LNv**, which are the arousal-promoting
+clock cells and are genuinely light-responsive (Shang et al. 2008). That is why
+a light switched on at three in the morning rouses a fly the clock says should
+be asleep. The photoperiod shifts *when* it is active; this makes it active
+*now*.
 
 ### It has a memory, and the memory is synapses
 

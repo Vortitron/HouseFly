@@ -511,6 +511,53 @@ def main() -> int:
         check("the visual front end's own checks pass", proc.returncode == 0,
               tail[0].strip() if tail else proc.stderr.strip()[:200])
 
+    print("\n12. It learns where this house's day actually is")
+    # A fixed 06:00/18:43 is nobody's daylight. The peaks move to wherever the
+    # light says dawn and dusk are, which is photoperiod tracking rather than
+    # entrainment -- there is no free-running oscillator here to entrain, and
+    # the README says so.
+    def peak_hour(dawn, dusk, hours):
+        best_h, best_a = None, -1.0
+        for hh in hours:
+            t = hh / 24.0
+            b = circ.FlyBrain()
+            b.settle(time_of_day=t)
+            for _ in range(200):
+                r = b.step(circ.Senses(time_of_day=t, dawn_phase=dawn, dusk_phase=dusk),
+                           sub_steps=20)
+            if r["arousal"] > best_a:
+                best_a, best_h = r["arousal"], hh
+        return best_h, best_a
+
+    morning_default, _ = peak_hour(0.25, 0.78, (4, 6, 8))
+    morning_early, _ = peak_hour(4 / 24, 22 / 24, (4, 6, 8))
+    check("a house whose dawn is at 04:00 gets a fly that wakes at 04:00",
+          morning_early == 4 and morning_default == 6,
+          f"peak moved from {morning_default:02d}:00 to {morning_early:02d}:00")
+
+    # The wrap case. A dusk learned at 23:30 against a time of 00:15 is 45
+    # minutes apart, not three quarters of a day, and the naive squared
+    # difference gets that wrong in exactly the season it matters.
+    near = circ._circadian_bump(0.25 / 24, 23.5 / 24, 0.006)
+    far = circ._circadian_bump(12.0 / 24, 23.5 / 24, 0.006)
+    check("a dusk near midnight still counts just after midnight",
+          near > 0.5 and far < 0.01,
+          f"00:15 against a 23:30 dusk scores {near:.3f}, midday scores {far:.4f}")
+
+    # Acute light on l-LNv: a light switched on at night should rouse it,
+    # without being able to hold it awake against the clock all day.
+    dark = circ.FlyBrain()
+    dark.settle(time_of_day=0.02)
+    for _ in range(200):
+        quiet = dark.step(circ.Senses(time_of_day=0.02), sub_steps=20)
+    lit = circ.FlyBrain()
+    lit.settle(time_of_day=0.02)
+    for _ in range(200):
+        bright = lit.step(circ.Senses(time_of_day=0.02, light=1.0), sub_steps=20)
+    check("a light switched on in the small hours rouses it",
+          bright["arousal"] > quiet["arousal"] + 0.05,
+          f"arousal {quiet['arousal']:.2f} in the dark, {bright['arousal']:.2f} with the light on")
+
     ok = all(_results)
     print(f"\n{sum(_results)}/{len(_results)} checks passed\n")
     return 0 if ok else 1

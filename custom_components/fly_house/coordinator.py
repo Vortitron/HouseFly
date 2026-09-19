@@ -91,9 +91,38 @@ NOVELTY_UNUSUAL = 0.35
 UNUSUAL_SECONDS = 120.0
 SETTLED_FLOOR = 0.10
 
+# Learning where this house's dawn and dusk actually are.
+#
+# A fixed 06:00/18:43 is nobody's daylight, and at this latitude it is not even
+# close for most of the year. So watch the light and learn the crossings.
+#
+# PHOTOPERIOD_RATE is per observed transition, not per tick: roughly a week of
+# days to move most of the way to a new schedule, which is about how fast a
+# real fly's peaks track a changing photoperiod and is slow enough that one
+# evening of working late in the kitchen does not redefine dusk.
+LIGHT_ON = 0.55            # fraction of the learned range that counts as "day"
+LIGHT_OFF = 0.35           # lower, so a flickering reading cannot ring the bell
+PHOTOPERIOD_RATE = 0.18
+
 # How long a state change stays interesting, and how much it pulls.
 NOVELTY_SECONDS = 90.0
 NOVELTY_APPEAL = 0.8
+
+
+def _clock_string(phase: float) -> str:
+    """A fraction of a day as a wall-clock time, for people to read."""
+    minutes = int(round((phase % 1.0) * 1440)) % 1440
+    return f"{minutes // 60:02d}:{minutes % 60:02d}"
+
+
+def _drag_phase(current: float, observed: float, rate: float) -> float:
+    """Move a time-of-day towards another one, the short way round.
+
+    Averaging times of day linearly is the classic way to decide that the mean
+    of 23:50 and 00:10 is midday. Going round the circle avoids it.
+    """
+    delta = (observed - current + 0.5) % 1.0 - 0.5
+    return (current + rate * delta) % 1.0
 
 
 def _stable_channel(entity_id: str, channels: int) -> int:
@@ -238,6 +267,13 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._wander_bearing = 0.0
         self._unusual_since: float | None = None
         self._unusual = False
+        # Learned photoperiod. Starts at the textbook 06:00/18:43 and moves to
+        # wherever this house's light actually goes on and off.
+        self._dawn_phase = 0.25
+        self._dusk_phase = 0.78
+        self._light = 0.0
+        self._is_day: bool | None = None
+        self._photoperiod_seen = 0
         self._position_from_card = False
         self._actions: list[dict[str, Any]] = []
         self._birth = dt_util.utcnow()
@@ -380,6 +416,11 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._pending_reward = 0.0
         self._pending_punishment = 0.0
 
+        # --- light, and where this house's day actually starts and ends -------
+        senses.light = self._observe_light(states)
+        senses.dawn_phase = self._dawn_phase
+        senses.dusk_phase = self._dusk_phase
+
         # --- landmarks: bearings to things the fly can see --------------------
         senses.landmarks = self._landmarks()
 
@@ -508,6 +549,56 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     break
         return out
 
+    def _observe_light(self, states: dict[str, State | None]) -> float:
+        """Ambient light, 0..1, and the dawn/dusk times it implies.
+
+        Any light-ish input will do: an illuminance sensor if the house has
+        one, otherwise the sun's own position, which every install has. The
+        level is adapted per channel like every other input, so a lux sensor
+        reading 40,000 at noon and a percentage reading 90 both end up as
+        "bright" without anyone configuring a scale.
+        """
+        best = None
+        for entity_id in self.input_entities:
+            st = states.get(entity_id)
+            if st is None:
+                continue
+            klass = st.attributes.get("device_class")
+            if klass == "illuminance" or entity_id.startswith("sensor.light"):
+                best = _numeric(st, self._adaptation, entity_id)
+                break
+        if best is None:
+            sun = self.hass.states.get("sun.sun")
+            if sun is not None:
+                # Elevation rather than above/below the horizon: the boolean
+                # steps, and a step tells you nothing about where dawn is
+                # except on the tick it happens.
+                elev = float(sun.attributes.get("elevation", 0.0) or 0.0)
+                best = Percept("sun.sun", float(np.clip((elev + 6.0) / 24.0, 0.0, 1.0)), True)
+        if best is None or not best.live:
+            return self._light
+
+        self._light = float(best.value)
+
+        # A crossing, with hysteresis, is dawn or dusk.
+        now = dt_util.now()
+        phase = (now.hour * 3600 + now.minute * 60 + now.second) / 86400.0
+        if self._is_day is None:
+            self._is_day = self._light >= LIGHT_ON
+        elif not self._is_day and self._light >= LIGHT_ON:
+            self._is_day = True
+            self._dawn_phase = _drag_phase(self._dawn_phase, phase, PHOTOPERIOD_RATE)
+            self._photoperiod_seen += 1
+            _LOGGER.debug("HouseFly saw dawn at %.3f; learned dawn now %.3f",
+                          phase, self._dawn_phase)
+        elif self._is_day and self._light <= LIGHT_OFF:
+            self._is_day = False
+            self._dusk_phase = _drag_phase(self._dusk_phase, phase, PHOTOPERIOD_RATE)
+            self._photoperiod_seen += 1
+            _LOGGER.debug("HouseFly saw dusk at %.3f; learned dusk now %.3f",
+                          phase, self._dusk_phase)
+        return self._light
+
     def _wander(self) -> float:
         """A heading to hold when there is nothing in particular to go to.
 
@@ -617,6 +708,14 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             result["approach_sensors"] = len(self.approach_entities)
             result["approach"] = self._approach
             result["unusual"] = self._assess_novelty(result)
+            result["photoperiod"] = {
+                "dawn": _clock_string(self._dawn_phase),
+                "dusk": _clock_string(self._dusk_phase),
+                "light": round(self._light, 3),
+                "transitions_seen": self._photoperiod_seen,
+                "daylight_hours": round(
+                    ((self._dusk_phase - self._dawn_phase) % 1.0) * 24.0, 1),
+            }
             result["goal_bearing_deg"] = round(math.degrees(self._goal_bearing), 1)
             result["live_inputs"] = len(self.input_entities) - len(self._dead_inputs)
             result["recent_actions"] = self._actions[-5:]
@@ -638,6 +737,7 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         novelty = float(result.get("novelty", 0.0))
         settled = float(result.get("settled", 0.0))
         now = dt_util.utcnow().timestamp()
+        fired_before = self._unusual
 
         if settled < SETTLED_FLOOR:
             self._unusual_since = None
@@ -656,14 +756,60 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._unusual = False
             held = 0.0
 
-        return {
+        report = {
             "unusual": self._unusual,
             "novelty": round(novelty, 4),
             "settled": round(settled, 4),
             "for_seconds": int(held),
+            "suspects": self._suspects() if self._unusual else [],
             "reason": ("the house does not look like itself" if self._unusual
                        else "nothing it has not seen before"),
         }
+
+        # Fire once on the rising edge, not every tick. The point of this event
+        # is to be the cheap thing that decides when to run the expensive thing:
+        # a sparse hash ticking twice a second costs nothing, and asking a
+        # language model to go and look at the whole house costs real money, so
+        # let the fly decide when it is worth asking.
+        if self._unusual and not fired_before:
+            self.hass.bus.async_fire(f"{DOMAIN}_unusual", {
+                **report,
+                "entry_id": self.entry_id,
+                "at": dt_util.utcnow().isoformat(),
+            })
+            _LOGGER.info(
+                "HouseFly: something unusual (novelty %.2f for %ds); suspect channels %s",
+                novelty, int(held), ", ".join(x["entity_id"] for x in report["suspects"]) or "none")
+        return report
+
+    def _suspects(self) -> list[dict[str, Any]]:
+        """Which configured inputs the surprise is arriving through.
+
+        Emphatically not "what is wrong". The Kenyon code is a hash and does
+        not invert; this follows the measured PN->KC wiring backwards to the
+        input channels feeding the cells that are active and have not
+        habituated. Channels collide -- a random projection with more entities
+        than glomeruli must -- so more than one entity can share a channel and
+        all of them are listed.
+
+        It is a shortlist for whatever looks next, which is the job.
+        """
+        channels = len(self.brain.i_pn)
+        if not channels:
+            return []
+        by_channel: dict[int, list[str]] = {}
+        for entity_id in self.input_entities:
+            by_channel.setdefault(_stable_channel(entity_id, channels), []).append(entity_id)
+        out: list[dict[str, Any]] = []
+        for channel, share in self.brain.novel_channels():
+            for entity_id in by_channel.get(channel, []):
+                st = self.hass.states.get(entity_id)
+                out.append({
+                    "entity_id": entity_id,
+                    "state": st.state if st else None,
+                    "share": share,
+                })
+        return out[:6]
 
     def _advance_position(self, result: dict[str, Any]) -> None:
         """Move the body the way the motor output says to.
@@ -820,6 +966,11 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 # The learned sensory ranges are part of what the fly knows
                 # about the house; throwing them away every restart means it
                 # spends its first half hour with no resolution on any channel.
+                # Dawn and dusk take days to learn. Relearning them from
+                # scratch after every Home Assistant update would mean never
+                # actually having them.
+                "photoperiod": [self._dawn_phase, self._dusk_phase,
+                                self._photoperiod_seen],
                 "adaptation": {
                     eid: [c.lo, c.hi, c.seen] for eid, c in self._adaptation.items()
                 },
@@ -838,6 +989,10 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._birth = dt_util.parse_datetime(saved["birth"]) or self._birth
             if saved.get("position"):
                 self.pos = np.asarray(saved["position"], dtype=np.float64)
+            if saved.get("photoperiod"):
+                dawn, dusk, seen = saved["photoperiod"]
+                self._dawn_phase, self._dusk_phase = float(dawn), float(dusk)
+                self._photoperiod_seen = int(seen)
             for eid, (lo, hi, seen) in (saved.get("adaptation") or {}).items():
                 self._adaptation[eid] = SensoryAdaptation(float(lo), float(hi), int(seen))
 
