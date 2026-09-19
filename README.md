@@ -295,8 +295,24 @@ about 7% modulation depth and no consistent phase. This is not a gap in the
 data. In the real animal that map is **learned**, in plastic ER→EPG synapses
 (Fisher et al. 2019; Kim et al. 2019) — a naive fly does not have one.
 
-So HouseFly doesn't fake it. The compass is driven by integrating the fly's own
-turns, exactly as a real one is in the dark, and it drifts when it cannot see.
+So HouseFly doesn't fake it. The compass is driven by the fly's own turns,
+exactly as a real one is in the dark, and it drifts when it cannot see.
+
+**It does not integrate a sustained turn, though, and that is a real limit.**
+Hold the angular-velocity command at a constant value and the bump shifts once,
+by a few tens of degrees, and then stops: a constant −1.5 rad/s moves it 43° and
+holds. It is a position offset, not a velocity. The cause is in how the PEN
+cells are driven here — angular velocity is injected into one hemisphere's PENs
+additively, which displaces the bump to a new equilibrium, whereas in the animal
+PEN firing is the *conjunction* of heading and turning (Turner-Evans et al.
+2017; Green et al. 2017) and that multiplication is what makes the loop
+integrate. Multiplicative gating was tried across PEN gains from 2 to 40 and did
+not recover it either, so this needs more than a constant.
+
+What works is the transient: a change in commanded turn rotates the bump, in the
+right direction, by an amount that tracks the command. That is what
+`tools/validate.py` measures, and the wording there used to say "integrates",
+which was reading more into the result than was in it.
 
 ---
 
@@ -321,9 +337,11 @@ This is a real model of real circuits, and it is still a model.
 - **Two brains, spliced.** Connectivity is hemibrain (a female fly's central
   brain); positions and transmitters are FlyWire (a different female fly).
   Joined by cell type, which is standard practice and still an approximation.
-- **Angular-velocity integration is monotonic and correctly signed** over
-  roughly ±2 rad/s and degrades outside it. `tools/validate.py` reports the
-  measured correlation rather than a claim.
+- **The compass responds to turns but does not integrate them.** The response
+  to a *change* in angular velocity is monotonic and correctly signed over
+  roughly ±2 rad/s; the response to a *sustained* one is a fixed offset rather
+  than continuous rotation. Measured and checked both ways, so the failure is
+  visible rather than implied.
 - **Two circuits needed a static gain constant** (`CIRCUIT_GAIN` in
   `circuits.py`). The fan-shaped body and the Kenyon cells are large and almost
   entirely excitatory with no matching inhibitory population inside the modelled

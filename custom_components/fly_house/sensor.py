@@ -138,6 +138,32 @@ SENSORS: tuple[FlySensorDescription, ...] = (
         },
     ),
     FlySensorDescription(
+        key="approach",
+        name="Approach",
+        icon="mdi:arrow-collapse-right",
+        state_class=SensorStateClass.MEASUREMENT,
+        # theta-dot itself, in radians per second, before anything in the brain
+        # touches it. Published because it is useful on its own and the rest of
+        # HouseFly is not always what you want in a control loop.
+        #
+        # A path light that brightens as somebody walks up to it wants exactly
+        # this curve: v/r^2 is near zero for someone far off or dawdling and
+        # climbs steeply as they close, so it ignores a person standing at the
+        # gate without needing a threshold to do it. Distance alone cannot tell
+        # those apart; a PIR cannot either.
+        #
+        # Drive the lights from this sensor with an ordinary automation. Do not
+        # put the fly in the loop: it is crepuscular and it sleeps, and a porch
+        # light that depends on whether a simulated insect is having its
+        # afternoon nap is not a porch light.
+        value=lambda d, c: round(d.get("approach", {}).get("rate", 0.0), 4),
+        attrs=lambda d, c: {
+            **d.get("approach", {}),
+            "units": "radians per second of angular expansion",
+            "pathway": "the same figure LPLC2 receives",
+        },
+    ),
+    FlySensorDescription(
         key="actuations",
         name="Actuations this hour",
         icon="mdi:gesture-tap-button",

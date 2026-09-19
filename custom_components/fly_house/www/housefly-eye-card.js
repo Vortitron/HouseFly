@@ -12,10 +12,22 @@
  * -- which is what retinotopy means, and it is why the fly can be told *where*
  * the threat was and not merely that there was one.
  *
- * Privacy, plainly: frames are read into a canvas in this page and never leave
- * it. What goes to Home Assistant is two numbers about ten times a second, an
- * expansion rate and an angle. There is no way to reconstruct a picture from
- * that, and nothing is recorded.
+ * Privacy, plainly, and in two parts because they have different answers.
+ *
+ * The picture is yours. Frames are read into a canvas in this page and never
+ * leave it -- not to Home Assistant, not to anyone else looking at the demo.
+ * What crosses the websocket is an expansion rate and an angle, about ten times
+ * a second, and no picture can be reconstructed from that.
+ *
+ * The fly is not yours. There is one brain, shared by everyone with the page
+ * open, so when you startle it everybody watching sees it bolt, and the escape
+ * shows up in the history graphs afterwards. On the hosted demo every visitor
+ * is signed in as the same guest account, so there is no "your" session to
+ * speak of. None of that reveals what your camera saw -- but somebody else can
+ * tell that *something* came at it, and roughly from which side.
+ *
+ * Hence the off switch, which is a real one: it stops the requestAnimationFrame
+ * loop and calls stop() on every track, so the browser's camera light goes out.
  */
 
 import { FlyEye, CELLS_X, CELLS_Y, FOV_X } from './housefly-vision.js';
@@ -42,7 +54,8 @@ const STYLE = `
            overflow: hidden; background: #0b0d10; }
   canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
   video { display: none; }
-  .idle { position: absolute; inset: 0; display: flex; flex-direction: column;
+  .idle:not([hidden]) { display: flex; }
+  .idle { position: absolute; inset: 0; flex-direction: column;
           align-items: center; justify-content: center; gap: 12px; text-align: center;
           padding: 20px; color: #cfd6df; }
   .idle p { margin: 0; max-width: 34ch; font-size: 0.82rem; line-height: 1.5; opacity: 0.8; }
@@ -56,6 +69,14 @@ const STYLE = `
   .cell .v { font-size: 1.15rem; font-variant-numeric: tabular-nums; }
   .note { margin-top: 10px; font-size: 0.76rem; opacity: 0.6; line-height: 1.5; }
   .warn { color: #ffcc66; }
+  .shared { font-size: 0.78rem; opacity: 0.62; }
+  .live { display: inline-flex; align-items: center; gap: 6px; font-size: 0.74rem;
+          text-transform: uppercase; letter-spacing: 0.05em; color: #ff6f6f; }
+  .live .dot { width: 8px; height: 8px; border-radius: 50%; background: #ff4d4d;
+               animation: pulse 1.6s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: 0.25; } }
+  .stop { position: absolute; right: 10px; bottom: 10px; z-index: 2; font-size: 0.8rem;
+          padding: 6px 12px; background: rgba(12,14,18,0.78); }
 `;
 
 class HouseFlyEyeCard extends HTMLElement {
@@ -90,7 +111,10 @@ class HouseFlyEyeCard extends HTMLElement {
     root.innerHTML = `
       <style>${STYLE}</style>
       <ha-card>
-        <div class="head"><h2>Let it see you</h2></div>
+        <div class="head">
+          <h2>Let it see you</h2>
+          <span class="live" id="live" hidden><span class="dot"></span>camera on</span>
+        </div>
         <p class="sub">
           Its looming detectors work on photons, the way the animal's do:
           photoreceptors, T4/T5 motion correlators, then the LPLC2 population.
@@ -100,11 +124,15 @@ class HouseFlyEyeCard extends HTMLElement {
           <video playsinline muted></video>
           <canvas></canvas>
           <div class="idle">
-            <p>Nothing leaves this page. Frames are read into a canvas here; what
-               reaches Home Assistant is an expansion rate and an angle, about ten
-               times a second. Nothing is recorded.</p>
-            <button>Use my camera</button>
+            <p id="idletext"><strong>Your camera image never leaves this page.</strong> Frames are
+               read into a canvas here; what reaches Home Assistant is an expansion rate and an
+               angle, about ten times a second, and no picture can be rebuilt from that.</p>
+            <p class="shared">There is only one fly, though, and everyone with the demo open shares
+               it — so if you startle it, they see it bolt, and it shows up in the history graphs.
+               They cannot see what you saw, only that something came at it.</p>
+            <button id="start">Use my camera</button>
           </div>
+          <button id="stop" class="stop" hidden>Stop camera</button>
         </div>
         <div class="readout">
           <div class="cell"><div class="k">Expansion</div><div class="v" id="exp">--</div></div>
@@ -121,7 +149,8 @@ class HouseFlyEyeCard extends HTMLElement {
     this._video = root.querySelector('video');
     this._canvas = root.querySelector('canvas');
     this._idle = root.querySelector('.idle');
-    root.querySelector('button').addEventListener('click', () => this._useWebcam());
+    root.getElementById('start').addEventListener('click', () => this._useWebcam());
+    root.getElementById('stop').addEventListener('click', () => this._stopCamera());
 
     if (this._config.camera_entity) this._useHaCamera();
   }
@@ -172,7 +201,9 @@ class HouseFlyEyeCard extends HTMLElement {
   _begin() {
     if (this._running) return;
     this._running = true;
-    this._idle.style.display = 'none';
+    this._idle.hidden = true;
+    this.shadowRoot.getElementById('live').hidden = false;
+    this.shadowRoot.getElementById('stop').hidden = false;
     this._scratch = document.createElement('canvas');
     this._scratch.width = 80;
     this._scratch.height = 60;
@@ -185,8 +216,29 @@ class HouseFlyEyeCard extends HTMLElement {
     this._running = false;
     if (this._raf) cancelAnimationFrame(this._raf);
     if (this._stream) {
+      // stop() on every track is what actually releases the device and puts the
+      // browser's camera indicator out. Pausing the video element does not.
       for (const track of this._stream.getTracks()) track.stop();
       this._stream = null;
+    }
+    if (this._video) this._video.srcObject = null;
+  }
+
+  /** The off switch. Releases the camera and puts the card back as it was. */
+  _stopCamera() {
+    this._stop();
+    this._source = null;
+    this._eye = new FlyEye();          // forget the adaptation state too
+    this._peak = 0;
+    const root = this.shadowRoot;
+    root.getElementById('live').hidden = true;
+    root.getElementById('stop').hidden = true;
+    this._idle.hidden = false;
+    const ctx = this._canvas.getContext('2d');
+    ctx.clearRect(0, 0, this._canvas.width, this._canvas.height);
+    for (const id of ['exp', 'az', 'esc']) {
+      const el = root.getElementById(id);
+      if (el) { el.textContent = '--'; el.className = 'v'; }
     }
   }
 

@@ -245,12 +245,36 @@ class HouseFlyOverlay extends HTMLElement {
     const targetZ = f.airborne ? (escaping ? 18 : 9) : 0;
     f.z += (targetZ - f.z) * Math.min(1, dt * 7);
 
-    // Walls. Bounce off the viewport rather than wandering off it forever.
-    const m = 26;
-    if (f.x < m) { f.x = m; f.heading = Math.PI - f.heading; }
-    if (f.x > window.innerWidth - m) { f.x = window.innerWidth - m; f.heading = Math.PI - f.heading; }
-    if (f.y < m) { f.y = m; f.heading = -f.heading; }
-    if (f.y > window.innerHeight - m) { f.y = window.innerHeight - m; f.heading = -f.heading; }
+    // Walls.
+    //
+    // This used to reflect the heading at the edge, which did nothing at all:
+    // the first line of this function drags the heading back towards the one
+    // the brain is holding on every single frame, so a reflection survived
+    // about sixteen milliseconds and the fly went straight back to pressing
+    // itself against the edge. It has to be a continuous term, not an event.
+    //
+    // It is also a controller and not biology, and for a plain reason: the
+    // model has no body and no room. A real fly avoids a wall on ventral optic
+    // flow, which needs an eye pointed at the floor and a floor to point it at.
+    const margin = 120;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    let pushX = 0;
+    let pushY = 0;
+    if (f.x < margin) pushX += (margin - f.x) / margin;
+    if (f.x > vw - margin) pushX -= (f.x - (vw - margin)) / margin;
+    if (f.y < margin) pushY += (margin - f.y) / margin;
+    if (f.y > vh - margin) pushY -= (f.y - (vh - margin)) / margin;
+    const urgency = Math.min(1, Math.hypot(pushX, pushY));
+    if (urgency > 0.01) {
+      const away = Math.atan2(pushY, pushX);
+      const turn = angleDelta(f.heading, away);
+      f.heading += clamp(turn, -agility * dt, agility * dt) * urgency * 2.2;
+    }
+    // A hard stop at the very edge, so a fast escape cannot leave the page.
+    const edge = 26;
+    f.x = clamp(f.x, edge, vw - edge);
+    f.y = clamp(f.y, edge, vh - edge);
     f.heading = (f.heading + TAU) % TAU;
 
     f.wing += dt * (asleep ? 0 : (escaping ? 95 : (f.airborne ? 62 : 6)));

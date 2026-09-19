@@ -159,7 +159,7 @@ def main() -> int:
               left == right and left > 0 and unknown == 0,
               f"{left} left, {right} right")
 
-    print("\n4. The compass holds a heading and integrates turns")
+    print("\n4. The compass holds a heading and responds to turns")
     brain = circ.FlyBrain()
     brain.settle()
     for _ in range(40):
@@ -202,6 +202,31 @@ def main() -> int:
     # so landmark input arrives at the compass as inhibition; injected raw, a
     # single visible lamp silenced the bump entirely and the heading froze at
     # zero, which on a dashboard looks like a fly that flies right and stops.
+    # A change in turn command rotates the bump; a *constant* one does not keep
+    # rotating it. That distinction is the difference between an integrator and
+    # a displacement, and the check above only ever exercised the first, which
+    # is how the README came to claim the second. Measure it directly.
+    sustained = {}
+    for av in (-1.5, 0.0, 1.5):
+        b = circ.FlyBrain()
+        b.settle()
+        prev = b.heading
+        total = 0.0
+        for _ in range(60):
+            b.step(circ.Senses(angular_velocity=av, time_of_day=0.4), sub_steps=10)
+            total += math.atan2(math.sin(b.heading - prev), math.cos(b.heading - prev))
+            prev = b.heading
+        sustained[av] = math.degrees(total)
+    held = abs(sustained[0.0])
+    turned = max(abs(sustained[-1.5]), abs(sustained[1.5]))
+    check("a constant turn command does not keep rotating the bump",
+          turned < 360.0,
+          f"60 ticks at -1.5 rad/s moved it {sustained[-1.5]:+.0f} deg and at +1.5 "
+          f"{sustained[1.5]:+.0f} deg -- an offset, not a velocity. Documented, not fixed.")
+    check("and with no turn command it does not drift",
+          held < 5.0,
+          f"{held:.1f} deg over 60 ticks")
+
     print("\n4b. Seeing something does not switch the compass off")
     worst = None
     layouts = {

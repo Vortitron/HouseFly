@@ -217,12 +217,18 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._last_turn = 0.0
         self._goal_entity: str | None = None
         self._goal_bearing = 0.0
+        self._wander_bearing = 0.0
         self._position_from_card = False
         self._actions: list[dict[str, Any]] = []
         self._birth = dt_util.utcnow()
         # One adaptive gain channel per input entity.
         self._adaptation: dict[str, SensoryAdaptation] = {}
         self._ranges: dict[str, tuple[float, float]] = {}   # entity -> (metres, reading time)
+        # The last looming computation, kept so it can be published as a sensor
+        # rather than only consumed internally. See the Approach sensor.
+        self._approach: dict[str, Any] = {
+            "rate": 0.0, "entity": None, "range_m": None, "closing_ms": None,
+        }
         self._dead_inputs: list[str] = []
 
         self._store = Store(hass, STORAGE_VERSION, f"{STORAGE_KEY}_{entry_id}")
@@ -398,6 +404,9 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         and a fly that startled at departures would be a poor fly.
         """
         strongest = 0.0
+        detail: dict[str, Any] = {
+            "rate": 0.0, "entity": None, "range_m": None, "closing_ms": None,
+        }
         for entity_id in self.approach_entities:
             state = self.hass.states.get(entity_id)
             if state is None:
@@ -438,7 +447,16 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if closing <= 0.0:
                 continue
             expansion = closing / (metres * metres)
-            strongest = max(strongest, float(np.clip(expansion * LOOM_SCALE, 0.0, 3.0)))
+            value = float(np.clip(expansion * LOOM_SCALE, 0.0, 3.0))
+            if value >= strongest:
+                strongest = value
+                detail = {
+                    "rate": round(expansion, 4),
+                    "entity": entity_id,
+                    "range_m": round(metres, 3),
+                    "closing_ms": round(closing, 3),
+                }
+        self._approach = detail
         return strongest
 
     def _landmarks(self) -> list[tuple[float, float]]:
@@ -470,6 +488,24 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     break
         return out
 
+    def _wander(self) -> float:
+        """A heading to hold when there is nothing in particular to go to.
+
+        This used to return 0.0, and 0.0 radians is not "no preference" -- it
+        is due east. With a goal strength of 0.25 to 0.65 behind it, the
+        controller then steered hard for due east and held it, so the fly flew
+        to the right-hand edge of the screen and stayed there pressed against
+        it. Two people reported that as "it just flies to the right and bounces
+        off the side", which is exactly what it was.
+
+        A wander is a slow random walk in heading, which is roughly what a fly
+        does in still air with nothing to aim at: it keeps a heading for a
+        while and then picks another.
+        """
+        self._wander_bearing += float(np.random.default_rng().normal(0.0, 0.25))
+        self._wander_bearing %= 2 * math.pi
+        return self._wander_bearing
+
     def _choose_goal(self, states: dict[str, State | None]) -> tuple[float, float, str | None]:
         """Pick something to walk towards.
 
@@ -478,7 +514,7 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         to go on it wanders, which is a real behaviour and not a fallback.
         """
         if not self._layout:
-            return 0.0, 0.25 + 0.4 * self.brain.hunger, None
+            return self._wander(), 0.25 + 0.4 * self.brain.hunger, None
 
         vw, vh = self._viewport
         fx, fy = self.pos[0] * vw, self.pos[1] * vh
@@ -513,7 +549,7 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if score > best_score:
                 best_score, best = score, (cx, cy, entity)
         if best is None:
-            return 0.0, 0.3, None
+            return self._wander(), 0.3, None
         cx, cy, entity = best
         return (math.atan2(cy - fy, cx - fx) % (2 * math.pi),
                 float(np.clip(0.3 + 0.5 * self.brain.hunger, 0.0, 1.0)),
@@ -559,6 +595,7 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             result["safety"] = self.governor.stats
             result["dead_inputs"] = self._dead_inputs
             result["approach_sensors"] = len(self.approach_entities)
+            result["approach"] = self._approach
             result["goal_bearing_deg"] = round(math.degrees(self._goal_bearing), 1)
             result["live_inputs"] = len(self.input_entities) - len(self._dead_inputs)
             result["recent_actions"] = self._actions[-5:]
