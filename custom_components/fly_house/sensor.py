@@ -100,6 +100,9 @@ SENSORS: tuple[FlySensorDescription, ...] = (
         value=lambda d, c: round(d.get("arousal", 0.5), 3),
         attrs=lambda d, c: {
             "driven_by": "s-LNv / l-LNv morning and LNd / DN1 evening oscillators",
+            # Where this house's day was measured to be. Learning it and then
+            # not showing it means nobody can tell whether it worked.
+            **d.get("photoperiod", {}),
         },
     ),
     FlySensorDescription(
