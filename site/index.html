@@ -121,7 +121,7 @@
 
 <div class="wrap">
 <nav class="toc">
-  <a href="#why">Why it was rewritten</a>
+  <a href="#why">The one rule</a>
   <a href="#circuits">The circuits</a>
   <a href="#ringattractor">The ring attractor</a>
   <a href="#memory">Memory</a>
@@ -137,23 +137,35 @@
   <a href="#safety">Safety</a>
 </nav>
 
-<h2 id="why">Why this was rewritten</h2>
-<p>HouseFly v1 described itself as a “leaky reservoir inspired by fruit-fly motifs”. That framing was
-doing a lot of work. The brain was a 256-unit reservoir whose recurrent weights, input projections
-and readouts were all drawn from <code>rng.gauss</code> — and none of which ever changed.</p>
+<h2 id="why">The one rule</h2>
+<p>There is a tempting way to build something like this, and it is worth naming because avoiding it
+is the only design decision that matters. You take a recurrent network, seed it with random weights,
+call the shape "fly-inspired", and then hang the behaviour you actually want off the side of it in
+plain <code>if</code> statements. It looks alive. The network could be deleted without changing a
+single thing the user sees.</p>
 
-<p>So every motor channel was a fixed random projection of a random projection of your sensors:
-statistically, a smoothed Gaussian hovering near 0.5. Nothing the fly did depended on anything.
-Every behaviour you could actually <em>observe</em> — the mode classifier, hunger, phototaxis — was a
-hand-written <code>if</code> sitting <em>beside</em> the reservoir rather than emerging from it. You could
-have deleted the reservoir without changing what the integration appeared to do.</p>
+<p>So the rule here is: <strong>every behaviour has to come out of the measured wiring, or be
+labelled as not coming out of it.</strong> No third option.</p>
 
-<p>It also named the connectome in its docstring and then explicitly declined to use it. And it
-fired a service call at every configured output every ten seconds with a value that was noise —
-<code>cover</code> was a supported output domain, so the documented configuration surface included your
-garage door.</p>
+<p>That rule is why this page is full of numbers, and why some of them are failures. The ring
+attractor is not asserted, it is measured out of the synapse counts. The escape threshold is not a
+constant someone picked, it is where the network sits. Where something genuinely is a controller and
+not biology — goal seeking, wall avoidance, estimating dawn from the light — it says so in the code
+and it says so here. And where the model does not do what it looked like it did, that is written
+down too, with the measurement that caught it:</p>
 
-<blockquote>The question was never how to improve the reservoir. It was why there is one.</blockquote>
+<ul>
+<li>The compass responds to turns but does not integrate a sustained one. The check that "passed"
+was only ever testing a <em>change</em> in the command.</li>
+<li>The escape pathway had no real threshold: 1e-5 and 1.25 of looming produced the same burst, so
+the r² was being computed faithfully upstream and then thrown away.</li>
+<li>A directed escape is impossible with this data pack, because the hemibrain is a
+<em>hemi</em>brain and there is no left LPLC2 population to compare against.</li>
+</ul>
+
+<p>Each of those is now a check that would fail if it were ever quietly fixed or quietly broken. The
+alternative — a model that always agrees with its own documentation — is the failure mode, not the
+goal.</p>
 
 <h2 id="circuits">Give each circuit the input it actually carries</h2>
 <p>The replacement is not a bigger network. It is a set of circuits that have a known function,

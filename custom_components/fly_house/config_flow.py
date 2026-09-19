@@ -24,6 +24,7 @@ from .const import (
     CONF_QUIET_HOURS_END,
     CONF_QUIET_HOURS_START,
     CONF_TICK_INTERVAL,
+    CONF_WATCH_WHOLE_HOUSE,
     DEFAULT_ACTUATION_ENABLED,
     DEFAULT_HOURLY_BUDGET,
     DEFAULT_TICK_INTERVAL,
@@ -37,6 +38,11 @@ from .safety import ALLOWED_DOMAINS, ActuationGovernor
 
 def _schema(defaults: dict[str, Any]) -> vol.Schema:
     return vol.Schema({
+        # Watching is free and touching is not, so they are asked separately
+        # and the safe one is the one that can be turned on wholesale.
+        vol.Optional(CONF_WATCH_WHOLE_HOUSE,
+                     default=defaults.get(CONF_WATCH_WHOLE_HOUSE, False)):
+            selector.BooleanSelector(),
         vol.Optional(CONF_INPUT_ENTITIES, default=defaults.get(CONF_INPUT_ENTITIES, [])):
             selector.EntitySelector(selector.EntitySelectorConfig(multiple=True)),
         vol.Optional(CONF_OUTPUT_ENTITIES, default=defaults.get(CONF_OUTPUT_ENTITIES, [])):

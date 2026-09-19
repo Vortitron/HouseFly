@@ -3,8 +3,9 @@
     "step": {
       "user": {
         "title": "HouseFly",
-        "description": "Pick what the fly can sense and, optionally, what it may touch. Actuation is off by default: until you turn it on it only watches and walks.",
+        "description": "Watching is free and safe; touching is neither, so they are separate questions. Turn on whole-house watching and it smells everything read-only, which is what makes \"something unusual\" worth anything \u2014 a novelty detector fed six sensors can only notice six kinds of strange. What it may touch stays a short, explicit list, and actuation is off until you turn it on.",
         "data": {
+          "watch_whole_house": "Watch the whole house (read-only)",
           "input_entities": "What it can sense",
           "output_entities": "What it may touch (optional)",
           "actuation_enabled": "Let it actually change things",
@@ -28,6 +29,7 @@
       "init": {
         "title": "HouseFly",
         "data": {
+          "watch_whole_house": "Watch the whole house (read-only)",
           "input_entities": "What it can sense",
           "output_entities": "What it may touch (optional)",
           "actuation_enabled": "Let it actually change things",

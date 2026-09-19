@@ -182,6 +182,10 @@ def ws_vision(hass: HomeAssistant, connection, msg: dict[str, Any]) -> None:
         vol.Optional("fly"): {
             vol.Required("x"): vol.Coerce(float),
             vol.Required("y"): vol.Coerce(float),
+            # Which way the body is pointing, radians. The goal controller
+            # needs this rather than the compass bump, because the bump is an
+            # estimate that cannot slew to an arbitrary heading.
+            vol.Optional("heading"): vol.Coerce(float),
         },
         vol.Optional("entry_id"): str,
     }

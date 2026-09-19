@@ -178,7 +178,13 @@ class HouseFlyOverlay extends HTMLElement {
         viewport: { w: vw, h: vh },
         // The brain works out bearings from this, so it has to be where the
         // fly actually is on screen, not where the brain last guessed.
-        fly: { x: this._fly.x / vw, y: this._fly.y / vh },
+        fly: {
+          x: this._fly.x / vw,
+          y: this._fly.y / vh,
+          // And which way it is pointing, so the goal controller measures its
+          // error against the body rather than against the compass bump.
+          heading: this._fly.heading,
+        },
       }).catch(() => {});
     }
   }
@@ -207,16 +213,28 @@ class HouseFlyOverlay extends HTMLElement {
   _update(dt) {
     const f = this._fly, b = this._brain;
 
-    // Steer towards the heading the central complex is holding. The brain owns
-    // the direction; the body just catches up to it at a finite rate.
-    const delta = angleDelta(f.heading, b.heading || 0);
-    const agility = b.mode === 'escape' ? 14 : 4;
-    f.heading += clamp(delta, -agility * dt, agility * dt);
-    f.heading = (f.heading + TAU) % TAU;
+    // Integrate the turn the brain is commanding. The body owns its heading;
+    // the brain says how fast to rotate it.
+    //
+    // This used to chase b.heading -- the compass bump -- and that was the bug
+    // behind three reports of "it flies to the right and stays there". The
+    // bump is an *estimate* of where the body is pointing, not an instruction,
+    // and it cannot slew: a sustained turn command shifts it a few tens of
+    // degrees and then stops. So the body would converge on whatever heading
+    // the bump had settled at, hold it, cross the screen and sit against the
+    // edge, and nothing downstream could talk it out of that -- the goal
+    // controller was measuring its error against the same stuck estimate.
+    //
+    // A rate integrates without limit. A direction does not.
+    const agility = b.mode === 'escape' ? 3.0 : 1.0;
+    const delta = (b.turn_rate || 0) * agility * dt;
+    f.heading = (f.heading + delta + TAU) % TAU;
 
     // Banking. A fly leans into a turn, and it is the cue that makes a change
     // of direction read as deliberate rather than as a jump cut.
-    f.bank += (clamp(delta * 2.2, -0.5, 0.5) - f.bank) * Math.min(1, dt * 5);
+    // Bank on the commanded *rate*, not on this frame's increment -- the
+    // increment is a sixtieth of the turn and would read as no lean at all.
+    f.bank += (clamp((b.turn_rate || 0) * 0.6, -0.5, 0.5) - f.bank) * Math.min(1, dt * 5);
 
     const escaping = (b.escape || 0) > 0.15;
     const asleep = b.mode === 'sleep';

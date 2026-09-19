@@ -40,8 +40,11 @@ from .const import (
     CONF_QUIET_HOURS_END,
     CONF_QUIET_HOURS_START,
     CONF_TICK_INTERVAL,
+    CONF_WATCH_WHOLE_HOUSE,
     DEFAULT_HOURLY_BUDGET,
     DEFAULT_TICK_INTERVAL,
+    MAX_WATCHED_ENTITIES,
+    WATCHABLE_DOMAINS,
     DOMAIN,
 )
 from .safety import ActuationGovernor, describe_action
@@ -275,6 +278,13 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._is_day: bool | None = None
         self._photoperiod_seen = 0
         self._position_from_card = False
+        self._watched_cache: list[str] = list(self.input_entities)
+        # Where the body is pointing. The compass bump is an *estimate* of this
+        # and cannot slew -- see the note on angular velocity in the README --
+        # so steering has to be measured against the body, not against the
+        # estimate, and the body lives in the card.
+        self._body_heading = 0.0
+        self._commanded_av = 0.0
         self._actions: list[dict[str, Any]] = []
         self._birth = dt_util.utcnow()
         # One adaptive gain channel per input entity.
@@ -299,6 +309,7 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # ----------------------------------------------------------------- config
     def _apply_config(self, entry_data: dict[str, Any]) -> None:
         self.input_entities: list[str] = list(entry_data.get(CONF_INPUT_ENTITIES, []))
+        self._watch_whole_house = bool(entry_data.get(CONF_WATCH_WHOLE_HOUSE, False))
         # Ranging sensors -- mmWave radar, ultrasonic, BLE distance. Anything
         # that reports how far away a moving thing is.
         self.approach_entities: list[str] = list(entry_data.get(CONF_APPROACH_ENTITIES, []))
@@ -371,6 +382,48 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.pos[0] = float(np.clip(fly["x"], 0.0, 1.0))
             self.pos[1] = float(np.clip(fly["y"], 0.0, 1.0))
             self._position_from_card = True
+            # And which way it is pointing, for the same reason. The goal
+            # controller has to measure its error against the heading the body
+            # is actually holding, or it commands a turn the body already made
+            # and never settles.
+            if fly.get("heading") is not None:
+                self._body_heading = float(fly["heading"]) % (2 * math.pi)
+
+    def _watched(self) -> list[str]:
+        """Everything the fly can smell this tick.
+
+        Watching costs nothing and cannot break anything, so when whole-house
+        mode is on this is most of the house -- which matters now that
+        familiarity is the point: a novelty detector fed six sensors can only
+        notice six kinds of strange.
+
+        Touching is the opposite, and stays exactly where it was: an explicit,
+        short, vetted list. The two are deliberately not the same question, and
+        this is the only place that is allowed to blur the first one.
+        """
+        if not self._watch_whole_house:
+            return self.input_entities
+        chosen = list(self.input_entities)
+        seen = set(chosen)
+        for state in self.hass.states.async_all():
+            if len(chosen) >= MAX_WATCHED_ENTITIES:
+                break
+            entity_id = state.entity_id
+            if entity_id in seen:
+                continue
+            if entity_id.split(".", 1)[0] not in WATCHABLE_DOMAINS:
+                continue
+            # Its own entities are not news about the house, and feeding them
+            # back would make the fly smell itself thinking.
+            if entity_id.startswith(("sensor.housefly", "binary_sensor.housefly")):
+                continue
+            chosen.append(entity_id)
+            seen.add(entity_id)
+        # Sorted, because which glomerulus an entity lands in is decided by a
+        # hash of its name and must not depend on the order Home Assistant
+        # happens to return things in -- otherwise the mushroom body relearns
+        # the house on every restart.
+        return sorted(chosen)
 
     # ----------------------------------------------------------------- sense
     def _build_senses(self) -> Senses:
@@ -378,7 +431,9 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         senses = Senses()
         senses.time_of_day = (now.hour * 3600 + now.minute * 60 + now.second) / 86400.0
 
-        states = {eid: self.hass.states.get(eid) for eid in self.input_entities}
+        watched = self._watched()
+        self._watched_cache = watched
+        states = {eid: self.hass.states.get(eid) for eid in watched}
 
         # --- odour: the house's chemical signature ---------------------------
         channels = len(self.brain.i_pn)
@@ -449,12 +504,19 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # proportional control, which is not. Keeping the two visibly separate
         # is the point.
         pfl3 = self._last_turn * 3.0
+        # Measure the error against the body, not the bump. Using the compass
+        # here is what kept the fly pinned: the bump shifts by a few tens of
+        # degrees and then stops (it does not integrate a sustained turn), so
+        # the error never closed and the commanded turn never changed sign. The
+        # fly held one heading, crossed the screen, and sat against the edge.
+        facing = self._body_heading if self._position_from_card else self.brain.heading
         error = math.atan2(
-            math.sin(self._goal_bearing - self.brain.heading),
-            math.cos(self._goal_bearing - self.brain.heading),
+            math.sin(self._goal_bearing - facing),
+            math.cos(self._goal_bearing - facing),
         )
         controller = GOAL_GAIN * error * senses.goal_strength
         senses.angular_velocity = float(np.clip(pfl3 + controller, -2.0, 2.0))
+        self._commanded_av = senses.angular_velocity
 
         return senses
 
@@ -559,7 +621,7 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         "bright" without anyone configuring a scale.
         """
         best = None
-        for entity_id in self.input_entities:
+        for entity_id in self._watched_cache:
             st = states.get(entity_id)
             if st is None:
                 continue
@@ -717,7 +779,8 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     ((self._dusk_phase - self._dawn_phase) % 1.0) * 24.0, 1),
             }
             result["goal_bearing_deg"] = round(math.degrees(self._goal_bearing), 1)
-            result["live_inputs"] = len(self.input_entities) - len(self._dead_inputs)
+            result["live_inputs"] = len(self._watched_cache) - len(self._dead_inputs)
+            result["watching"] = len(self._watched_cache)
             result["recent_actions"] = self._actions[-5:]
             result["age_seconds"] = int((dt_util.utcnow() - self._birth).total_seconds())
             return result
@@ -798,7 +861,7 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not channels:
             return []
         by_channel: dict[int, list[str]] = {}
-        for entity_id in self.input_entities:
+        for entity_id in self._watched_cache:
             by_channel.setdefault(_stable_channel(entity_id, channels), []).append(entity_id)
         out: list[dict[str, Any]] = []
         for channel, share in self.brain.novel_channels():
@@ -898,6 +961,11 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return {
             "heading": self.brain.heading,
             "turn": self.brain.turn,
+            # The angular velocity actually being commanded: the PFL3 steering
+            # output plus the goal controller. This is what the body should
+            # integrate, and it is a rate rather than a direction, which is the
+            # whole difference from "heading" above.
+            "turn_rate": round(float(self._commanded_av), 4),
             "speed": self.brain.speed,
             "mode": data.get("mode", "groom"),
             "escape": data.get("escape", 0.0),

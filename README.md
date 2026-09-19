@@ -20,43 +20,38 @@ checked against a compiled-in SHA-256 before anything loads it.
 
 ---
 
-## Why this was rewritten
+## The one rule
 
-The previous version described itself as a "leaky reservoir inspired by
-fruit-fly motifs". Looking at it honestly, that framing was doing a lot of
-work, and three things were wrong at the root.
+There is a tempting way to build something like this, and naming it is worth
+more than any other design note here, because avoiding it is the only decision
+that matters. You take a recurrent network, seed it with random weights, call
+the shape "fly-inspired", and hang the behaviour you actually want off the side
+of it in plain `if` statements. It looks alive. The network could be deleted
+without changing a single thing the user sees.
 
-**The brain was a random number generator with a theme.** A 256-unit reservoir
-with `rng.gauss` recurrent weights, `rng.gauss` input projections and
-`rng.gauss` readouts, none of which ever changed. Every motor channel was a
-fixed random projection of a random projection of your sensors, so each one was
-a smoothed Gaussian hovering near 0.5. Nothing the fly did depended on anything.
-Every behaviour you could actually observe — the mode classifier, hunger,
-phototaxis — was a hand-written `if` statement sitting *beside* the reservoir,
-not emerging from it. The reservoir was decorative, and could have been deleted
-without changing what the integration appeared to do.
+So the rule is: **every behaviour comes out of the measured wiring, or it is
+labelled as not coming out of it.** There is no third option, and the label is
+not a consolation prize — goal seeking, wall avoidance and estimating dawn from
+the light are all controllers, they all say so in the code, and the model is
+better for the line being drawn rather than blurred.
 
-**It advertised the connectome and then declined to use it.** The docstring
-named MaleCNS and immediately said it wasn't loading it. That was the one
-genuinely interesting thing available, and the data is public, small when
-subset, and runs fine in pure numpy. There was no reason not to.
+That rule is why this file is mostly numbers, and why some of them are
+failures. The ring attractor is not asserted, it is measured out of the synapse
+counts. The escape threshold is not a constant someone chose, it is where the
+network sits. And where the model turned out not to do what it appeared to do,
+that is written down with the measurement that caught it:
 
-**It sprayed service calls at real hardware.** Every configured output got a
-call every tick — 32 entities every 10 seconds, forever, with a value that was
-noise. On a real installation that is continuous Zigbee traffic, measurable
-relay wear, and an unbounded blast radius with no deadband, no rate limit, no
-domain blocklist and no off switch. `cover` was a supported output domain,
-which means the documented configuration surface included your garage door.
+- The compass responds to turns but does not **integrate** a sustained one. The
+  check that passed was only ever testing a *change* in the command.
+- The escape pathway had no real threshold: 1e-5 and 1.25 of looming produced
+  the same burst, so θ̇ = v/r² was computed faithfully upstream and then thrown
+  away by the network.
+- A directed escape is impossible with this data pack, because the hemibrain is
+  a *hemi*brain and there is no left LPLC2 population to compare against.
 
-Smaller things that told the same story: the 16×16 compound eye computed 256
-values and fed 16 of them to the brain, discarding 94% of the pipeline; the
-"visual field" placed each light by `sum(ord(c)) % 256`, so two lamps in the
-same room landed in random opposite corners and the word "visual" meant nothing;
-the "spectral radius" was a comment admitting it was a guess; and the card found
-its entities by string-replacing `binary_sensor.fly_house_active`, so renaming
-one entity broke it.
-
-So the question isn't how to improve the reservoir. It's why there is one.
+Each of those is now a check that fails if it is ever quietly fixed or quietly
+broken. A model that always agrees with its own documentation is the failure
+mode, not the goal.
 
 ---
 
@@ -310,6 +305,35 @@ reconstructs 623 of the KC→α′3 synapses out of 20,391 KC→MBON synapses, f
 four synapses carrying the readout — measured, it sat at exactly zero for a
 hundred ticks and then jumped to 0.999. A presynaptic trace is well sampled, it
 is the same claim, and it still drives the network through the α′3 edges.
+
+### Watching is free; touching is not
+
+These are two different questions and the setup asks them separately.
+
+**What it can sense** is read-only and cannot break anything, so there is a
+*Watch the whole house* switch that hands it everything — sensors, binary
+sensors, lights, switches, climate, covers, presence — up to 250 entities. That
+matters now that familiarity is the point: a novelty detector fed six sensors
+can only notice six kinds of strange. Turn it on and "something unusual"
+actually has a house to be unusual about.
+
+Automations, scripts, scenes, updates and notifications are excluded on
+purpose. They change when *you* change the system rather than when the house
+changes, so including them would make every upgrade look like an intruder. So
+are HouseFly's own entities, which would otherwise have it smelling itself
+thinking.
+
+**What it may touch** stays exactly what it was: a short, explicit list, capped
+at 16, restricted to a handful of domains, vetted by name, rate-limited, and
+off entirely until you turn it on. Locks, alarms, covers, climate, water
+heaters and valves are refused outright whatever anyone configures.
+
+The entity-to-glomerulus assignment is a hash of the name, so whole-house mode
+sorts the list before using it — otherwise the order Home Assistant happened to
+return things in would decide which room smells like which, and the mushroom
+body would relearn the house on every restart. Past 131 entities they begin to
+share glomeruli and two rooms start smelling alike; `tools/validate.py`
+measures that collision rate rather than assuming it away.
 
 ### It knows when this house's day is
 
