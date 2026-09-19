@@ -41,7 +41,7 @@ _LOGGER = logging.getLogger(__name__)
 PLATFORMS = [Platform.BINARY_SENSOR, Platform.SENSOR]
 _FRONTEND_KEY = f"{DOMAIN}_frontend_registered"
 
-CARDS = ("housefly-overlay.js", "housefly-brain-card.js")
+CARDS = ("housefly-overlay.js", "housefly-brain-card.js", "housefly-eye-card.js")
 
 LOOM_SCHEMA = vol.Schema({
     vol.Optional(ATTR_STRENGTH, default=DEFAULT_LOOM_STRENGTH):

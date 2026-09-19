@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import importlib.util
 import math
+import subprocess
 import sys
 from collections import defaultdict
 from pathlib import Path
@@ -21,6 +22,15 @@ from pathlib import Path
 import numpy as np
 
 ROOT = Path(__file__).resolve().parent.parent
+
+
+def load(name: str, path: Path):
+    """Import a module of the integration without importing Home Assistant."""
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
 
 
 def _load_circuits():
@@ -119,6 +129,35 @@ def main() -> int:
         check(f"{cell_type} hemispheres shift oppositely",
               shifts["left"] * shifts["right"] < 0,
               f"left {shifts['left']:+.1f} deg, right {shifts['right']:+.1f} deg")
+
+    print("\n3b. What the data pack cannot do, stated as a number")
+    # The README claims a directed escape is impossible with this pack. That is
+    # a claim about the data and it should be checked like any other, not least
+    # so that it stops being true the day someone builds a pack from a
+    # whole-brain reconstruction.
+    def sides(idx):
+        s = data.side[idx]
+        return int((s < 0).sum()), int((s > 0).sum()), int((s == 0).sum())
+
+    loom_l, loom_r, loom_u = sides(data.group_index["loom"])
+    dn_l, dn_r, _ = sides(data.group_index["descending"])
+    check("the looming pathway has no left hemisphere to compare against",
+          loom_l == 0 and loom_r > 0,
+          f"LPLC2/LC: {loom_l} left, {loom_r} right, {loom_u} unlabelled -- "
+          "the hemibrain is a hemibrain, so escape stays undirected")
+    check("and the descending neurons are too few and too one-sided",
+          dn_l + dn_r > 0 and min(dn_l, dn_r) < 2,
+          f"DNp: {dn_l} left, {dn_r} right")
+    # Repairing the hemisphere labels must not have disturbed the circuits that
+    # already had them, because the compass depends on their balance.
+    pen_idx = np.where(np.isin(types, ["PEN_a(PEN1)", "PEN_b(PEN2)"]))[0]
+    for name, idx in (("EPG", np.where(types == "EPG")[0]),
+                      ("PEN", pen_idx),
+                      ("PFL3", np.where(types == "PFL3")[0])):
+        left, right, unknown = sides(idx)
+        check(f"{name} is still balanced across hemispheres",
+              left == right and left > 0 and unknown == 0,
+              f"{left} left, {right} right")
 
     print("\n4. The compass holds a heading and integrates turns")
     brain = circ.FlyBrain()
@@ -371,6 +410,46 @@ def main() -> int:
     check("dawn and dusk beat the small hours",
           min(arousal["06:00"], arousal["18:45"]) > max(arousal["03:00"], arousal["23:00"]),
           "morning and evening oscillators are doing their job")
+
+    print("\n10. The safety layer's quiet hours mean what they say")
+    safety = load("safety", ROOT / "custom_components" / "fly_house" / "safety.py")
+    gov = safety.ActuationGovernor(allowlist={"light.a"}, enabled=True)
+
+    def quiet_at(window, hours):
+        gov.quiet_hours = window
+        out = []
+        for h in hours:
+            gov._recent.clear()
+            out.append(not gov.check("light.a", 1.0, local_hour=h).allowed)
+        return out
+
+    check("a normal window is quiet inside it and not outside",
+          quiet_at((4, 5), [3, 4, 5, 12]) == [False, True, False, False],
+          "04:00-05:00 -> quiet at 04 only")
+    check("a window across midnight wraps",
+          quiet_at((22, 6), [21, 22, 0, 5, 6, 12]) == [False, True, True, True, False, False],
+          "22:00-06:00 -> quiet through the night, awake by 06")
+    check("an empty window means no quiet hours, not every hour",
+          quiet_at((4, 4), [0, 4, 5, 12, 23]) == [False] * 5,
+          "start == end used to read 'hour >= 4 or hour < 4', which is every hour")
+
+    print("\n11. The eye")
+    # The visual front end is JavaScript, because it runs where the frames are.
+    # Its checks live in tools/test_vision.mjs and are run here so that one
+    # command still covers every claim in the README.
+    vision = ROOT / "tools" / "test_vision.mjs"
+    try:
+        proc = subprocess.run(["node", str(vision)], capture_output=True, text=True, timeout=300)
+    except (FileNotFoundError, subprocess.TimeoutExpired) as err:
+        check("the visual front end's own checks pass", False,
+              f"could not run node: {err}. Install Node, or run {vision} yourself.")
+    else:
+        tail = [ln for ln in proc.stdout.splitlines() if "vision checks passed" in ln]
+        for line in proc.stdout.splitlines():
+            if line.strip().startswith(("PASS", "FAIL")):
+                print(f"  {line.strip()}")
+        check("the visual front end's own checks pass", proc.returncode == 0,
+              tail[0].strip() if tail else proc.stderr.strip()[:200])
 
     ok = all(_results)
     print(f"\n{sum(_results)}/{len(_results)} checks passed\n")

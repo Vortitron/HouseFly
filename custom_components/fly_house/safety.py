@@ -134,8 +134,17 @@ class ActuationGovernor:
 
         if self.quiet_hours:
             start, end = self.quiet_hours
-            in_quiet = (start <= local_hour < end) if start < end \
-                else (local_hour >= start or local_hour < end)
+            # An empty window means no quiet hours, not every hour. The wrap
+            # branch below is written for a window that crosses midnight, and
+            # with start == end it reads `hour >= 4 or hour < 4`, which is true
+            # of every hour there is -- so the setting that most obviously means
+            # "don't have any" silently disabled the fly completely.
+            if start == end:
+                in_quiet = False
+            elif start < end:
+                in_quiet = start <= local_hour < end
+            else:
+                in_quiet = local_hour >= start or local_hour < end
             if in_quiet:
                 return SafetyVerdict(False, "inside quiet hours")
 

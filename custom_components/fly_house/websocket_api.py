@@ -36,6 +36,7 @@ def async_register(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_subscribe)
     websocket_api.async_register_command(hass, ws_neurons)
     websocket_api.async_register_command(hass, ws_layout)
+    websocket_api.async_register_command(hass, ws_vision)
     websocket_api.async_register_command(hass, ws_connectome)
 
 
@@ -123,6 +124,37 @@ def ws_connectome(hass: HomeAssistant, connection, msg: dict[str, Any]) -> None:
         connection.send_error(msg["id"], "not_found", "No HouseFly instance is running")
         return
     connection.send_result(msg["id"], coordinator.connectome_geometry())
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "fly_house/vision",
+        # Expansion rate, in the same units the ranging-sensor path produces,
+        # so the brain cannot tell which eye it came from and does not need to.
+        vol.Required("expansion"): vol.All(vol.Coerce(float), vol.Range(min=0.0, max=5.0)),
+        # Where in the visual field it was, radians, 0 straight ahead.
+        vol.Optional("azimuth", default=0.0):
+            vol.All(vol.Coerce(float), vol.Range(min=-3.2, max=3.2)),
+        vol.Optional("entry_id"): str,
+    }
+)
+@callback
+def ws_vision(hass: HomeAssistant, connection, msg: dict[str, Any]) -> None:
+    """One number from the card's optic lobe.
+
+    The visual front end runs in the browser -- photoreceptors, T4/T5
+    correlators and the LPLC2 population, in housefly-vision.js -- because that
+    is where the frames are, and because frames should not leave the page. What
+    crosses this boundary is the expansion rate and where in the field it was,
+    which is roughly what a real LPLC2 population sends down its axons: a
+    magnitude and a retinotopic address, not a picture.
+    """
+    coordinator = _coordinator(hass, msg.get("entry_id"))
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "No HouseFly instance is running")
+        return
+    coordinator.see(msg["expansion"], msg.get("azimuth", 0.0))
+    connection.send_result(msg["id"], {"seen": round(msg["expansion"], 4)})
 
 
 @websocket_api.websocket_command(

@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import gzip
 import json
+import re
 import math
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -176,6 +177,11 @@ def _saturate(pos: np.ndarray) -> np.ndarray:
     return pos
 
 
+# A bare hemisphere suffix in a hemibrain instance name, as on DNp09_R. The
+# negative lookahead stops it matching the L in a name like _Lo.
+_BARE_SIDE_RE = re.compile(r"_([LR])(?![a-zA-Z])")
+
+
 @dataclass
 class ConnectomeData:
     """The shipped data pack, loaded once and shared between instances."""
@@ -206,6 +212,22 @@ class ConnectomeData:
             meta = json.load(fh)
 
         n = int(meta["n_neurons"])
+
+        # Hemisphere, repaired for packs built before the name parser learned
+        # about bare _L / _R suffixes. It only ever recognised the
+        # protocerebral-bridge form (EPG(PB08)_L4), so the central complex had
+        # a side and nothing else did: every LC, LPLC2 and DNp cell in the pack
+        # read as side 0. Filling the gaps at load costs nothing and changes no
+        # existing behaviour -- the cells that already had a side get the same
+        # answer from both routes, which tools/validate.py checks -- and the
+        # whole block becomes a no-op once a pack is rebuilt.
+        side = core["side"].astype(np.int8)
+        missing = side == 0
+        if missing.any():
+            for i in np.flatnonzero(missing):
+                bare = _BARE_SIDE_RE.search(meta["instances"][i])
+                if bare:
+                    side[i] = -1 if bare.group(1) == "L" else 1
         pre = core["pre"].astype(np.int32)
         post = core["post"].astype(np.int32)
         raw = core["weight"].astype(np.float32)
@@ -248,7 +270,7 @@ class ConnectomeData:
             raw_weight=raw,
             sign=sign,
             phase=core["phase"].astype(np.float32),
-            side=core["side"].astype(np.int8),
+            side=side,
             glomerulus=core["glomerulus"].astype(np.int8),
             column=core["column"].astype(np.int8),
             pos=core["pos"].astype(np.float32),

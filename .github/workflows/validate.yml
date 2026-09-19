@@ -39,9 +39,14 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
       - run: pip install numpy
-      # Twenty checks against the shipped connectome: cell counts against the
+      # Every check behind every number in the README: cell counts against the
       # literature, the ring attractor's Mexican hat, PEN hemispheres shifting
       # oppositely, the bump forming and integrating turns, KC->MBON depression,
-      # transient escape, and a crepuscular arousal rhythm.
+      # a transient escape with a real threshold, a crepuscular arousal rhythm,
+      # the safety layer's quiet hours, and the visual front end's own suite --
+      # which needs Node, because the eye runs where the frames are.
       - run: python3 tools/validate.py

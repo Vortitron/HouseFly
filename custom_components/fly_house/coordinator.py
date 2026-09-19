@@ -209,6 +209,8 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._layout: list[dict[str, Any]] = []
         self._viewport = (1920.0, 1080.0)
         self._pending_loom = 0.0
+        self._pending_vision = 0.0
+        self._threat_bearing: float | None = None
         self._pending_reward = 0.0
         self._pending_punishment = 0.0
         self._last_motion_on: set[str] = set()
@@ -270,6 +272,25 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._pending_loom = max(self._pending_loom, float(strength))
         self._pending_punishment = max(self._pending_punishment, float(strength) * 0.7)
 
+    def see(self, expansion: float, azimuth: float = 0.0) -> None:
+        """Optic expansion from the card's visual front end.
+
+        Kept apart from loom() on purpose. loom() is somebody hitting a button
+        and it carries a punishment signal with it, because being swatted at
+        ought to teach the fly something about where it was standing. This is
+        the eye simply working, and an eye that punished the fly every time it
+        saw anything would give it a uniformly miserable opinion of the world.
+
+        The peak between ticks is what survives, not the latest value: the card
+        reports around ten times a second and the brain thinks every two, so
+        taking the most recent sample would usually mean sampling the moment
+        after the interesting one.
+        """
+        value = float(expansion)
+        if value > self._pending_vision:
+            self._pending_vision = value
+            self._threat_bearing = float(azimuth)
+
     def feed(self, amount: float = 1.0) -> None:
         """Sugar. Drives the PAM dopaminergic neurons, which is what makes a
         memory positive rather than merely strong."""
@@ -321,9 +342,11 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         fresh = motion_now - self._last_motion_on
         self._last_motion_on = motion_now
         senses.looming = max(self._pending_loom,
+                             self._pending_vision,
                              0.9 if fresh else 0.0,
                              self._approach_looming())
         self._pending_loom = 0.0
+        self._pending_vision = 0.0
 
         # --- teaching signals ------------------------------------------------
         senses.reward = self._pending_reward

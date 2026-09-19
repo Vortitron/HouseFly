@@ -186,12 +186,72 @@ withhold the resting drive from the circuits already marked phasic.
 `tools/validate.py` now measures the onset response across four decades, which
 is the check that would have caught it.
 
-**A camera is usually the wrong source.** Optic flow needs frames close enough
+### It has an eye now
+
+The ranging-sensor path is honest but it is not how the animal does it: a fly
+computes expansion from photons, in the optic lobe, before anything central
+hears about it. `housefly-eye-card` is that stage, and it runs in the browser
+because that is where the frames are.
+
+It is the published circuit rather than a motion detector: photoreceptors on a
+32×24 grid (a *Drosophila* eye has about 750 ommatidia at ~5°, so that number is
+not an approximation), a lamina high-pass, Hassenstein–Reichardt correlators
+giving the four direction-selective layers of the lobula plate, and then 63
+LPLC2 cells tiling the field.
+
+The LPLC2 stage is the one that matters. Klapoetke et al. (2017) showed each
+cell has four dendritic branches, one per layer, each offset so it reads motion
+pointing *away* from that cell's receptive-field centre — and that the cell
+needs all four driven at once. That coincidence requirement is the whole of the
+selectivity, and getting it wrong is instructive: summing the four branches
+instead scored a drifting grating at **nine times** an actual approach and a disc
+crossing the view at **thirty times**, because one large branch carried the sum
+on its own. A geometric mean cannot be carried by one term. With it, those two
+stimuli score exactly zero.
+
+Measured in `tools/test_vision.mjs`, all against the same approach:
+
+```
+ approach, plain background      3.121     fires
+ approach, cluttered room        0.124     fires, 25x weaker
+ distant approach (6.0-4.0 m)    0.047     below threshold
+ receding                        0.000
+ drifting grating                0.000
+ object crossing laterally       0.000
+ full-field flicker              0.000
+ camera panning across a room    0.000
+ hand-held camera wandering      0.003
+```
+
+Two limits worth stating. **Clutter costs it 25×** — real LPLC2 is also less
+sensitive in a textured scene, but it means this works far better against a
+plain wall than against a bookshelf. And **a moving camera is suppressed
+entirely**: the field's flow coherence is 0.00 for an approach and 0.76–0.84 for
+a pan, so a self-motion gate sits in the empty gap between them. That is what a
+fly does during a saccade, and it has the same consequence — an approach that
+happens while the camera is panning is missed.
+
+Nothing leaves the page. Home Assistant receives an expansion rate and an angle
+about ten times a second, which is roughly what a real LPLC2 population sends
+down its axons: a magnitude and a retinotopic address, not a picture.
+
+**Frame rate is what kills most cameras.** Optic flow needs frames close enough
 together to correspond. The first install this was tried on had one camera, a
 traffic camera whose own `photo_time` showed it updating *every five minutes* —
 at that spacing there is no correspondence between frames at all, so flow would
 be noise and a looming detector fed from it would fire constantly and mean
 nothing.
+
+**A directed escape is not possible with this data pack, and that is worth
+saying.** LPLC2 is retinotopic, so in the animal the population says where the
+threat is and the fly turns away from it. Ours cannot: the hemibrain is a
+*hemi*brain, and the looming pathway in the pack is 0 left / 130 right / 147
+unlabelled, with 1 left and 12 right descending neurons. There is no left LPLC2
+population to compare against. The central complex is balanced 23/23, 21/21 and
+12/12, so the compass and steering are unaffected — but the escape burst itself
+stays undirected, which is at least true to DNp09. `tools/validate.py` checks
+those counts, so the day someone builds a pack from a whole-brain
+reconstruction, the check fails and this paragraph becomes wrong on purpose.
 
 ### It has a memory, and the memory is synapses
 

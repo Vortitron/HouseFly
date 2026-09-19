@@ -139,6 +139,13 @@ def circuit_of(cell_type: str) -> str | None:
 
 
 _GLOM_RE = re.compile(r"_([LR])(\d)")
+# A bare hemisphere suffix, as on DNp09_R or LC6(PLBDL7)_R. The glomerulus
+# pattern above needs a digit after the letter, so on its own it recognised the
+# hemisphere of the protocerebral-bridge cells and of nothing else -- 3,373
+# neurons carried a side in their name and had it thrown away, including the
+# whole looming and descending pathway. The negative lookahead keeps it from
+# matching the L of a type name like _Lo or _La.
+_SIDE_RE = re.compile(r"_([LR])(?![a-zA-Z])")
 _COL_RE = re.compile(r"_C(\d)")
 
 
@@ -154,6 +161,10 @@ def parse_topography(instance: str) -> tuple[str, int, int]:
     side, glom = ("?", -1)
     if m:
         side, glom = m.group(1), int(m.group(2))
+    else:
+        bare = _SIDE_RE.search(instance)
+        if bare:
+            side = bare.group(1)
     c = _COL_RE.search(instance)
     col = int(c.group(1)) if c else -1
     return side, glom, col
