@@ -97,6 +97,21 @@ views:
     content: Every device here is **fake** — a template on top of a toggle. Nothing
       is wired to anything. Play with them freely; the fly is watching them and may
       land on one and nudge it.
+  - type: custom:housefly-house-card
+  - type: markdown
+    content: |-
+      The plan is drawn from live state, not from an illustration: the glow in a room is that light's real brightness attribute, the tint of the floor is its real temperature ranked against the other rooms, and the blue cone is the radar drawn at the range it is actually reporting. Tap a room to switch its light.
+
+      The figure is somebody walking a circuit — kitchen, hallway, living room, hallway, bedroom — a minute and a half in each. An ordinary automation turns the light on when they arrive and off twenty seconds after they leave. **The fly is deliberately not in that loop**, and that is the honest pattern for a real house: it is crepuscular and it sleeps, so a porch light that waited on its opinion would go out every afternoon. Use its senses, not its moods.
+  - type: entities
+    title: People
+    show_header_toggle: false
+    entities:
+    - {entity: input_boolean.simulate_people, name: Simulate people walking about}
+    - binary_sensor.kitchen_occupied
+    - binary_sensor.living_room_occupied
+    - binary_sensor.hallway_occupied
+    - binary_sensor.bedroom_occupied
   - type: entities
     title: Lights — the fly may change these
     entities: [light.kitchen_2, light.living_room, light.hallway, light.bedroom]
