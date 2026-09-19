@@ -59,6 +59,8 @@
        border:1px solid var(--cyan);color:#041018;background:var(--cyan)}
   .btn:hover{text-decoration:none;filter:brightness(1.09)}
   .btn.ghost{background:transparent;color:var(--cyan)}
+  .btn.demo{border-color:#ffb056;background:#ffb056;color:#1b1003}
+  .cta-note{margin-top:12px;font-size:13px;color:var(--ink-3);max-width:58ch;line-height:1.55}
 
   /* ---- blocks ---- */
   .panel{border:1px solid var(--line);background:var(--panel);border-radius:12px;padding:20px 22px;margin:22px 0}
@@ -105,9 +107,13 @@
       <div class="stat"><b>0</b><span>GPUS</span></div>
     </div>
     <div class="cta">
-      <a class="btn" href="#install">Install it</a>
+      <a class="btn demo" href="/demo">Open the live demo</a>
+      <a class="btn ghost" href="#install">Install it</a>
       <a class="btn ghost" href="https://github.com/Vortitron/HouseFly">Source on GitHub</a>
     </div>
+    <p class="cta-note">A real Home Assistant with a fake house in it, signed in for you as a
+    guest. Everything is a template on top of a toggle, so switch things on and off freely — then
+    drag the approach slider down and watch it bolt. Four of the switches exist only to be refused.</p>
   </div>
 </header>
 
@@ -122,6 +128,7 @@
   <a href="#looming">Approach as looming</a>
   <a href="#eye">It has an eye</a>
   <a href="#limits">Honest limits</a>
+  <a href="#demo">Try the demo</a>
   <a href="#install">Install</a>
   <a href="#safety">Safety</a>
 </nav>
@@ -448,6 +455,36 @@ looming raises descending drive            0.0000 → 0.2452              <span 
   ...and the escape is transient           fell back to 0.0000          <span class="pass">PASS</span>
 PFL3 cells are not all at the same rate    spread 0.0038                <span class="pass">PASS</span>
 arousal  03:00 0.17  06:00 1.00  12:00 0.08  18:45 1.00  23:00 0.10     <span class="pass">PASS</span></code></pre>
+
+<h2 id="demo">Try it without installing anything</h2>
+<p>There is a hosted demo: a real Home Assistant, on a real
+<a href="https://vome.io">Vome</a> instance, with a small fake house in it. The link signs you in
+as a non-admin guest, so you can prod everything without needing an account.</p>
+
+<div class="cta">
+  <a class="btn demo" href="/demo">Open the live demo</a>
+</div>
+
+<div class="panel">
+<h3>What to do when you get there</h3>
+<ul>
+<li><strong>Drag the approach slider</strong> from five metres down to half a metre. That feeds the
+same looming input a ranging sensor would, and the fly bolts. Walking it back out does nothing,
+because receding is not looming.</li>
+<li><strong>Wait ninety seconds.</strong> A simulated mmWave radar has someone walking up to it and
+away again on a cycle, so the demo does something whether or not anyone is watching.</li>
+<li><strong>Let it see you.</strong> The eye card asks for your camera, runs the optic lobe in your
+own browser, and shows you the LPLC2 population lighting up. Move a hand towards the lens. Nothing
+leaves the page.</li>
+<li><strong>Toggle the lights and sockets.</strong> They are templates on top of toggles; nothing is
+wired to anything. The fly is watching them and may nudge one.</li>
+<li><strong>Try the four it will not touch.</strong> Boiler relay, freezer socket, network rack,
+garage door motor. You can switch them yourself. The fly is refused by name, whatever anyone
+configures.</li>
+</ul>
+<p>If you find it asleep, that is not a fault — it is crepuscular, and the middle of the afternoon
+is its siesta. It will still bolt at you.</p>
+</div>
 
 <h2 id="install">Installing it</h2>
 <p>HouseFly is a HACS custom repository. In Home Assistant:</p>
