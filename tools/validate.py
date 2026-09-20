@@ -636,6 +636,39 @@ def main() -> int:
           "DWELL_TICKS" in gate and "_dwell_ticks" in gate,
           "it has to stay on one thing for a few seconds, not merely pass over it")
 
+    print("\n11d. One landing, one decision")
+    # A fly that settles somewhere comfortable used to ask again every two
+    # ticks for as long as it stayed. The refusals were correct -- deadband and
+    # cooldown doing their job -- but the demo logged three actions against a
+    # hundred and fifteen refusals in seven minutes, and a safety layer asked
+    # the same question a hundred times tells you nothing.
+    act_src = coord_src[coord_src.index("    async def _maybe_act"):
+                        coord_src.index("    def _entity_under_fly")]
+    check("staying put does not ask again",
+          "_dwell_spent" in act_src and "self._dwell_spent = True" in act_src,
+          "the visit is finished with, whether the governor said yes or no")
+    check("and leaving re-arms it",
+          "self._dwell_spent = False" in act_src,
+          "it has to go away and come back to get another opinion")
+
+    # Count the decisions a settled fly would ask for, the way the loop runs.
+    spent, entity_prev, ticks, asks = False, None, 0, 0
+    visit = ["light.a"] * 20 + [None] * 3 + ["light.a"] * 20
+    for here in visit:
+        if here is None:
+            entity_prev, ticks, spent = None, 0, False
+            continue
+        if here == entity_prev:
+            ticks += 1
+        else:
+            entity_prev, ticks, spent = here, 1, False
+        if ticks < 2 or spent:
+            continue
+        spent = True
+        asks += 1
+    check("two visits to the same light ask twice, not twenty times",
+          asks == 2, f"{asks} decisions across a 43-tick stay broken by one departure")
+
     print("\n11c. A closed browser gives the body back")
     # One-way flags are how a fly gets frozen. The card said "I own the body",
     # nothing ever said otherwise, so closing the tab stopped the coordinator

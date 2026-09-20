@@ -321,6 +321,7 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._watched_cache: list[str] = list(self.input_entities)
         self._dwell_entity: str | None = None
         self._dwell_ticks = 0
+        self._dwell_spent = False
         self._layout_at = 0.0
         # Where the body is pointing. The compass bump is an *estimate* of this
         # and cannot slew -- see the note on angular velocity in the README --
@@ -903,7 +904,8 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # of them is the fly walking on things you can see.
             result["seeing_dashboard"] = bool(self._layout)
             result["body_owner"] = "dashboard" if self._position_from_card else "coordinator"
-            result["dwell"] = {"entity": self._dwell_entity, "ticks": self._dwell_ticks}
+            result["dwell"] = {"entity": self._dwell_entity, "ticks": self._dwell_ticks,
+                               "spent": self._dwell_spent}
             result["safety"] = self.governor.stats
             result["dead_inputs"] = self._dead_inputs
             result["approach_sensors"] = len(self.approach_entities)
@@ -1063,11 +1065,13 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
         if result["mode"] in ("escape", "sleep"):
             self._dwell_entity, self._dwell_ticks = None, 0
+            self._dwell_spent = False
             return
 
         entity = self._entity_under_fly()
         if entity is None or entity not in self.governor.allowlist:
             self._dwell_entity, self._dwell_ticks = None, 0
+            self._dwell_spent = False
             return
 
         # Landing, rather than passing overhead.
@@ -1075,8 +1079,24 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._dwell_ticks += 1
         else:
             self._dwell_entity, self._dwell_ticks = entity, 1
+            self._dwell_spent = False
         if self._dwell_ticks < DWELL_TICKS:
             return
+
+        # One landing, one decision. Whether the governor says yes or no, this
+        # visit is finished with -- the fly has to leave and come back before it
+        # gets another opinion.
+        #
+        # Without this the counter reset after acting and re-armed two ticks
+        # later on the same entity, so a fly that settled somewhere comfortable
+        # asked again every four seconds for as long as it stayed. Measured on
+        # the demo: three actions and a hundred and fifteen refusals in seven
+        # minutes. The refusals were correct -- deadband and cooldown doing
+        # their job -- but a safety layer being asked the same question a
+        # hundred times is a safety layer whose log tells you nothing.
+        if self._dwell_spent:
+            return
+        self._dwell_spent = True
 
         # What it does is set by how it feels about the place: a positive
         # mushroom-body valence turns things up, a negative one turns them down.
@@ -1102,7 +1122,6 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
 
         self.governor.record(entity, value)
-        self._dwell_ticks = 0        # one landing, one action
         self._actions.append({
             "entity": entity,
             "service": action["service"],
