@@ -300,6 +300,52 @@ def main() -> int:
           abs(nov.kc_mbon_gain.mean() - 1.0) < 1e-3,
           "the valence memory is untouched -- this is unsupervised habituation")
 
+    print("\n5c. Familiar is a question about the hour as well as the house")
+    # Without time in the Kenyon code there is one habituation trace for all
+    # hours, so the fly learns "lights on" and then finds lights on at three in
+    # the morning perfectly ordinary. Measured before the fix: 400 evenings of a
+    # pattern gave novelty 0.025, and the same pattern at 03:00 gave 0.025 --
+    # the same number, because the code was identical.
+    def house(seed, width):
+        rng = np.random.default_rng(seed)
+        v = np.zeros(width, dtype=np.float32)
+        v[rng.choice(width, 8, replace=False)] = rng.uniform(0.5, 1.2, 8)
+        return v
+
+    width = circ.FlyBrain().n_odour_channels
+    evening, night = 0.80, 0.125
+    known, stranger = house(1, width), house(51, width)
+
+    ctx = circ.FlyBrain()
+    ctx.settle(time_of_day=evening)
+    for _ in range(400):
+        out = ctx.step(circ.Senses(odour=known, time_of_day=evening))
+    familiar = out["novelty"]
+    wrong_hour = max(ctx.step(circ.Senses(odour=known, time_of_day=night))["novelty"]
+                     for _ in range(6))
+    for _ in range(60):
+        ctx.step(circ.Senses(odour=known, time_of_day=evening))
+    wrong_house = max(ctx.step(circ.Senses(odour=stranger, time_of_day=evening))["novelty"]
+                      for _ in range(6))
+
+    check("a house it has lived in reads as familiar",
+          familiar < 0.10, f"novelty {familiar:.3f}")
+    check("the same house at the wrong hour does not",
+          wrong_hour > familiar * 4, f"{wrong_hour:.3f} at 03:00 against {familiar:.3f} in the evening")
+    check("and a strange house is still strange",
+          wrong_house > familiar * 4, f"novelty {wrong_house:.3f}")
+    # The threshold has to clear both, which the old 0.35 did not.
+    import importlib.util as _il
+    _sp = _il.spec_from_file_location(
+        "fly_coord_consts", ROOT / "custom_components" / "fly_house" / "coordinator.py")
+    unusual = float([ln.split("=")[1].split("#")[0].strip()
+                     for ln in (ROOT / "custom_components" / "fly_house" / "coordinator.py")
+                     .read_text().splitlines()
+                     if ln.startswith("NOVELTY_UNUSUAL")][0])
+    check("and the alert threshold sits between familiar and both of them",
+          familiar < unusual < min(wrong_hour, wrong_house),
+          f"{familiar:.3f} < {unusual} < {min(wrong_hour, wrong_house):.3f}")
+
     print("\n6. Looming drives the escape pathway, then stops")
     brain = circ.FlyBrain()
     brain.settle()

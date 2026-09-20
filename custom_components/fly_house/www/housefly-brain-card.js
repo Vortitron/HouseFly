@@ -13,6 +13,14 @@
  * install.
  */
 
+/* Every websocket call carries the fly it means, when the card has been told
+   which one. Omitted, the backend falls back to the first fly -- which is the
+   right answer for a house with one, and the wrong one for a house with
+   several, where every card would otherwise watch the same insect. */
+function forFly(config, message) {
+  return config && config.entry_id ? { ...message, entry_id: config.entry_id } : message;
+}
+
 const TAU = Math.PI * 2;
 
 /* Circuit palette. Warm for the sensory periphery, cool for the central brain,
@@ -42,7 +50,7 @@ class HouseFlyBrainCard extends HTMLElement {
   }
 
   setConfig(config) {
-    this._config = { autorotate: true, point_size: 1.0, ...config };
+    this._config = { entry_id: null, autorotate: true, point_size: 1.0, ...config };
   }
 
   set hass(hass) {
@@ -146,7 +154,8 @@ class HouseFlyBrainCard extends HTMLElement {
     const conn = this._hass && this._hass.connection;
     if (!conn) return;
     try {
-      const geo = await conn.sendMessagePromise({ type: 'fly_house/connectome' });
+      const geo = await conn.sendMessagePromise(
+        forFly(this._config, { type: 'fly_house/connectome' }));
       this._geometry = this._prepare(geo);
       this._buildLegend();
       this.shadowRoot.getElementById('counts').textContent =
@@ -156,10 +165,11 @@ class HouseFlyBrainCard extends HTMLElement {
       return;
     }
     this._unsubState = conn.subscribeMessage(
-      (m) => { this._state = m; }, { type: 'fly_house/subscribe' }).catch(() => null);
+      (m) => { this._state = m; },
+      forFly(this._config, { type: 'fly_house/subscribe' })).catch(() => null);
     this._unsubNeurons = conn.subscribeMessage(
       (m) => { this._activity = this._decode(m.activity); },
-      { type: 'fly_house/neurons' }).catch(() => null);
+      forFly(this._config, { type: 'fly_house/neurons' })).catch(() => null);
     this._raf = requestAnimationFrame((t) => this._frame(t));
   }
 

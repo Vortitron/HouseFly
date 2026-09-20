@@ -82,9 +82,17 @@ DISTANCE_UNITS = {"cm": 0.01, "mm": 0.001, "m": 1.0, "km": 1000.0}
 # per-tick figure that flickers. Saying "this is unusual" is a slower claim and
 # needs two guards.
 #
-# NOVELTY_UNUSUAL   measured separation is about 0.56 for a pattern the fly has
-#                   never met against 0.12 for one it knows well, so the line
-#                   sits between them rather than at either end.
+# NOVELTY_UNUSUAL   with time of day in the Kenyon code there are two kinds of
+#                   strange and the line has to clear both. Measured over three
+#                   patterns: familiar at most 0.029, the right house at the
+#                   wrong hour at least 0.316, the wrong house at least 0.420.
+#                   0.10 is the geometric middle of the narrower gap, so the
+#                   margin either side is as wide as it can be.
+#
+#                   It used to be 0.35, from before the clock was in the code,
+#                   and that number would now catch a strange house and miss a
+#                   familiar one at three in the morning -- which is the case
+#                   the context was added for.
 # UNUSUAL_SECONDS   it has to stay there. A single odd tick is a sensor
 #                   twitching; two minutes of it is the house being different.
 # And the fly must have learned something first, or a fresh install cries wolf
@@ -100,7 +108,7 @@ DISTANCE_UNITS = {"cm": 0.01, "mm": 0.001, "m": 1.0, "km": 1000.0}
 # What actually has to be true is simpler and is not a magic number: the fly
 # must at some point have found the house *familiar*. Until that has happened
 # once, "this looks unfamiliar" carries no information, because everything does.
-NOVELTY_UNUSUAL = 0.35
+NOVELTY_UNUSUAL = 0.10
 UNUSUAL_SECONDS = 120.0
 FAMILIAR_ONCE = 0.5     # novelty below this means it has learned the place
 
@@ -473,7 +481,7 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         states = {eid: self.hass.states.get(eid) for eid in watched}
 
         # --- odour: the house's chemical signature ---------------------------
-        channels = len(self.brain.i_pn)
+        channels = self.brain.n_odour_channels
         dead: list[str] = []
         if channels:
             odour = np.zeros(channels, dtype=np.float32)
@@ -991,7 +999,7 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         It is a shortlist for whatever looks next, which is the job.
         """
-        channels = len(self.brain.i_pn)
+        channels = self.brain.n_odour_channels
         if not channels:
             return []
         by_channel: dict[int, list[str]] = {}

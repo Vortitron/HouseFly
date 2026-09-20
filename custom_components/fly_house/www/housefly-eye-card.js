@@ -30,6 +30,14 @@
  * loop and calls stop() on every track, so the browser's camera light goes out.
  */
 
+/* Every websocket call carries the fly it means, when the card has been told
+   which one. Omitted, the backend falls back to the first fly -- which is the
+   right answer for a house with one, and the wrong one for a house with
+   several, where every card would otherwise watch the same insect. */
+function forFly(config, message) {
+  return config && config.entry_id ? { ...message, entry_id: config.entry_id } : message;
+}
+
 import { FlyEye, CELLS_X, CELLS_Y, FOV_X } from './housefly-vision.js';
 
 /* The card reports at most this often. The eye itself runs at the display's
@@ -93,7 +101,7 @@ class HouseFlyEyeCard extends HTMLElement {
   }
 
   setConfig(config) {
-    this._config = { camera_entity: null, ...config };
+    this._config = { entry_id: null, camera_entity: null, ...config };
   }
 
   set hass(hass) {
@@ -279,7 +287,8 @@ class HouseFlyEyeCard extends HTMLElement {
 
   _report(expansion, azimuth) {
     this._hass.connection
-      .sendMessagePromise({ type: 'fly_house/vision', expansion, azimuth })
+      .sendMessagePromise(
+        forFly(this._config, { type: 'fly_house/vision', expansion, azimuth }))
       .catch(() => { /* the integration may be reloading; the next frame will do */ });
   }
 

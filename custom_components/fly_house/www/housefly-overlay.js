@@ -14,6 +14,14 @@
  * between the updates its compass gives it.
  */
 
+/* Every websocket call carries the fly it means, when the card has been told
+   which one. Omitted, the backend falls back to the first fly -- which is the
+   right answer for a house with one, and the wrong one for a house with
+   several, where every card would otherwise watch the same insect. */
+function forFly(config, message) {
+  return config && config.entry_id ? { ...message, entry_id: config.entry_id } : message;
+}
+
 import { createLegs, stepGait, drawFly } from './housefly-fly.js';
 
 const TAU = Math.PI * 2;
@@ -58,7 +66,7 @@ function entityOfCard(card) {
 
 class HouseFlyOverlay extends HTMLElement {
   setConfig(config) {
-    this._config = { scale: 1.0, show_debug: false, ...config };
+    this._config = { entry_id: null, scale: 1.0, show_debug: false, ...config };
   }
 
   set hass(hass) {
@@ -143,7 +151,7 @@ class HouseFlyOverlay extends HTMLElement {
     if (!this._hass || !this._hass.connection) return;
     this._unsub = this._hass.connection.subscribeMessage(
       (msg) => { this._brain = { ...this._brain, ...msg }; },
-      { type: 'fly_house/subscribe' },
+      forFly(this._config, { type: 'fly_house/subscribe' }),
     ).catch((err) => {
       console.warn('[housefly] no live brain stream:', err);
       return null;
@@ -172,7 +180,7 @@ class HouseFlyOverlay extends HTMLElement {
 
     if (this._hass && this._hass.connection && cards.length) {
       const payload = cards.map(({ entity, x, y, w, h }) => ({ entity, x, y, w, h }));
-      this._hass.connection.sendMessagePromise({
+      this._hass.connection.sendMessagePromise(forFly(this._config, {
         type: 'fly_house/layout',
         cards: payload,
         viewport: { w: vw, h: vh },
@@ -185,7 +193,7 @@ class HouseFlyOverlay extends HTMLElement {
           // error against the body rather than against the compass bump.
           heading: this._fly.heading,
         },
-      }).catch(() => {});
+      })).catch(() => {});
     }
   }
 

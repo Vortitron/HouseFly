@@ -185,6 +185,35 @@ NOVELTY_RECOVERY = 1.2e-4     # per tick, back towards naive
 # it is the code, or it is not.
 KC_ACTIVE_FLOOR = 0.05
 
+# How many projection-neuron channels carry the time of day rather than a smell.
+#
+# Familiarity without context is the wrong question. A single habituation trace
+# learns "lights on" and then finds lights on at three in the morning perfectly
+# ordinary, because the Kenyon code for it is identical at every hour.
+# Measured: 400 evenings of a pattern gave novelty 0.025, and the same pattern
+# presented at 03:00 gave 0.025. The fly had no idea what time it was.
+#
+# The fix costs nothing structural, because the Kenyon layer is a random
+# projection of whatever reaches it: give it the clock and the code for
+# "lights on at 3am" stops being the code for "lights on at 7pm", so
+# habituation becomes time-local on its own and "unusual" starts meaning
+# unusual *for this hour*.
+#
+# The channels are driven by the modelled clock cells themselves rather than by
+# a synthetic ramp, so they inherit the learned photoperiod for free -- move
+# the house's dawn and the context moves with it.
+#
+# What is a modelling choice and not a finding: that the clock reaches the
+# Kenyon layer at all. Drosophila Kenyon cells are predominantly olfactory,
+# with some visual and thermo/hygro input, and the mushroom body is known to be
+# state-modulated -- but "DN1 projects to KCs" is not a claim being made here.
+# What reaches the code is our decision, as it is for every other input.
+CLOCK_CHANNELS = 8
+
+# How hard the clock drives its channels, relative to a smell at full strength.
+# Enough to change the code, not so much that the hour drowns out the house.
+CLOCK_CONTEXT_GAIN = 0.55
+
 # How hard ambient light drives l-LNv. Small on purpose: this should be able to
 # rouse a sleeping fly when someone turns a light on, and should not be able to
 # hold it awake all day against a clock that says otherwise.
@@ -398,6 +427,11 @@ class FlyBrain:
         self.i_dan = d.group_index.get("mb_dan", np.empty(0, np.int32))
         self.i_apl = d.group_index.get("mb_inh", np.empty(0, np.int32))
         self.i_pn = d.group_index.get("olfactory", np.empty(0, np.int32))
+        # The tail of the projection-neuron population is reserved for clock
+        # context. The coordinator is told to keep its odours off them.
+        self.i_clock_ctx = (self.i_pn[-CLOCK_CHANNELS:] if len(self.i_pn) > CLOCK_CHANNELS
+                            else np.empty(0, np.int32))
+        self.n_odour_channels = max(0, len(self.i_pn) - len(self.i_clock_ctx))
         self.i_loom = _typed(d, "LPLC2", "LC4", "LC6")
         self.i_dnp = _typed(d, "DNp")
         self.i_dna = _typed(d, "DNa")
@@ -783,6 +817,26 @@ class FlyBrain:
         if senses.odour is not None and len(self.i_pn):
             k = min(len(self.i_pn), len(senses.odour))
             inj[self.i_pn[:k]] += senses.odour[:k].astype(np.float32) * 0.9
+
+        # --- what time it is, as part of the smell --------------------------
+        # The last few channels carry the clock rather than the house. They are
+        # driven by the morning and evening oscillators' own firing rates, so a
+        # code learned in the evening does not match the same house at 3am.
+        if len(self.i_clock_ctx):
+            # A phase code: a bump that travels round the reserved channels once
+            # a day, so 03:00 and 19:12 light different ones.
+            #
+            # Driving these from the modelled clock cells was tried first and
+            # did not work. Their population-mean rates barely differ across the
+            # day -- 0.407 in the evening against 0.330 at three in the morning
+            # -- which is far too little to re-rank a competition that keeps the
+            # top 5% of Kenyon cells. Measured, the code overlap between those
+            # two times stayed at 100%: the same 39 cells, every hour.
+            n = len(self.i_clock_ctx)
+            phase = (senses.time_of_day % 1.0) * 2.0 * math.pi
+            centres = np.arange(n, dtype=np.float32) * (2.0 * math.pi / n)
+            bump = np.maximum(np.cos(phase - centres), 0.0) ** 2
+            inj[self.i_clock_ctx] += (CLOCK_CONTEXT_GAIN * bump).astype(np.float32)
 
         # --- Looming: LPLC2 ------------------------------------------------
         # LPLC2 is the population that detects expanding dark edges and drives
