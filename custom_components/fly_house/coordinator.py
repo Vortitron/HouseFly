@@ -290,6 +290,8 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._photoperiod_seen = 0
         self._position_from_card = False
         self._watched_cache: list[str] = list(self.input_entities)
+        self._dwell_entity: str | None = None
+        self._dwell_ticks = 0
         # Where the body is pointing. The compass bump is an *estimate* of this
         # and cannot slew -- see the note on angular velocity in the README --
         # so steering has to be measured against the body, not against the
@@ -842,6 +844,7 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # falls back to with no dashboard open. Worth distinguishing: one
             # of them is the fly walking on things you can see.
             result["seeing_dashboard"] = bool(self._layout)
+            result["dwell"] = {"entity": self._dwell_entity, "ticks": self._dwell_ticks}
             result["safety"] = self.governor.stats
             result["dead_inputs"] = self._dead_inputs
             result["approach_sensors"] = len(self.approach_entities)
@@ -986,11 +989,21 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """
         if not self.governor.enabled or not self._effective_layout():
             return
-        if result["mode"] in ("escape", "sleep") or result["speed"] > 0.3:
+        if result["mode"] in ("escape", "sleep"):
+            self._dwell_entity, self._dwell_ticks = None, 0
             return
 
         entity = self._entity_under_fly()
         if entity is None or entity not in self.governor.allowlist:
+            self._dwell_entity, self._dwell_ticks = None, 0
+            return
+
+        # Landing, rather than passing overhead.
+        if entity == self._dwell_entity:
+            self._dwell_ticks += 1
+        else:
+            self._dwell_entity, self._dwell_ticks = entity, 1
+        if self._dwell_ticks < DWELL_TICKS:
             return
 
         # What it does is set by how it feels about the place: a positive
@@ -1017,6 +1030,7 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
 
         self.governor.record(entity, value)
+        self._dwell_ticks = 0        # one landing, one action
         self._actions.append({
             "entity": entity,
             "service": action["service"],

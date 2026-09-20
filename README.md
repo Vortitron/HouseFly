@@ -306,6 +306,33 @@ four synapses carrying the readout — measured, it sat at exactly zero for a
 hundred ticks and then jumped to 0.999. A presynaptic trace is well sampled, it
 is the same claim, and it still drives the network through the α′3 edges.
 
+### Landing, not passing overhead
+
+The fly changes something by standing on it. That used to be enforced with a
+speed threshold — act only below 0.30 — and the threshold could never be met
+while the fly was awake. Forward speed here is essentially proportional to
+arousal, so the two conditions were mutually exclusive:
+
+```
+ local time   arousal   speed    actuation gate (speed <= 0.30)
+      02:00     0.166   0.135    passes, but asleep -- barred on mode
+      06:00     0.830   0.674    awake, and barred on speed
+      09:00     0.185   0.152    passes, but asleep
+      19:00     0.880   0.717    awake, and barred on speed
+```
+
+Every state slow enough to pass was asleep and rejected for that instead. The
+path could not fire at any hour of any day, and had not: nineteen hours on the
+demo gave zero actuations *and* zero blocks, the second number being the
+giveaway, since nothing had even reached the safety layer to be refused.
+
+Dwell says what the speed gate was trying to say. It has to stay on one thing
+for a few seconds rather than pass over it, which is what landing means, and it
+works at any arousal. `tools/validate.py` now asserts that nothing gates
+actuation on speed, because that particular mistake is invisible from the
+outside — a feature that never fires looks exactly like a fly that never felt
+like it.
+
 ### It works with nobody watching
 
 The fly lands on *cards* to change things, and cards only exist while a browser

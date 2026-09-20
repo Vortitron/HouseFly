@@ -511,6 +511,43 @@ def main() -> int:
         check("the visual front end's own checks pass", proc.returncode == 0,
               tail[0].strip() if tail else proc.stderr.strip()[:200])
 
+    print("\n11a. Being awake and being able to act are not mutually exclusive")
+    # The bug this exists to catch: the actuation gate refused anything above
+    # speed 0.30, and forward speed here is essentially proportional to arousal.
+    # So every state slow enough to pass was asleep and barred on mode instead,
+    # and the path could never fire at any hour of any day. Measured on the demo
+    # over nineteen hours: zero actuations *and* zero blocks, because nothing
+    # ever reached the safety layer to be refused.
+    awake_hours = []
+    for hour in range(0, 24, 3):
+        t = hour / 24.0
+        b = circ.FlyBrain()
+        b.settle(time_of_day=t)
+        b.hunger = 0.97
+        strength = float(np.clip(0.3 + 0.5 * b.hunger, 0.0, 1.0))
+        for _ in range(40):
+            r = b.step(circ.Senses(time_of_day=t, goal_bearing=1.0,
+                                   goal_strength=strength), sub_steps=20)
+        if r["mode"] not in ("sleep", "escape"):
+            awake_hours.append((hour, r["arousal"], r["speed"]))
+    check("there are hours when it is awake at all",
+          len(awake_hours) > 0,
+          f"{len(awake_hours)} of 8 sampled hours awake")
+    # Whatever gates actuation must be satisfiable while awake. Dwell is, by
+    # construction -- it depends on where the fly is standing, not how fast it
+    # is. A gate on speed was not, and that is the regression being fenced off.
+    coord_src = (ROOT / "custom_components" / "fly_house" / "coordinator.py").read_text()
+    gate = coord_src[coord_src.index("    async def _maybe_act"):
+                     coord_src.index("    def _entity_under_fly")]
+    check("and nothing gates actuation on forward speed",
+          'result["speed"]' not in gate,
+          "speed tracks arousal, so a speed gate can only ever admit a sleeping fly"
+          + (f" -- awake speeds here were {min(x[2] for x in awake_hours):.2f}"
+             f"-{max(x[2] for x in awake_hours):.2f}" if awake_hours else ""))
+    check("landing is what earns an action",
+          "DWELL_TICKS" in gate and "_dwell_ticks" in gate,
+          "it has to stay on one thing for a few seconds, not merely pass over it")
+
     print("\n11b. It can still act with nobody watching")
     # The actuation gate needs a layout, and a layout only exists while a
     # browser has the dashboard open. Measured on the demo: zero actuations in
