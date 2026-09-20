@@ -574,6 +574,18 @@ def main() -> int:
           "speed tracks arousal, so a speed gate can only ever admit a sleeping fly"
           + (f" -- awake speeds here were {min(x[2] for x in awake_hours):.2f}"
              f"-{max(x[2] for x in awake_hours):.2f}" if awake_hours else ""))
+    # Third heading regression in a row, so it gets a check of its own: the
+    # goal error must be measured against the body's heading, never against the
+    # compass bump. Measured with the real control law over 100 simulated
+    # minutes, against the bump gives 83 landings and against the body 1500,
+    # because the controller nulls one angle while the body flies on another.
+    senses_src = coord_src[coord_src.index("        # --- self-motion"):
+                           coord_src.index("    def _approach_looming")]
+    check("steering error is measured against the body, not the bump",
+          "facing = self._body_heading" in senses_src
+          and "else self.brain.heading" not in senses_src,
+          "the bump is an estimate and cannot slew; nulling against it never converges")
+
     check("landing is what earns an action",
           "DWELL_TICKS" in gate and "_dwell_ticks" in gate,
           "it has to stay on one thing for a few seconds, not merely pass over it")

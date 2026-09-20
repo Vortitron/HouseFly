@@ -562,7 +562,16 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # degrees and then stops (it does not integrate a sustained turn), so
         # the error never closed and the commanded turn never changed sign. The
         # fly held one heading, crossed the screen, and sat against the edge.
-        facing = self._body_heading if self._position_from_card else self.brain.heading
+        # Always the body, never the bump.
+        #
+        # This was conditional on a dashboard being open, and that made sense
+        # when the headless path also flew on the compass heading. It does not
+        # now: _advance_position integrates the commanded turn into
+        # _body_heading, so measuring the error against brain.heading left the
+        # controller nulling against one angle while the body flew on another.
+        # They drift apart and the goal is never reached -- which is why the
+        # headless fly still would not land even once it could steer.
+        facing = self._body_heading
         error = math.atan2(
             math.sin(self._goal_bearing - facing),
             math.cos(self._goal_bearing - facing),
