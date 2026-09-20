@@ -511,6 +511,43 @@ def main() -> int:
         check("the visual front end's own checks pass", proc.returncode == 0,
               tail[0].strip() if tail else proc.stderr.strip()[:200])
 
+    print("\n11b. It can still act with nobody watching")
+    # The actuation gate needs a layout, and a layout only exists while a
+    # browser has the dashboard open. Measured on the demo: zero actuations in
+    # eight hours, and nothing reaching the safety layer to be refused. Correct
+    # by the letter of the code and useless -- an integration that only does
+    # anything while somebody looks at it is a screensaver.
+    coord_src = (ROOT / "custom_components" / "fly_house" / "coordinator.py").read_text()
+    start = coord_src.index("    def _effective_layout")
+    end = coord_src.index("    def _landmarks")
+    ns = {"math": math, "Any": object}
+    exec(compile(
+        "class _C:\n" + coord_src[start:end] + "\n", "coordinator", "exec"), ns)
+
+    stub = ns["_C"].__new__(ns["_C"])
+    stub._layout = []
+    stub._viewport = (1920.0, 1080.0)
+    stub.output_entities = [f"light.room_{i}" for i in range(5)]
+    grid = ns["_C"]._effective_layout(stub)
+    check("with no dashboard open it still has somewhere to land",
+          len(grid) == 5 and all(c.get("entity") for c in grid),
+          f"{len(grid)} notional places for {len(stub.output_entities)} outputs")
+    check("and they sit inside the viewport, off the walls",
+          all(c["x"] > 0 and c["y"] > 0
+              and c["x"] + c["w"] < 1920.0 and c["y"] + c["h"] < 1080.0 for c in grid),
+          "so the wall reflex is not permanently arguing with a goal in a corner")
+
+    stub._layout = [{"entity": "light.real", "x": 10, "y": 10, "w": 100, "h": 100}]
+    check("but a real dashboard always wins",
+          ns["_C"]._effective_layout(stub) is stub._layout,
+          "the fly walks on things you can actually see when there are any")
+
+    stub._layout = []
+    stub.output_entities = []
+    check("and nothing to touch means nothing to stand on",
+          ns["_C"]._effective_layout(stub) == [],
+          "observe-only installs get no phantom furniture")
+
     print("\n12. It learns where this house's day actually is")
     # A fixed 06:00/18:43 is nobody's daylight. The peaks move to wherever the
     # light says dawn and dusk are, which is photoperiod tracking rather than

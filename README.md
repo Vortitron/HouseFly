@@ -306,6 +306,22 @@ four synapses carrying the readout — measured, it sat at exactly zero for a
 hundred ticks and then jumped to 0.999. A presynaptic trace is well sampled, it
 is the same claim, and it still drives the network through the α′3 edges.
 
+### It works with nobody watching
+
+The fly lands on *cards* to change things, and cards only exist while a browser
+has the dashboard open. So with nobody looking there was no layout, and the
+actuation gate returned early every tick. Measured on the demo: **zero
+actuations in eight hours**, with nothing even reaching the safety layer to be
+refused. Correct by the letter of the code and useless. An integration that
+only does anything while somebody watches it is a screensaver.
+
+With no dashboard open, the entities it may touch are now laid out on a
+notional grid and it walks among those instead. The rules on top are unchanged:
+it still has to settle, still has to be standing on one, the governor still has
+to agree. A real dashboard always wins when there is one, because then the fly
+is walking on things you can actually see. An observe-only install with no
+outputs gets no phantom furniture.
+
 ### Watching is free; touching is not
 
 These are two different questions and the setup asks them separately.

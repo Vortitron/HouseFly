@@ -609,13 +609,58 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._approach = detail
         return strongest
 
+    def _effective_layout(self) -> list[dict[str, Any]]:
+        """Where the fly thinks things are.
+
+        A browser with the dashboard open reports real card rectangles, and
+        those are much the better answer: the fly is genuinely walking on the
+        things you can see.
+
+        With no browser open there is no layout at all, and that used to mean
+        the fly could neither choose a goal nor land on anything -- the
+        actuation gate returns early without one. Measured on the demo: zero
+        actuations in eight hours of running, and nothing even reaching the
+        safety layer to be refused. Correct by the letter of the code and
+        useless, because a Home Assistant integration that only does anything
+        while somebody is watching it is a screensaver.
+
+        So when nobody is looking, the things it may touch are laid out on a
+        notional grid and it walks among those instead. Same rules on top --
+        it still has to settle, still has to be over one, the governor still
+        has to agree.
+        """
+        if self._layout:
+            return self._layout
+        if not self.output_entities:
+            return []
+        vw, vh = self._viewport
+        columns = max(1, int(math.ceil(math.sqrt(len(self.output_entities)))))
+        rows = max(1, int(math.ceil(len(self.output_entities) / columns)))
+        # Inset from the edges, so the wall-avoidance reflex is not permanently
+        # arguing with a goal sitting in a corner.
+        pad_x, pad_y = vw * 0.12, vh * 0.12
+        cell_w = (vw - 2 * pad_x) / columns
+        cell_h = (vh - 2 * pad_y) / rows
+        grid: list[dict[str, Any]] = []
+        for i, entity in enumerate(sorted(self.output_entities)):
+            col, row = i % columns, i // columns
+            grid.append({
+                "entity": entity,
+                "x": pad_x + col * cell_w,
+                "y": pad_y + row * cell_h,
+                "w": cell_w * 0.7,
+                "h": cell_h * 0.7,
+            })
+        return grid
+
     def _landmarks(self) -> list[tuple[float, float]]:
         """Bearings to the cards on screen, or to lit lights if there is no UI."""
         out: list[tuple[float, float]] = []
-        if self._layout:
+        layout = self._effective_layout()
+        if layout:
             vw, vh = self._viewport
             fx, fy = self.pos[0] * vw, self.pos[1] * vh
-            for card in self._layout[:24]:
+            for card in layout[:24]:
                 cx = card["x"] + card["w"] * 0.5
                 cy = card["y"] + card["h"] * 0.5
                 dx, dy = cx - fx, cy - fy
@@ -713,7 +758,8 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         learned something good about a place goes there instead. With nothing
         to go on it wanders, which is a real behaviour and not a fallback.
         """
-        if not self._layout:
+        layout = self._effective_layout()
+        if not layout:
             return self._wander(), 0.25 + 0.4 * self.brain.hunger, None
 
         vw, vh = self._viewport
@@ -721,7 +767,7 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         now = dt_util.utcnow()
         best = None
         best_score = -1e9
-        for card in self._layout:
+        for card in layout:
             entity = card.get("entity")
             st = self.hass.states.get(entity) if entity else None
             appeal = _numeric(st, self._adaptation, entity or "").value if st else 0.15
@@ -792,6 +838,10 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             result["hunger"] = round(self.brain.hunger, 3)
             result["goal_entity"] = self._goal_entity
             result["landmarks"] = len(senses.landmarks)
+            # Whether those landmarks are real cards or the notional grid it
+            # falls back to with no dashboard open. Worth distinguishing: one
+            # of them is the fly walking on things you can see.
+            result["seeing_dashboard"] = bool(self._layout)
             result["safety"] = self.governor.stats
             result["dead_inputs"] = self._dead_inputs
             result["approach_sensors"] = len(self.approach_entities)
@@ -934,7 +984,7 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         escaping), it has to be on top of the thing, and the governor still has
         to agree. In practice that is a few interactions an hour.
         """
-        if not self.governor.enabled or not self._layout:
+        if not self.governor.enabled or not self._effective_layout():
             return
         if result["mode"] in ("escape", "sleep") or result["speed"] > 0.3:
             return
@@ -979,7 +1029,7 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def _entity_under_fly(self) -> str | None:
         vw, vh = self._viewport
         fx, fy = self.pos[0] * vw, self.pos[1] * vh
-        for card in self._layout:
+        for card in self._effective_layout():
             if (card["x"] <= fx <= card["x"] + card["w"]
                     and card["y"] <= fy <= card["y"] + card["h"]):
                 return card.get("entity")

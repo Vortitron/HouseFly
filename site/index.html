@@ -138,34 +138,32 @@
 </nav>
 
 <h2 id="why">The one rule</h2>
-<p>There is a tempting way to build something like this, and it is worth naming because avoiding it
-is the only design decision that matters. You take a recurrent network, seed it with random weights,
-call the shape "fly-inspired", and then hang the behaviour you actually want off the side of it in
-plain <code>if</code> statements. It looks alive. The network could be deleted without changing a
-single thing the user sees.</p>
+<p>There is an easy way to build something like this. Take a recurrent network, seed it with random
+weights, call the shape "fly-inspired", then hang the behaviour you want off the side in plain
+<code>if</code> statements. It looks alive. You could delete the network and the user would never
+know.</p>
 
-<p>So the rule here is: <strong>every behaviour has to come out of the measured wiring, or be
-labelled as not coming out of it.</strong> No third option.</p>
+<p>So there is one rule: <strong>every behaviour comes out of the measured wiring, or it is labelled
+as not coming out of it.</strong></p>
 
-<p>That rule is why this page is full of numbers, and why some of them are failures. The ring
-attractor is not asserted, it is measured out of the synapse counts. The escape threshold is not a
-constant someone picked, it is where the network sits. Where something genuinely is a controller and
-not biology — goal seeking, wall avoidance, estimating dawn from the light — it says so in the code
-and it says so here. And where the model does not do what it looked like it did, that is written
-down too, with the measurement that caught it:</p>
+<p>That rule is why this page is mostly numbers, and why some of them are failures. The ring
+attractor falls out of the synapse counts rather than being asserted. The escape threshold is where
+the network sits, not a constant someone picked. Goal seeking, wall avoidance and estimating dawn
+from the light are controllers rather than biology, and they say so in the code as well as here.
+Where the model turned out not to do what it appeared to do, that is written down with the
+measurement that caught it:</p>
 
 <ul>
-<li>The compass responds to turns but does not integrate a sustained one. The check that "passed"
-was only ever testing a <em>change</em> in the command.</li>
-<li>The escape pathway had no real threshold: 1e-5 and 1.25 of looming produced the same burst, so
-the r² was being computed faithfully upstream and then thrown away.</li>
-<li>A directed escape is impossible with this data pack, because the hemibrain is a
-<em>hemi</em>brain and there is no left LPLC2 population to compare against.</li>
+<li>The compass responds to turns but does not integrate a sustained one. The check that passed had
+only ever tested a <em>change</em> in the command.</li>
+<li>The escape pathway had no real threshold. Looming inputs of 1e-5 and 1.25 produced the same
+burst, so the r² was computed upstream and then thrown away.</li>
+<li>A directed escape is impossible with this data pack. The hemibrain is a <em>hemi</em>brain, and
+there is no left LPLC2 population to compare against.</li>
 </ul>
 
-<p>Each of those is now a check that would fail if it were ever quietly fixed or quietly broken. The
-alternative — a model that always agrees with its own documentation — is the failure mode, not the
-goal.</p>
+<p>Each is now a check that fails if it is ever quietly fixed or quietly broken. A model that always
+agrees with its own documentation would be the failure mode here, not the goal.</p>
 
 <h2 id="circuits">Give each circuit the input it actually carries</h2>
 <p>The replacement is not a bigger network. It is a set of circuits that have a known function,
@@ -192,8 +190,8 @@ crepuscular because the circuit is.</p>
 <h2 id="ringattractor">The ring attractor is in the wiring, not in the code</h2>
 <p>This is the part worth showing people. Nobody wrote a ring attractor. The connectome contains one.</p>
 
-<p>Take the effective EPG → Δ7 → EPG coupling — using only measured synapse counts and the
-protocerebral bridge glomerulus labels — and bin it by heading offset:</p>
+<p>Take the effective EPG → Δ7 → EPG coupling, using only measured synapse counts and the
+protocerebral bridge glomerulus labels, and bin it by heading offset:</p>
 
 <figure>
 <div class="panel bars">
@@ -269,8 +267,8 @@ Keeping those visibly separate matters more than having one more thing to claim.
 
 <h2 id="realhouse">What a real house exposed</h2>
 <p>The fake ten-room testbed was generated, tidy and metric. Pointed at a live
-installation instead — Swedish, 30 lights, Bluetooth room-presence sensors, a
-power meter and an electricity price — the sensory front end turned out to be
+installation instead (Swedish, 30 lights, Bluetooth room-presence sensors, a
+power meter and an electricity price) the sensory front end turned out to be
 destroying most of its input before a single neuron saw it.</p>
 
 <div class="panel">
@@ -279,12 +277,12 @@ destroying most of its input before a single neuron saw it.</p>
 <code>Allrum</code>, <code>Loft</code> and <code>Kitchen</code> all arrived as
 the same smell, and the mushroom body could not learn that one room differed
 from another. The information was gone before it reached a neuron.</p>
-<p>Words now pick a <em>glomerulus</em> rather than a magnitude — which is how
-odour identity actually works: it is carried by <em>which</em> neurons respond,
-not how hard one does. With 131 glomeruli some states inevitably collide, as
-they do in a real fly with about 50 for an unbounded number of odours. That is
-resolved where the animal resolves it: two colliding inputs still produce
-clearly different Kenyon cell codes — 67 and 39 cells active with 12% overlap —
+<p>Words now pick a <em>glomerulus</em> rather than a magnitude. That is how
+odour identity works: it is carried by <em>which</em> neurons respond, not by
+how hard one does. With 131 glomeruli some states inevitably collide, as they do
+in a real fly with about 50 for an unbounded number of odours. The animal
+resolves that downstream, and so does this: two colliding inputs still produce
+clearly different Kenyon cell codes, 67 and 39 cells active with 12% overlap,
 because the projection-neuron-to-Kenyon-cell divergence in the connectome pulls
 them apart.</p>
 </div>
@@ -315,14 +313,14 @@ on unknown is not a smell of nothing; it is no smell at all.</li>
 </div>
 
 <h2 id="looming">Approach, measured properly</h2>
-<p>LPLC2 — the population that drives escape — fires at an object <em>expanding</em> in the visual
+<p>LPLC2, the population that drives escape, fires at an object <em>expanding</em> in the visual
 field. For a target of size L at range r closing at speed v, the angular size is θ ≈ L/r, so the
 expansion rate is <strong>θ̇ = L·v/r²</strong>. That r² is the whole character of the response: the
 same footsteps count for far more at one metre than at five, which is why a real fly leaves it so
 late and then goes all at once.</p>
 
-<p>A ranging sensor — mmWave radar, ultrasonic, BLE distance — gives r directly and v by
-differencing, so it delivers exactly the quantity the circuit is built for, by radar instead of by
+<p>A ranging sensor (mmWave radar, ultrasonic, BLE distance) gives r directly and v by
+differencing, so it delivers the quantity the circuit is built for, by radar instead of by
 photons. Someone walking in at 1 m/s, sampled at a range of distances:</p>
 
 <figure>
@@ -382,14 +380,14 @@ in the browser, because that is where the frames are.</p>
 approximation), a lamina high-pass, Hassenstein–Reichardt correlators giving the four
 direction-selective layers of the lobula plate, and then 63 LPLC2 cells tiling the field.</p>
 
-<p><strong>The LPLC2 stage is the whole thing.</strong> Klapoetke and colleagues showed in 2017 that
-each cell has four dendritic branches, one in each layer, each offset so it reads motion pointing
-<em>away</em> from that cell's receptive-field centre — and that the cell needs all four driven at
-once. That coincidence requirement is the entire selectivity. Getting it wrong is instructive:
-summing the four branches instead scored a drifting grating at <strong>nine times</strong> an actual
-approach, and a disc crossing the view at <strong>thirty times</strong>, because one large branch
-carried the sum on its own. A geometric mean cannot be carried by one term. With it, both score
-exactly zero.</p>
+<p><strong>The LPLC2 stage does the work.</strong> Klapoetke and colleagues showed in 2017 that each
+cell has four dendritic branches, one per layer, each offset so it reads motion pointing
+<em>away</em> from that cell's receptive-field centre, and that the cell needs all four driven at
+once. That coincidence requirement is where the selectivity comes from. Getting it wrong is
+instructive: summing the four branches scored a drifting grating at <strong>nine times</strong> a
+real approach and a disc crossing the view at <strong>thirty times</strong>, because one large
+branch carried the sum by itself. A geometric mean cannot be carried by one term. With it, both
+score zero.</p>
 
 <figure>
 <div class="panel bars">
@@ -439,12 +437,12 @@ retinotopic address, not a picture.</p>
 
 <h2 id="purpose">What it is <em>for</em></h2>
 <p>The fair question about all of this is "why". A fly that walks across a dashboard is a pretty
-picture, and bolting a utility function onto it — save power, learn my habits — would be a rules
-engine in a fly costume, which is the other failure mode and the worse one.</p>
+picture. Bolting a utility function onto it, so it saves power or learns your habits, would be a
+rules engine in a fly costume, which is the worse of the two failure modes.</p>
 
-<p>There is a real answer in between, and it is not a graft. <strong>The mushroom body — the largest
-thing modelled here — exists to tell familiar from unfamiliar</strong>, and that happens to be the
-thing rules engines are worst at.</p>
+<p>There is an answer in between that does not have to be grafted on. <strong>The mushroom body is
+the largest thing modelled here, and its job is telling familiar from unfamiliar</strong>, which
+happens to be what rules engines are worst at.</p>
 
 <p>Dasgupta, Stevens &amp; Navlakha (2017, <em>Science</em>) showed the Kenyon cell layer is a
 locality-sensitive hash: a sparse random projection whose codes stay close for similar inputs and
@@ -454,9 +452,9 @@ depresses KC→MBON synapses in the α′3 compartment <em>whether or not anythi
 happened</em>, so those cells fire hard for something new and barely at all for something met many
 times.</p>
 
-<p>Both are in the pack. α′3 is MBON16, MBON17 and MBON28, and none of them is one of the
-approach/avoid cells — which is the whole reason for using that compartment rather than depressing
-the valence MBONs and calling the result novelty.</p>
+<p>Both are in the pack. α′3 is MBON16, MBON17 and MBON28, none of which is an approach/avoid cell.
+That separation is the reason for using this compartment rather than depressing the valence MBONs
+and calling the result novelty.</p>
 
 <figure>
 <div class="panel bars">
@@ -469,40 +467,39 @@ the valence MBONs and calling the result novelty.</p>
 signal anywhere in this.</figcaption>
 </figure>
 
-<p><code>binary_sensor.housefly_unusual</code> is that, made slow enough to be worth saying. It
-holds its tongue entirely until it has learned something, then wants two minutes of sustained
-strangeness before it speaks. <strong>No training set, no labels, nothing sent anywhere</strong> —
-it learns what your house is like by living in it. And it will never tell you <em>what</em> changed,
-only that something has, which is precisely the thing a rule cannot do, because you would have had
-to write the rule first.</p>
+<p><code>binary_sensor.housefly_unusual</code> is that signal, slowed down until it is worth
+saying. It stays quiet until it has learned something, then wants two minutes of sustained
+strangeness before it speaks. <strong>No training set, no labels, nothing sent anywhere.</strong> It
+learns what your house is like by living in it. It will never tell you <em>what</em> changed, only
+that something has, and that is the part a rule cannot do, because you would have had to write the
+rule first.</p>
 
 <div class="panel">
-<h3>The useful shape of this is a trigger, not an answer</h3>
-<p>A sparse hash ticking twice a second on a CPU costs nothing. Asking a language model to go and
-look at a whole house costs real money. So let the fly decide when it is worth asking.</p>
+<h3>Use it as a trigger, not an answer</h3>
+<p>A sparse hash ticking twice a second on a CPU costs nothing. Asking a language model to look over
+a whole house costs real money. So let the fly decide when it is worth asking.</p>
 <p>HouseFly fires a <code>fly_house_unusual</code> event on the rising edge, carrying the novelty
 figure, how long it has held, and a shortlist of <strong>suspects</strong> — which configured inputs
 the surprise is arriving through, obtained by reading the measured PN→KC wiring backwards from the
 cells that are active and have not habituated.</p>
-<p>Not "what is wrong": the Kenyon code is a hash and a hash does not invert, and channels collide
-because a random projection with more entities than glomeruli must. Measured on a synthetic input,
-three of the top four channels were among the eight genuinely driven and one was not. It narrows the
-field, which is the right job for something whose next step is to hand the question to a system that
-can actually go and look.</p>
+<p>This is not a diagnosis. The Kenyon code is a hash, hashes do not invert, and channels collide
+whenever there are more entities than glomeruli. Measured on a synthetic input, three of the top
+four channels were among the eight actually driven and one was not. It narrows the field, which is
+all you need from something that is about to hand the question to a system that can go and look.</p>
 </div>
 
 <div class="panel">
 <h3>And why it is not a power saver</h3>
-<p>A fly has no concept of your electricity bill, and the honest thing is to say so rather than
-build something that pretends otherwise. The punishment pathway is real — PPL1 dopaminergic neurons
-depress KC→MBON, which is genuine operant conditioning — so feeding consumption in as aversive would
-<em>work</em> mechanically. It would not save you anything: the actuation budget is sixty calls an
-hour with deadbands and quiet hours, and the motor output is not a controller. You would get a fly
-that avoids the expensive rooms. A demonstrable behaviour, not an energy saving.</p>
-<p>The version that does work is the one above. Power is just another input channel, so adding a
-consumption sensor to the inputs means "unusual" covers it for free — it will tell you when your
-electricity stops looking like your electricity, which is the failure mode that actually costs money
-and exactly the one you cannot write a rule for in advance.</p>
+<p>A fly has no concept of your electricity bill. The punishment pathway is real enough: PPL1
+dopaminergic neurons depress KC→MBON, which is operant conditioning, so feeding consumption in as
+something aversive would work mechanically. It still would not save you anything. The actuation
+budget is sixty calls an hour with deadbands and quiet hours, and the motor output was never a
+controller. What you would get is a fly that avoids the expensive rooms: a behaviour you can
+demonstrate, not an energy saving.</p>
+<p>The version that works is the one above. Power is just another input channel, so adding a
+consumption sensor means "unusual" covers it for free. It will tell you when your electricity stops
+looking like your electricity, which is the failure mode that costs money and the one you cannot
+write a rule for in advance.</p>
 </div>
 
 <h2 id="clock">It learns when your day is</h2>
@@ -522,22 +519,22 @@ and dusk actually fall, and moves the morning and evening oscillators there.</p>
 and evening oscillators do in a real fly (Rieger et al. 2003; Stoleru et al. 2007).</figcaption>
 </figure>
 
-<p><strong>This is photoperiod tracking and not entrainment</strong>, and the difference is worth
-being exact about. Entrainment is a free-running oscillator being pulled into phase by a zeitgeber,
-and there is no free-running oscillator here — the clock in this model is a function of local time.
-So moving where the peaks sit is the honest version of the claim, and estimating dawn from the light
-happens in the coordinator and is labelled a stand-in rather than dressed up as neural.</p>
+<p><strong>This is photoperiod tracking rather than entrainment.</strong> Entrainment means a
+free-running oscillator being pulled into phase by a zeitgeber, and there is no free-running
+oscillator here: the clock in this model is a function of local time. Moving where the peaks sit is
+the version of that claim the code can support. Estimating dawn from the light happens in the
+coordinator, labelled a stand-in rather than dressed up as neural.</p>
 
 <p>Separately and acutely, light drives <strong>l-LNv</strong>, the arousal-promoting clock cells,
 which are genuinely light-responsive (Shang et al. 2008). Arousal measured 0.17 in the dark at 00:30
 and 0.51 with the light on. The photoperiod shifts <em>when</em> it is active; this makes it active
 <em>now</em>.</p>
 
-<p>Averaging times of day is where this goes wrong, twice. The mean of 23:50 and 00:10 is not
-midday, so the learned phases are dragged round the circle; and a dusk learned at 23:30 against a
-time of 00:15 is forty-five minutes apart, not three quarters of a day, so the Gaussian needed the
-same treatment. Before that fix it reported <em>no evening at all</em> — a bug that only shows up in
-winter, or in a house that gets up late.</p>
+<p>Averaging times of day went wrong twice here. The mean of 23:50 and 00:10 is not midday, so the
+learned phases are dragged round the circle rather than along a line. The Gaussian needed the same
+treatment: a dusk learned at 23:30 sits forty-five minutes from 00:15, not three quarters of a day
+away. Before that fix it reported <em>no evening at all</em>, which only shows up in winter or in a
+house that gets up late.</p>
 
 <h2 id="limits">Honest limits</h2>
 <p>This is a real model of real circuits, and it is still a model.</p>
