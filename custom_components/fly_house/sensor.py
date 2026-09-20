@@ -237,7 +237,9 @@ class FlySensor(CoordinatorEntity[FlyHouseCoordinator], SensorEntity):
         self._attr_unique_id = f"{entry.entry_id}_{description.key}"
         self._attr_device_info = {
             "identifiers": {(DOMAIN, entry.entry_id)},
-            "name": "HouseFly",
+            # The entry's own title, so several flies are several devices with
+            # several names rather than three things all called HouseFly.
+            "name": entry.title or "HouseFly",
             "manufacturer": "Drosophila melanogaster",
             "model": f"hemibrain v1.2 · {coordinator.brain.data.n} neurons",
             "sw_version": "2.0.0",

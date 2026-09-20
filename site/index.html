@@ -85,6 +85,23 @@
        padding:16px 0;border-bottom:1px solid var(--line)}
   .badge{display:inline-block;font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:99px;
          border:1px solid var(--line);color:var(--ink-3);margin-left:8px;vertical-align:middle}
+
+  /* ---- diagram ---- */
+  .diagram{overflow-x:auto;margin:0}
+  .diagram svg{min-width:680px;width:100%;height:auto;display:block}
+  .dg-zone{fill:rgba(17,26,44,.55);stroke:var(--line);stroke-dasharray:6 5}
+  .dg-box{fill:#0b1120;stroke:rgba(120,190,255,.3)}
+  .dg-brain{fill:rgba(90,215,255,.08);stroke:var(--cyan)}
+  .dg-t{fill:var(--ink);font-family:var(--sans);font-size:13px;font-weight:600}
+  .dg-s{fill:var(--ink-2);font-family:var(--sans);font-size:11.5px}
+  .dg-z{fill:var(--cyan);font-family:var(--mono);font-size:11px;letter-spacing:.11em}
+  .dg-l{fill:var(--ink-2);font-family:var(--mono);font-size:11.5px}
+  .dg-n{fill:var(--ink-3);font-family:var(--mono);font-size:11px;letter-spacing:.05em}
+  .dg-a{stroke:var(--ink-3);stroke-width:1.5;fill:none}
+  .dg-c{stroke:var(--cyan);stroke-width:1.8;fill:none}
+  .dg-d{stroke-dasharray:5 4}
+  .dg-h{fill:var(--ink-3)}
+  .dg-hc{fill:var(--cyan)}
   @media(max-width:560px){.stat{flex:1 1 44%}}
 </style>
 </head>
@@ -104,8 +121,8 @@
       <div class="stat"><b>4,724</b><span>NEURONS</span></div>
       <div class="stat"><b>126,108</b><span>SYNAPSES</span></div>
       <div class="stat"><b>20,391</b><span>PLASTIC SYNAPSES</span></div>
-      <div class="stat"><b>432&nbsp;KB</b><span>DATA PACK</span></div>
-      <div class="stat"><b>50</b><span>CHECKS, ALL PASSING</span></div>
+      <div class="stat"><b>428&nbsp;KB</b><span>DATA PACK</span></div>
+      <div class="stat"><b>80</b><span>CHECKS, ALL PASSING</span></div>
       <div class="stat"><b>0</b><span>GPUS</span></div>
     </div>
     <div class="cta">
@@ -132,6 +149,7 @@
   <a href="#purpose">What it is for</a>
   <a href="#clock">It learns your day</a>
   <a href="#limits">Honest limits</a>
+  <a href="#where">Where the brain lives</a>
   <a href="#demo">Try the demo</a>
   <a href="#install">Install</a>
   <a href="#safety">Safety</a>
@@ -592,9 +610,149 @@ something new registers as novel           first sight 0.989            <span cl
 a trivial expansion triggers nothing       1e-5..1e-2 gave 0.0000       <span class="pass">PASS</span>
 a camera panning produces nothing          textured pan 0.0000          <span class="pass">PASS</span>
 dawn at 04:00 gives a fly that wakes at 4  peak moved 06:00 → 04:00     <span class="pass">PASS</span>
+a tick costs a fraction of what it covers  59 ms of CPU for 2 s of fly  <span class="pass">PASS</span>
+nothing but the fetcher reaches the network  0 offenders                 <span class="pass">PASS</span>
 an empty quiet-hours window means never    not, as it did, always       <span class="pass">PASS</span>
 
-50/50 checks passed</code></pre>
+80/80 checks passed</code></pre>
+
+<h2 id="where">Where the brain lives</h2>
+<p class="lede">On your own machine, and it is not talking to anything. The wiring diagram is a
+428&nbsp;KB file that arrives with the integration; the model that runs on it is Python and numpy on
+your Home Assistant host. There is no inference service, no account and no API key, and nothing to
+sign up for — which is less a privacy stance than a consequence of the thing being small.</p>
+
+<p>That is worth a picture, because code here runs in two different places and the interesting part
+is what does <em>not</em> cross between them.</p>
+
+<figure>
+<div class="diagram">
+<svg viewBox="0 0 860 640" role="img" aria-label="HouseFly's brain runs on the Home Assistant host from a 428 KB connectome file on disk; the optic lobe runs in the browser tab, which sends back only an expansion rate and an angle; the internet is involved only at install time.">
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" class="dg-h"/>
+    </marker>
+    <marker id="ahc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" class="dg-hc"/>
+    </marker>
+  </defs>
+
+  <!-- browser zone -->
+  <rect class="dg-zone" x="20" y="44" width="820" height="150" rx="12"/>
+  <text class="dg-z" x="38" y="72">THE BROWSER TAB · whoever has the dashboard open</text>
+
+  <rect class="dg-box" x="40" y="100" width="150" height="66" rx="8"/>
+  <text class="dg-t" x="56" y="124">Camera frames</text>
+  <text class="dg-s" x="56" y="142">your webcam, or an</text>
+  <text class="dg-s" x="56" y="158">HA camera, proxied</text>
+
+  <line class="dg-a" x1="194" y1="133" x2="248" y2="133" marker-end="url(#ah)"/>
+  <text class="dg-n" x="221" y="124" text-anchor="middle">frames</text>
+
+  <rect class="dg-box" x="254" y="100" width="256" height="66" rx="8"/>
+  <text class="dg-t" x="270" y="124">Optic lobe · housefly-vision.js</text>
+  <text class="dg-s" x="270" y="142">photoreceptors → T4/T5 → 63 LPLC2</text>
+  <text class="dg-s" x="270" y="158">the frames never leave the page</text>
+
+  <rect class="dg-box" x="580" y="100" width="230" height="66" rx="8"/>
+  <text class="dg-t" x="596" y="124">The cards</text>
+  <text class="dg-s" x="596" y="142">the fly walking, the</text>
+  <text class="dg-s" x="596" y="158">connectome lighting up</text>
+
+  <!-- what crosses -->
+  <line class="dg-c" x1="330" y1="194" x2="330" y2="334" marker-end="url(#ahc)"/>
+  <text class="dg-l" x="318" y="222" text-anchor="end">expansion + azimuth</text>
+  <text class="dg-l" x="318" y="240" text-anchor="end">two numbers, ~10 per second</text>
+
+  <line class="dg-c" x1="600" y1="334" x2="600" y2="194" marker-end="url(#ahc)"/>
+  <text class="dg-l" x="612" y="222">heading, position, mode</text>
+  <text class="dg-l" x="612" y="240">+ 4,724 activity bytes, 20 Hz</text>
+
+  <text class="dg-n" x="465" y="234" text-anchor="middle">the only things that cross</text>
+
+  <!-- host zone -->
+  <rect class="dg-zone" x="20" y="290" width="820" height="232" rx="12"/>
+  <text class="dg-z" x="38" y="318">YOUR HOME ASSISTANT HOST · where the brain lives</text>
+
+  <rect class="dg-brain" x="40" y="336" width="580" height="88" rx="8"/>
+  <text class="dg-t" x="58" y="364">The brain · circuits.py</text>
+  <text class="dg-s" x="58" y="386">4,724 neurons, 126,108 measured synapses — one np.bincount per 50 ms of fly</text>
+  <text class="dg-s" x="58" y="406">numpy in an executor thread · 59 ms of CPU per 2 s tick · 3% of one core</text>
+
+  <rect class="dg-box" x="650" y="336" width="170" height="88" rx="8"/>
+  <text class="dg-t" x="666" y="360">core.npz</text>
+  <text class="dg-s" x="666" y="378">428 KB, on your disk</text>
+  <text class="dg-s" x="666" y="394">loaded once per boot</text>
+  <text class="dg-s" x="666" y="410">→ 2 MB of arrays</text>
+  <line class="dg-a" x1="646" y1="380" x2="624" y2="380" marker-end="url(#ah)"/>
+
+  <rect class="dg-box" x="40" y="448" width="280" height="60" rx="8"/>
+  <text class="dg-t" x="56" y="472">.storage · what it learned</text>
+  <text class="dg-s" x="56" y="492">20,391 synapse gains, written every 80 s</text>
+  <line class="dg-a" x1="180" y1="428" x2="180" y2="444" marker-end="url(#ah)" marker-start="url(#ah)"/>
+
+  <rect class="dg-box dg-d" x="360" y="448" width="260" height="60" rx="8"/>
+  <text class="dg-s" x="376" y="470">A second or third fly: 823 KB of</text>
+  <text class="dg-s" x="376" y="488">its own state, the connectome shared</text>
+  <line class="dg-a dg-d" x1="490" y1="428" x2="490" y2="444" marker-end="url(#ah)"/>
+
+  <!-- install-time only -->
+  <rect class="dg-box dg-d" x="650" y="556" width="170" height="74" rx="8"/>
+  <text class="dg-t" x="666" y="580">github.com</text>
+  <text class="dg-s" x="666" y="598">HACS or a git clone,</text>
+  <text class="dg-s" x="666" y="614">carrying the pack</text>
+  <line class="dg-a dg-d" x1="735" y1="552" x2="735" y2="432" marker-end="url(#ah)"/>
+  <text class="dg-n" x="723" y="500" text-anchor="end">once, at install</text>
+</svg>
+</div>
+<figcaption>Two machines and one file. The optic lobe runs in the tab because that is where the
+frames are; the brain runs on the host because that is where the sensors and the switches are. The
+arrow to GitHub points the wrong way for a cloud service: it is a download, and it happens once.</figcaption>
+</figure>
+
+<h3>The brain runs on your host, in a thread</h3>
+<p>Every tick, the coordinator builds the sensory input and hands the network to Home Assistant's
+executor, so the event loop is never waiting on it. The inner loop is one <code>np.bincount</code>
+over all 126,108 synapses per 50&nbsp;ms of simulated fly — forty of those per default two-second
+tick, which measured <strong>59&nbsp;ms of CPU, or about 3% of one core</strong> on a 2018 desktop
+i7. No GPU, and nothing that would want one — the entire recurrent step is 2&nbsp;MB of sparse
+arrays and a vector add.</p>
+
+<p>I have not measured it on a Raspberry Pi, so I will not quote a figure for one. What can be said
+is that the margin is a factor of thirty-four on the box it was measured on, and that
+<code>tools/validate.py</code> checks the ratio rather than the milliseconds — so if it ever stops
+being comfortable on the hardware you run, the suite is where that shows up.</p>
+
+<h3>The connectome is a file, and it is read once</h3>
+<p>Two files, 428&nbsp;KB together, sitting in the integration directory next to the Python. They
+are loaded once per Home Assistant process, expand to about 2&nbsp;MB of read-only numpy arrays, and
+are then shared by every fly you configure — which is why the second fly costs 823&nbsp;KB rather
+than another copy of the brain. Restarting re-reads the same file from the same disk. Nothing is
+fetched, nothing expires, and it works with the network unplugged.</p>
+
+<p>The one exception is honest about itself. If the pack is missing — an install route that could not
+carry 428&nbsp;KB of binary, a pipeline that strips anything that is not source — it is fetched from
+the release tag matching the code's own version, and checked against a SHA-256 compiled into the
+source before anything loads it. A file that does not match is refused rather than used, because
+every number on this page rests on that pack being the pack.</p>
+
+<h3>The eye is the exception, and it runs closer to you still</h3>
+<p>The looming pathway is the one part that does not run on the host, for the reason given
+<a href="#eye">above</a>: a fly computes expansion from photons in the optic lobe, and the photons are
+in the browser. So the photoreceptors, the T4/T5 correlators and the 63 LPLC2 cells are JavaScript
+running in the tab, and what crosses back to the brain is an expansion rate and an angle, about ten
+times a second. No frames, no stills, nothing from which the picture could be reconstructed. Close
+the tab and that stage simply stops: looming arrives from the ranging and motion paths again, as it
+did before there was an eye.</p>
+
+<h3>What it learns stays here too</h3>
+<p>The memory is the synapses, so persisting it means persisting numbers: the 20,391 plastic
+KC→MBON gains, where it is, how hungry it is, and the sensory ranges and the dawn and dusk it has
+worked out for your house — written to Home Assistant's own <code>.storage</code> every eighty
+seconds. There is nowhere else for them to go. Nothing about your
+house is uploaded, aggregated or trained on, and the flip side of that is worth saying plainly — a
+fly that learns your house learns <em>only</em> your house, and starts from the measured wiring again
+if you delete that file.</p>
 
 <h2 id="demo">Try it without installing anything</h2>
 <p>There is a hosted demo: a real Home Assistant, on a real

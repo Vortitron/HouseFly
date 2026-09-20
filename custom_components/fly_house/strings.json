@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "HouseFly",
-        "description": "Watching is free and safe; touching is neither, so they are separate questions. Turn on whole-house watching and it smells everything read-only, which is what makes \"something unusual\" worth anything \u2014 a novelty detector fed six sensors can only notice six kinds of strange. What it may touch stays a short, explicit list, and actuation is off until you turn it on.",
+        "description": "Watching is free and safe; touching is neither, so they are separate questions. Turn on whole-house watching and it smells everything read-only, which is what makes \"something unusual\" worth anything \u2014 a novelty detector fed six sensors can only notice six kinds of strange. What it may touch stays a short, explicit list, and actuation is off until you turn it on.\n\nYou can add more than one. Give each a name and, if you want them on shifts, shift their days apart \u2014 a fly is crepuscular, so one six hours out is awake while the others sleep (six, not twelve \u2014 twelve maps morning onto evening and changes almost nothing), and a sleeping fly cannot touch anything.",
         "data": {
           "watch_whole_house": "Watch the whole house (read-only)",
           "input_entities": "What it can sense",
@@ -13,7 +13,9 @@
           "tick_interval": "Seconds between brain updates",
           "quiet_hours_start": "Quiet hours start",
           "quiet_hours_end": "Quiet hours end",
-          "approach_entities": "Ranging sensors it can be approached by (radar, ultrasonic)"
+          "approach_entities": "Ranging sensors it can be approached by (radar, ultrasonic)",
+          "name": "What to call this fly",
+          "clock_offset_hours": "Shift its day by (hours) \u2014 6 gives you a fly awake while the others sleep"
         }
       }
     },
@@ -37,7 +39,9 @@
           "tick_interval": "Seconds between brain updates",
           "quiet_hours_start": "Quiet hours start",
           "quiet_hours_end": "Quiet hours end",
-          "approach_entities": "Ranging sensors it can be approached by (radar, ultrasonic)"
+          "approach_entities": "Ranging sensors it can be approached by (radar, ultrasonic)",
+          "name": "What to call this fly",
+          "clock_offset_hours": "Shift its day by (hours) \u2014 6 gives you a fly awake while the others sleep"
         }
       }
     },

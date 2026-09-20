@@ -5,6 +5,34 @@ from __future__ import annotations
 DOMAIN = "fly_house"
 
 # --- configuration keys --------------------------------------------------
+CONF_NAME = "name"
+
+# Hours to shift this fly's subjective day against the wall clock.
+#
+# A fly is crepuscular: awake around its own dawn and dusk, asleep at its
+# subjective midday and midnight. Offsetting the day is therefore the whole of
+# a shift system, and the sleeping fly is quiet by construction, because the
+# actuation gate refuses to act while a fly is asleep.
+#
+# **Six hours, not twelve.** Twelve is the obvious number and it is the wrong
+# one: the two peaks are already about twelve hours apart, so shifting by
+# twelve maps morning onto evening and leaves the fly awake at the same times
+# as before. Measured across the wall clock:
+#
+#   wall     +0h     +6h     +12h
+#   00:00    sleep   WALK    sleep
+#   06:00    WALK    sleep   WALK
+#   12:00    sleep   WALK    sleep
+#   18:00    WALK    sleep   WALK
+#
+# +6 is complementary. +12 is very nearly a copy.
+#
+# It shifts the familiarity context too, which is the part that matters. Each
+# fly learns what normal looks like in its own subjective hours, so a night
+# fly's "3am" is a real thing it has seen hundreds of times rather than a gap
+# in its experience.
+CONF_CLOCK_OFFSET = "clock_offset_hours"
+
 CONF_INPUT_ENTITIES = "input_entities"
 CONF_OUTPUT_ENTITIES = "output_entities"
 CONF_TICK_INTERVAL = "tick_interval"

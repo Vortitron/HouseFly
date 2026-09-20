@@ -16,6 +16,7 @@ import importlib.util
 import math
 import subprocess
 import sys
+import time
 from collections import defaultdict
 from pathlib import Path
 
@@ -773,6 +774,32 @@ def main() -> int:
           ns["_C"]._effective_layout(stub) == [],
           "observe-only installs get no phantom furniture")
 
+    print("\n11e. Shifts: six hours, not twelve")
+    # The obvious way to put a fly on nights is to move its day by twelve
+    # hours, and for a crepuscular animal that is the one number that does not
+    # work: the two peaks are already about twelve hours apart, so shifting by
+    # twelve maps morning onto evening and leaves it awake at the same times.
+    def awake_hours(offset_h):
+        out = []
+        for hour in (0, 6, 12, 18):
+            subjective = ((hour + offset_h) % 24) / 24.0
+            b = circ.FlyBrain()
+            b.settle(time_of_day=subjective)
+            for _ in range(120):
+                r = b.step(circ.Senses(time_of_day=subjective), sub_steps=20)
+            if r["mode"] != "sleep":
+                out.append(hour)
+        return out
+
+    base, six, twelve = awake_hours(0), awake_hours(6), awake_hours(12)
+    check("a six-hour shift covers the hours the others sleep through",
+          six and not (set(six) & set(base)),
+          f"+0h awake at {base}, +6h awake at {six}")
+    check("and twelve hours is very nearly a copy",
+          set(twelve) == set(base),
+          f"+12h awake at {twelve}, against {base} unshifted -- "
+          "the peaks are already twelve apart")
+
     print("\n12. It learns where this house's day actually is")
     # A fixed 06:00/18:43 is nobody's daylight. The peaks move to wherever the
     # light says dawn and dusk are, which is photoperiod tracking rather than
@@ -819,6 +846,56 @@ def main() -> int:
     check("a light switched on in the small hours rouses it",
           bright["arousal"] > quiet["arousal"] + 0.05,
           f"arousal {quiet['arousal']:.2f} in the dark, {bright['arousal']:.2f} with the light on")
+
+    print("\n13. Where it runs, and what that costs")
+    # The project page has a diagram of this, and every number in it is here.
+    pack_dir = ROOT / "custom_components" / "fly_house" / "connectome"
+    on_disk = sum(f.stat().st_size for f in pack_dir.iterdir())
+    check("the pack is small enough to ship inside the integration",
+          380_000 < on_disk < 480_000, f"{on_disk / 1024:.0f} KiB on disk")
+
+    # One copy per process, shared by every fly. This is why a second or third
+    # fly costs almost nothing: the connectome is read-only, so they share it.
+    arrays = sum(v.nbytes for v in vars(data).values()
+                 if isinstance(v, np.ndarray))
+    fly = circ.FlyBrain()
+    per_fly = sum(v.nbytes for v in vars(fly).values()
+                  if isinstance(v, np.ndarray))
+    check("the connectome is loaded once and shared by every fly",
+          circ.shared_connectome() is data and fly.data is data
+          and circ.FlyBrain().data is data,
+          f"{arrays / 1024:.0f} KiB of arrays, {per_fly / 1024:.0f} KiB per fly")
+
+    # The tick has to finish well inside the interval it simulates, or the model
+    # is not running in real time at all. It runs in an executor thread, so the
+    # event loop never waits on it -- but if this ratio ever approached 1, the
+    # honest thing would be to say so rather than to quietly fall behind.
+    fly.settle(time_of_day=0.5)
+    senses = circ.Senses(time_of_day=0.5, light=0.5)
+    for _ in range(3):
+        fly.step(senses, 40)          # warm the caches, don't time the first
+    started = time.perf_counter()
+    for _ in range(10):
+        fly.step(senses, 40)
+    per_tick = (time.perf_counter() - started) / 10
+    simulated = 40 * circ.DT
+    check("a tick costs a small fraction of the time it simulates",
+          per_tick < 0.25 * simulated,
+          f"{per_tick * 1000:.0f} ms of CPU for {simulated:.1f} s of fly, "
+          f"{100 * per_tick / simulated:.1f}% of one core")
+
+    # "No cloud" is a claim about the source, not a promise in a paragraph.
+    # connectome_fetch is the one exception and runs only at setup, only when
+    # the pack is missing, and only against a version-pinned URL.
+    forbidden = ("aiohttp", "urllib", "requests.", "http.client", "socket.")
+    offenders = {
+        path.name: [t for t in forbidden if t in path.read_text()]
+        for path in sorted((ROOT / "custom_components" / "fly_house").glob("*.py"))
+        if path.name != "connectome_fetch.py"
+    }
+    offenders = {k: v for k, v in offenders.items() if v}
+    check("nothing but the pack fetcher can reach the network",
+          not offenders, f"{len(offenders)} offenders: {offenders or 'none'}")
 
     ok = all(_results)
     print(f"\n{sum(_results)}/{len(_results)} checks passed\n")

@@ -34,6 +34,7 @@ from .circuits import FlyBrain, Senses, shared_connectome
 from .const import (
     CONF_ACTUATION_ENABLED,
     CONF_APPROACH_ENTITIES,
+    CONF_CLOCK_OFFSET,
     CONF_HOURLY_BUDGET,
     CONF_INPUT_ENTITIES,
     CONF_OUTPUT_ENTITIES,
@@ -354,6 +355,9 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def _apply_config(self, entry_data: dict[str, Any]) -> None:
         self.input_entities: list[str] = list(entry_data.get(CONF_INPUT_ENTITIES, []))
         self._watch_whole_house = bool(entry_data.get(CONF_WATCH_WHOLE_HOUSE, False))
+        # Fractions of a day, not hours, because that is what everything
+        # downstream speaks.
+        self._clock_offset = (float(entry_data.get(CONF_CLOCK_OFFSET, 0)) / 24.0) % 1.0
         # Ranging sensors -- mmWave radar, ultrasonic, BLE distance. Anything
         # that reports how far away a moving thing is.
         self.approach_entities: list[str] = list(entry_data.get(CONF_APPROACH_ENTITIES, []))
@@ -475,7 +479,7 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._expire_layout()
         now = dt_util.now()
         senses = Senses()
-        senses.time_of_day = (now.hour * 3600 + now.minute * 60 + now.second) / 86400.0
+        senses.time_of_day = self._subjective_day(now)
 
         watched = self._watched()
         self._watched_cache = watched
@@ -653,6 +657,18 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._approach = detail
         return strongest
 
+    def _subjective_day(self, now) -> float:
+        """What time of day it is *for this fly*, 0..1.
+
+        With no offset this is the wall clock. With one, the fly's whole day
+        moves: its clock drive, the hour it habituates against, and the phase
+        it records when it sees dawn. Everything stays in one frame, so a night
+        fly is not a day fly that has been told to stay up -- it has its own
+        morning, and it has lived through hundreds of them.
+        """
+        wall = (now.hour * 3600 + now.minute * 60 + now.second) / 86400.0
+        return (wall + self._clock_offset) % 1.0
+
     def _expire_layout(self) -> None:
         """Forget a dashboard that has stopped reporting.
 
@@ -777,7 +793,7 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         # A crossing, with hysteresis, is dawn or dusk.
         now = dt_util.now()
-        phase = (now.hour * 3600 + now.minute * 60 + now.second) / 86400.0
+        phase = self._subjective_day(now)
         if self._is_day is None:
             self._is_day = self._light >= LIGHT_ON
         elif not self._is_day and self._light >= LIGHT_ON:
@@ -872,7 +888,7 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         broken model.
         """
         now = dt_util.now()
-        time_of_day = (now.hour * 3600 + now.minute * 60 + now.second) / 86400.0
+        time_of_day = self._subjective_day(now)
         await self.hass.async_add_executor_job(self.brain.settle, time_of_day)
 
     async def _async_update_data(self) -> dict[str, Any]:
@@ -912,6 +928,7 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             result["approach"] = self._approach
             result["unusual"] = self._assess_novelty(result)
             result["photoperiod"] = {
+                "shift_hours": round(self._clock_offset * 24.0, 1),
                 "dawn": _clock_string(self._dawn_phase),
                 "dusk": _clock_string(self._dusk_phase),
                 "light": round(self._light, 3),

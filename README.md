@@ -13,10 +13,15 @@ delivered to the neurons that carry that kind of information in the animal. Its
 motor output moves a fly across your dashboard. It learns which parts of your
 house it likes.
 
-It is about 450 KB of connectome, a few milliseconds of numpy per tick, and no
-GPU. The pack ships inside the integration; on installs where the files arrive
-by a route that cannot carry binary, it is fetched from the release tag and
-checked against a compiled-in SHA-256 before anything loads it.
+**All of it runs on your own machine.** The brain is 428 KB of connectome on
+your disk and numpy on your Home Assistant host -- 59 ms of CPU per two-second
+tick, about 3% of one core on a 2018 desktop i7, no GPU and no inference service
+anywhere. The pack ships inside the integration; on installs where the files
+arrive by a route that cannot carry binary, it is fetched from the release tag
+and checked against a compiled-in SHA-256 before anything loads it. The only
+part that runs elsewhere is the eye, which runs in the browser tab because that
+is where the frames are, and sends back two numbers.
+[The project page has a diagram of the whole arrangement.](https://housefly.vome.io/#where)
 
 ---
 
@@ -348,6 +353,54 @@ it still has to settle, still has to be standing on one, the governor still has
 to agree. A real dashboard always wins when there is one, because then the fly
 is walking on things you can actually see. An observe-only install with no
 outputs gets no phantom furniture.
+
+### More than one fly
+
+A house can hold several. Each is its own config entry with its own name, its
+own brain, its own memory on disk, and its own view of the house, so they are
+genuinely separate animals rather than one animal drawn three times.
+
+Three reasons to bother, in rough order of how much they buy you:
+
+**Separate territories.** The antennal lobe has 131 glomeruli. Sixty-two
+entities hashed into 123 odour channels collide; thirty-one collide far less,
+so two flies watching half the house each have sharper noses for their own half
+than one fly has for all of it.
+
+**Different timescales.** Habituation has one recovery rate. A fly that forgets
+quickly notices the brief and the odd; one that forgets slowly notices drift.
+Running both gives you an ensemble that sees either.
+
+**Shifts** — and the number here is not the obvious one.
+
+A fly is crepuscular: awake around its own dawn and dusk, asleep at its
+subjective midday and midnight. So the tempting move is to put one fly twelve
+hours out and call it the night shift. That is the one offset that does nothing,
+because the peaks are already about twelve hours apart, so twelve maps morning
+onto evening:
+
+```
+ wall     +0h     +6h     +12h
+ 00:00    sleep   WALK    sleep
+ 06:00    WALK    sleep   WALK
+ 12:00    sleep   WALK    sleep
+ 18:00    WALK    sleep   WALK
+```
+
+Six is complementary. Twelve is very nearly a copy, and `tools/validate.py`
+checks both, because it is exactly the sort of thing that reads as obviously
+right and is obviously wrong.
+
+A sleeping fly cannot act — the actuation gate refuses on mode — so shifts also
+partition *who touches what and when* without any coordination between them.
+
+**How they interact:** through the house, and nothing else. One fly turns a
+light on and the others smell it. Point one fly's `binary_sensor.*_escaping` at
+another's inputs and a startled fly startles its neighbours. Both are ordinary
+configuration and need no new mechanism. There is no direct coupling between
+their brains, and there will not be: there is no connectome for fly-to-fly, and
+inventing one would be the rules-engine-in-a-costume failure this project
+exists to avoid.
 
 ### Watching is free; touching is not
 

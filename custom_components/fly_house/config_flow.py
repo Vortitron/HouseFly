@@ -18,6 +18,8 @@ from homeassistant.helpers import selector
 from .const import (
     CONF_ACTUATION_ENABLED,
     CONF_APPROACH_ENTITIES,
+    CONF_CLOCK_OFFSET,
+    CONF_NAME,
     CONF_HOURLY_BUDGET,
     CONF_INPUT_ENTITIES,
     CONF_OUTPUT_ENTITIES,
@@ -38,6 +40,15 @@ from .safety import ALLOWED_DOMAINS, ActuationGovernor
 
 def _schema(defaults: dict[str, Any]) -> vol.Schema:
     return vol.Schema({
+        # A house can hold more than one fly, so they need telling apart. The
+        # name becomes the device name, and therefore the entity prefix.
+        vol.Optional(CONF_NAME, default=defaults.get(CONF_NAME, "HouseFly")): str,
+        # Hours to shift this fly's day. Two flies twelve hours apart cover the
+        # clock between them, and the sleeping one cannot act.
+        vol.Optional(CONF_CLOCK_OFFSET, default=defaults.get(CONF_CLOCK_OFFSET, 0)):
+            selector.NumberSelector(
+                selector.NumberSelectorConfig(min=0, max=23, step=1, mode="box",
+                                              unit_of_measurement="h")),
         # Watching is free and touching is not, so they are asked separately
         # and the safe one is the one that can be turned on wholesale.
         vol.Optional(CONF_WATCH_WHOLE_HOUSE,
@@ -102,7 +113,8 @@ class FlyHouseConfigFlow(ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             errors = _validate(user_input)
             if not errors:
-                return self.async_create_entry(title="HouseFly", data=user_input)
+                return self.async_create_entry(
+                    title=str(user_input.get(CONF_NAME) or "HouseFly"), data=user_input)
         return self.async_show_form(
             step_id="user",
             data_schema=_schema(user_input or {}),
