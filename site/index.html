@@ -122,7 +122,7 @@
       <div class="stat"><b>126,108</b><span>SYNAPSES</span></div>
       <div class="stat"><b>20,391</b><span>PLASTIC SYNAPSES</span></div>
       <div class="stat"><b>428&nbsp;KB</b><span>DATA PACK</span></div>
-      <div class="stat"><b>80</b><span>CHECKS, ALL PASSING</span></div>
+      <div class="stat"><b>86</b><span>CHECKS, ALL PASSING</span></div>
       <div class="stat"><b>0</b><span>GPUS</span></div>
     </div>
     <div class="cta">
@@ -614,7 +614,7 @@ a tick costs a fraction of what it covers  59 ms of CPU for 2 s of fly  <span cl
 nothing but the fetcher reaches the network  0 offenders                 <span class="pass">PASS</span>
 an empty quiet-hours window means never    not, as it did, always       <span class="pass">PASS</span>
 
-80/80 checks passed</code></pre>
+86/86 checks passed</code></pre>
 
 <h2 id="where">Where the brain lives</h2>
 <p class="lede">On your own machine, and it is not talking to anything. The wiring diagram is a
@@ -659,6 +659,10 @@ is what does <em>not</em> cross between them.</p>
   <text class="dg-s" x="596" y="142">the fly walking, the</text>
   <text class="dg-s" x="596" y="158">connectome lighting up</text>
 
+  <!-- host zone -->
+  <rect class="dg-zone" x="20" y="290" width="820" height="232" rx="12"/>
+  <text class="dg-z" x="38" y="318">YOUR HOME ASSISTANT HOST · your CPU</text>
+
   <!-- what crosses -->
   <line class="dg-c" x1="330" y1="194" x2="330" y2="334" marker-end="url(#ahc)"/>
   <text class="dg-l" x="318" y="222" text-anchor="end">expansion + azimuth</text>
@@ -670,9 +674,6 @@ is what does <em>not</em> cross between them.</p>
 
   <text class="dg-n" x="465" y="234" text-anchor="middle">the only things that cross</text>
 
-  <!-- host zone -->
-  <rect class="dg-zone" x="20" y="290" width="820" height="232" rx="12"/>
-  <text class="dg-z" x="38" y="318">YOUR HOME ASSISTANT HOST · where the brain lives</text>
 
   <rect class="dg-brain" x="40" y="336" width="580" height="88" rx="8"/>
   <text class="dg-t" x="58" y="364">The brain · circuits.py</text>
@@ -686,15 +687,15 @@ is what does <em>not</em> cross between them.</p>
   <text class="dg-s" x="666" y="410">→ 2 MB of arrays</text>
   <line class="dg-a" x1="646" y1="380" x2="624" y2="380" marker-end="url(#ah)"/>
 
-  <rect class="dg-box" x="40" y="448" width="280" height="60" rx="8"/>
-  <text class="dg-t" x="56" y="472">.storage · what it learned</text>
-  <text class="dg-s" x="56" y="492">20,391 synapse gains, written every 80 s</text>
-  <line class="dg-a" x1="180" y1="428" x2="180" y2="444" marker-end="url(#ah)" marker-start="url(#ah)"/>
+  <rect class="dg-box" x="40" y="456" width="280" height="56" rx="8"/>
+  <text class="dg-t" x="56" y="478">.storage · what it learned</text>
+  <text class="dg-s" x="56" y="498">20,391 synapse gains, written every 80 s</text>
+  <line class="dg-a" x1="180" y1="428" x2="180" y2="452" marker-end="url(#ah)"/>
 
-  <rect class="dg-box dg-d" x="360" y="448" width="260" height="60" rx="8"/>
-  <text class="dg-s" x="376" y="470">A second or third fly: 823 KB of</text>
-  <text class="dg-s" x="376" y="488">its own state, the connectome shared</text>
-  <line class="dg-a dg-d" x1="490" y1="428" x2="490" y2="444" marker-end="url(#ah)"/>
+  <rect class="dg-box dg-d" x="360" y="456" width="260" height="56" rx="8"/>
+  <text class="dg-s" x="376" y="478">A second or third fly: 823 KB of</text>
+  <text class="dg-s" x="376" y="496">its own state, the connectome shared</text>
+  <line class="dg-a dg-d" x1="490" y1="428" x2="490" y2="452" marker-end="url(#ah)"/>
 
   <!-- install-time only -->
   <rect class="dg-box dg-d" x="650" y="556" width="170" height="74" rx="8"/>
@@ -702,7 +703,7 @@ is what does <em>not</em> cross between them.</p>
   <text class="dg-s" x="666" y="598">HACS or a git clone,</text>
   <text class="dg-s" x="666" y="614">carrying the pack</text>
   <line class="dg-a dg-d" x1="735" y1="552" x2="735" y2="432" marker-end="url(#ah)"/>
-  <text class="dg-n" x="723" y="500" text-anchor="end">once, at install</text>
+  <text class="dg-n" x="723" y="544" text-anchor="end">once, at install</text>
 </svg>
 </div>
 <figcaption>Two machines and one file. The optic lobe runs in the tab because that is where the

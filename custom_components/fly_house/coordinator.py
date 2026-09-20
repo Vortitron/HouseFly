@@ -109,9 +109,30 @@ DISTANCE_UNITS = {"cm": 0.01, "mm": 0.001, "m": 1.0, "km": 1000.0}
 # What actually has to be true is simpler and is not a magic number: the fly
 # must at some point have found the house *familiar*. Until that has happened
 # once, "this looks unfamiliar" carries no information, because everything does.
+#
+# FAMILIAR_ONCE     and "familiar" has to mean the same thing here as it does
+#                   everywhere else, so it is the alert line itself. It used to
+#                   be 0.5, which released the guard far too early. A brain that
+#                   has just started reads its first tick at 0.98 and comes down
+#                   from there: measured over one repeated house pattern it
+#                   crosses 0.5 at tick 41, crosses 0.10 at tick 116 and settles
+#                   near 0.02. So the old guard let go while novelty was still
+#                   0.5 -- five times the alert line, the fly quite plainly
+#                   still knowing nothing -- and the alert armed into a stretch
+#                   where everything was unfamiliar by construction.
+#
+#                   Territory size barely moves this: 8 live entities crossed at
+#                   41/119 and 101 crossed at 44/116, because sparse coding puts
+#                   roughly the same number of Kenyon cells up either way.
+#
+#                   Seen live on a three-fly house, the whole-house fly called
+#                   the place unusual four minutes after install and named
+#                   suspects that were only the house being new to it, then
+#                   settled to novelty 0.057 by nine minutes.
 NOVELTY_UNUSUAL = 0.10
 UNUSUAL_SECONDS = 120.0
-FAMILIAR_ONCE = 0.5     # novelty below this means it has learned the place
+FAMILIAR_ONCE = NOVELTY_UNUSUAL   # it has to have looked familiar by the same
+                                  # standard used to call it unfamiliar
 
 # How long the fly has to stay on one thing before it will touch it.
 #

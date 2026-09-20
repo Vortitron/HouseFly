@@ -307,11 +307,14 @@ def main() -> int:
     # the morning perfectly ordinary. Measured before the fix: 400 evenings of a
     # pattern gave novelty 0.025, and the same pattern at 03:00 gave 0.025 --
     # the same number, because the code was identical.
-    def house(seed, width):
+    def house_n(seed, width, n=8):
         rng = np.random.default_rng(seed)
         v = np.zeros(width, dtype=np.float32)
-        v[rng.choice(width, 8, replace=False)] = rng.uniform(0.5, 1.2, 8)
+        v[rng.choice(width, n, replace=False)] = rng.uniform(0.5, 1.2, n)
         return v
+
+    def house(seed, width):
+        return house_n(seed, width)
 
     width = circ.FlyBrain().n_odour_channels
     evening, night = 0.80, 0.125
@@ -346,6 +349,47 @@ def main() -> int:
     check("and the alert threshold sits between familiar and both of them",
           familiar < unusual < min(wrong_hour, wrong_house),
           f"{familiar:.3f} < {unusual} < {min(wrong_hour, wrong_house):.3f}")
+
+    # The arming guard has to sit low enough that crossing it means something.
+    # It was 0.5, and a fresh brain crosses 0.5 while novelty is still five
+    # times the alert line -- so the guard let go before the fly knew anything
+    # and the alert armed into a stretch that was unfamiliar by construction.
+    src = (ROOT / "custom_components" / "fly_house" / "coordinator.py").read_text()
+    familiar_once = float(unusual if "FAMILIAR_ONCE = NOVELTY_UNUSUAL" in src else
+                          [ln.split("=")[1].split("#")[0].strip()
+                           for ln in src.splitlines()
+                           if ln.startswith("FAMILIAR_ONCE")][0])
+    check("the alert will not arm until the fly has seen the place look familiar",
+          familiar_once <= wrong_house,
+          f"arms at {familiar_once} against {wrong_house:.3f} for a house it has never seen")
+    check("but it does arm once the fly has settled in",
+          familiar_once >= familiar,
+          f"arms at {familiar_once} against {familiar:.3f} for a house it knows")
+
+    # And the reason the old 0.5 was wrong, measured rather than asserted: watch
+    # a brand-new brain come down and see where it crosses each line.
+    def settle_in(n_live, ticks=150):
+        b = circ.FlyBrain()
+        b.settle(time_of_day=evening)
+        pat = house_n(7, width, n_live)
+        cross_half = cross_alert = None
+        for i in range(1, ticks + 1):
+            nv = b.step(circ.Senses(odour=pat, time_of_day=evening))["novelty"]
+            if cross_half is None and nv <= 0.5:
+                cross_half = i
+            if cross_alert is None and nv <= unusual:
+                cross_alert = i
+                break
+        return cross_half, cross_alert
+
+    small_half, small_alert = settle_in(8)
+    big_half, big_alert = settle_in(min(101, width))
+    check("a new fly crosses the old 0.5 guard long before it knows the place",
+          small_half is not None and small_alert is not None and small_half < small_alert / 2,
+          f"0.5 at tick {small_half}, {unusual} at tick {small_alert}")
+    check("and territory size barely changes how long settling in takes",
+          big_alert is not None and abs(big_alert - small_alert) < 0.25 * small_alert,
+          f"8 entities settle at tick {small_alert}, {min(101, width)} at tick {big_alert}")
 
     print("\n6. Looming drives the escape pathway, then stops")
     brain = circ.FlyBrain()
