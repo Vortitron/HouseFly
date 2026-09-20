@@ -104,6 +104,27 @@ NOVELTY_UNUSUAL = 0.35
 UNUSUAL_SECONDS = 120.0
 FAMILIAR_ONCE = 0.5     # novelty below this means it has learned the place
 
+# How long the fly has to stay on one thing before it will touch it.
+#
+# This replaces a speed threshold, which could not work. Forward speed here is
+# essentially proportional to arousal, so "slow enough to have settled" and
+# "awake" were mutually exclusive: an awake fly runs at 0.33 to 0.68 against a
+# gate of 0.30, and every state that passed the gate was asleep and barred on
+# mode instead. Dwell says what that gate was trying to say and says it in
+# terms of where the fly is standing rather than how fast it is going. Two
+# ticks at the default interval is about four seconds.
+DWELL_TICKS = 2
+
+# How long a dashboard's reported layout stays believable after the last report.
+#
+# The card rescans every four seconds while it is open, so silence past a few of
+# those means the browser has gone. Without an expiry the flag saying "the card
+# owns the body" was set once and never cleared, so closing the tab froze the
+# fly where it stood -- permanently, because the coordinator had stopped
+# integrating its position and nothing told it to start again. The stale card
+# rectangles also stopped the headless fallback from engaging.
+LAYOUT_TTL = 30.0
+
 # Learning where this house's dawn and dusk actually are.
 #
 # A fixed 06:00/18:43 is nobody's daylight, and at this latitude it is not even
@@ -292,6 +313,7 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._watched_cache: list[str] = list(self.input_entities)
         self._dwell_entity: str | None = None
         self._dwell_ticks = 0
+        self._layout_at = 0.0
         # Where the body is pointing. The compass bump is an *estimate* of this
         # and cannot slew -- see the note on angular velocity in the README --
         # so steering has to be measured against the body, not against the
@@ -388,6 +410,7 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._layout = cards
         if viewport:
             self._viewport = (float(viewport["w"]) or 1.0, float(viewport["h"]) or 1.0)
+        self._layout_at = dt_util.utcnow().timestamp()
         if fly:
             # Adopt the card's position. Two independent integrations of the
             # same body is one too many: the brain would be working out which
@@ -440,6 +463,7 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     # ----------------------------------------------------------------- sense
     def _build_senses(self) -> Senses:
+        self._expire_layout()
         now = dt_util.now()
         senses = Senses()
         senses.time_of_day = (now.hour * 3600 + now.minute * 60 + now.second) / 86400.0
@@ -610,6 +634,23 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 }
         self._approach = detail
         return strongest
+
+    def _expire_layout(self) -> None:
+        """Forget a dashboard that has stopped reporting.
+
+        The card rescans every four seconds while it is open, so silence past
+        LAYOUT_TTL means the tab is gone and the coordinator has to take the
+        body back. Nothing did that before, and the flag is one-way, so one
+        visitor opening the demo once was enough to stop the fly moving for
+        good.
+        """
+        if not self._layout:
+            return
+        if dt_util.utcnow().timestamp() - self._layout_at <= LAYOUT_TTL:
+            return
+        _LOGGER.debug("HouseFly: no dashboard for %.0fs, taking the body back", LAYOUT_TTL)
+        self._layout = []
+        self._position_from_card = False
 
     def _effective_layout(self) -> list[dict[str, Any]]:
         """Where the fly thinks things are.
@@ -844,6 +885,7 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # falls back to with no dashboard open. Worth distinguishing: one
             # of them is the fly walking on things you can see.
             result["seeing_dashboard"] = bool(self._layout)
+            result["body_owner"] = "dashboard" if self._position_from_card else "coordinator"
             result["dwell"] = {"entity": self._dwell_entity, "ticks": self._dwell_ticks}
             result["safety"] = self.governor.stats
             result["dead_inputs"] = self._dead_inputs

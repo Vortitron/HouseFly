@@ -511,6 +511,36 @@ def main() -> int:
         check("the visual front end's own checks pass", proc.returncode == 0,
               tail[0].strip() if tail else proc.stderr.strip()[:200])
 
+    print("\n11. Every constant the code uses actually exists")
+    # A tuning constant that is referenced but never defined is a NameError
+    # waiting for the one branch that reaches it, and that branch can be rare:
+    # DWELL_TICKS shipped undefined and did not raise, because the fly was
+    # frozen by a second bug and never stood on anything long enough to hit the
+    # line. Two faults hiding each other. This is cheap and catches the class.
+    import ast as _ast
+    for module in ("coordinator.py", "circuits.py", "safety.py", "sensor.py",
+                   "binary_sensor.py", "websocket_api.py", "config_flow.py"):
+        tree = _ast.parse((ROOT / "custom_components" / "fly_house" / module).read_text())
+        defined = set()
+        for node in tree.body:
+            if isinstance(node, _ast.Assign):
+                defined |= {t.id for t in node.targets if isinstance(t, _ast.Name)}
+            elif isinstance(node, _ast.AnnAssign):
+                # SENSORS: tuple[...] = (...) is still a definition.
+                if isinstance(node.target, _ast.Name):
+                    defined.add(node.target.id)
+            elif isinstance(node, (_ast.Import, _ast.ImportFrom)):
+                defined |= {a.asname or a.name.split(".")[0] for a in node.names}
+            elif isinstance(node, (_ast.FunctionDef, _ast.AsyncFunctionDef, _ast.ClassDef)):
+                defined.add(node.name)
+        used = {n.id for n in _ast.walk(tree)
+                if isinstance(n, _ast.Name) and isinstance(n.ctx, _ast.Load)
+                and n.id.isupper() and len(n.id) > 3}
+        missing = sorted(used - defined)
+        check(f"{module} defines every constant it uses",
+              not missing,
+              "none dangling" if not missing else f"undefined: {', '.join(missing)}")
+
     print("\n11a. Being awake and being able to act are not mutually exclusive")
     # The bug this exists to catch: the actuation gate refused anything above
     # speed 0.30, and forward speed here is essentially proportional to arousal.
@@ -547,6 +577,31 @@ def main() -> int:
     check("landing is what earns an action",
           "DWELL_TICKS" in gate and "_dwell_ticks" in gate,
           "it has to stay on one thing for a few seconds, not merely pass over it")
+
+    print("\n11c. A closed browser gives the body back")
+    # One-way flags are how a fly gets frozen. The card said "I own the body",
+    # nothing ever said otherwise, so closing the tab stopped the coordinator
+    # integrating position -- permanently -- and the stale card rectangles kept
+    # the headless fallback from engaging either.
+    src = (ROOT / "custom_components" / "fly_house" / "coordinator.py").read_text()
+    expire = src[src.index("    def _expire_layout"):src.index("    def _effective_layout")]
+    check("there is something that expires a stale layout",
+          "_position_from_card = False" in expire and "LAYOUT_TTL" in expire,
+          "a browser that stops reporting hands the body back to the coordinator")
+    check("and it is actually called on the way into a tick",
+          "self._expire_layout()" in src[src.index("    def _build_senses"):
+                                         src.index("    def _approach_looming")],
+          "an expiry nothing invokes is a comment")
+    # The card rescans every four seconds, so the timeout has to sit clear of
+    # that without being so long the fly sits still after someone closes a tab.
+    ttl = float(src.split("LAYOUT_TTL = ")[1].split("\n")[0])
+    scan_ms = float((ROOT / "custom_components" / "fly_house" / "www"
+                     / "housefly-overlay.js").read_text()
+                    .split("this._scanTimer = setInterval(() => this._scanSoon(), ")[1]
+                    .split(")")[0])
+    check("the timeout clears the card's own rescan interval",
+          ttl > 3 * (scan_ms / 1000.0) and ttl <= 120.0,
+          f"{ttl:.0f}s against a {scan_ms / 1000.0:.0f}s rescan")
 
     print("\n11b. It can still act with nobody watching")
     # The actuation gate needs a layout, and a layout only exists while a
