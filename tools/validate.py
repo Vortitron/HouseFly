@@ -634,6 +634,48 @@ def main() -> int:
           ns["_C"]._effective_layout(stub) is stub._layout,
           "the fly walks on things you can actually see when there are any")
 
+    # And it has to be able to reach them. Steering on the compass bump instead
+    # of on the commanded turn leaves the body flying one fixed direction for
+    # ever, bouncing between walls on a billiard path that need never cross
+    # anything it can land on. Same walk, same speed, both ways:
+    def landings(steer: bool) -> int:
+        cells, hit, dwell = grid, 0, 0
+        pos = [0.5, 0.5]
+        head = 0.0
+        goal = cells[0]
+        for _ in range(3000):
+            gx = (goal["x"] + goal["w"] / 2) / 1920.0
+            gy = (goal["y"] + goal["h"] / 2) / 1080.0
+            if steer:
+                bearing = math.atan2(gy - pos[1], gx - pos[0])
+                err = math.atan2(math.sin(bearing - head), math.cos(bearing - head))
+                head = (head + max(-2.0, min(2.0, 1.2 * err * 0.785)) * 0.3) % (2 * math.pi)
+            step = 0.67 * 0.02 * 2
+            pos[0] += math.cos(head) * step
+            pos[1] += math.sin(head) * step
+            for a in (0, 1):
+                if pos[a] < 0.02:
+                    pos[a] = 0.04 - pos[a]
+                elif pos[a] > 0.98:
+                    pos[a] = 1.96 - pos[a]
+                pos[a] = min(1.0, max(0.0, pos[a]))
+            fx, fy = pos[0] * 1920.0, pos[1] * 1080.0
+            on = any(c["x"] <= fx <= c["x"] + c["w"] and c["y"] <= fy <= c["y"] + c["h"]
+                     for c in cells)
+            dwell = dwell + 1 if on else 0
+            if dwell == 2:
+                hit += 1
+                goal = cells[hit % len(cells)]
+                dwell = 0
+        return hit
+
+    steered, drifting = landings(True), landings(False)
+    check("and steering towards them actually gets it there",
+          steered > drifting * 10,
+          f"{steered} landings in 100 simulated minutes, against {drifting} while "
+          "flying a fixed heading")
+
+    # Nothing to touch means nothing to stand on.
     stub._layout = []
     stub.output_entities = []
     check("and nothing to touch means nothing to stand on",

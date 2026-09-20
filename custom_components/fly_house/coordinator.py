@@ -1008,7 +1008,20 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """
         if self._position_from_card:
             return
-        heading = float(result["heading"])
+
+        # Integrate the commanded turn, the same rule the card uses.
+        #
+        # This used to steer on result["heading"], the compass bump, and that
+        # is the headless half of the bug fixed in the card a version ago: the
+        # bump is an estimate that cannot slew, so the body flew one fixed
+        # direction for ever, bouncing between walls on a billiard path that
+        # never had to cross anything it could land on. Goal seeking could not
+        # reach it, so with no dashboard open the fly had a goal, a grid to
+        # stand on, and no way to steer towards either.
+        self._body_heading = (
+            self._body_heading + self._commanded_av * self._tick_interval
+        ) % (2 * math.pi)
+        heading = self._body_heading
         speed = float(result["speed"]) * (1.0 + 4.0 * float(result["escape"]))
         step = speed * 0.02 * self._tick_interval
         self.pos[0] += math.cos(heading) * step
