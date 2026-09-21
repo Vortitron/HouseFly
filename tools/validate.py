@@ -954,6 +954,19 @@ def main() -> int:
     check("nothing but the pack fetcher can reach the network",
           not offenders, f"{len(offenders)} offenders: {offenders or 'none'}")
 
+    # Loading the pack is 428 KB of np.load plus a gzip open, which are blocking
+    # calls. Done inside the event loop they stall everything else that is
+    # starting, and Home Assistant detects it and asks for a bug report -- it
+    # did, on all three live boxes. It is cached per process, so only the first
+    # fly would ever pay it, but that is not a defence.
+    init_src = (ROOT / "custom_components" / "fly_house" / "__init__.py").read_text()
+    warmed = init_src.find("async_add_executor_job(shared_connectome)")
+    built = init_src.find("FlyHouseCoordinator(hass")
+    check("and the pack is loaded off the event loop, before any brain is built",
+          warmed != -1 and built != -1 and warmed < built,
+          "warmed in an executor first" if warmed != -1 and warmed < built
+          else "a blocking np.load inside the loop")
+
     print("\n14. Sleep is a bout, and hunger comes back down")
     # Both of these were found by leaving three flies running overnight rather
     # than by reading the code, and both were invisible to every check above.

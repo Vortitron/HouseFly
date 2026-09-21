@@ -31,6 +31,7 @@ from .const import (
     SERVICE_LOOM,
     SERVICE_RESET_MEMORY,
 )
+from .circuits import shared_connectome
 from .connectome_fetch import async_ensure_connectome
 from .coordinator import FlyHouseCoordinator
 from .safety import ActuationGovernor
@@ -157,6 +158,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             "HouseFly's connectome data pack is missing and could not be "
             "fetched. Without it there is no brain to run."
         )
+
+    # Warm the shared connectome off the event loop. Building a FlyBrain loads
+    # it on first use, and that load is a 428 KB np.load plus a gzip open --
+    # blocking calls, which Home Assistant detects and warns about because they
+    # stall everything else starting up. It is cached per process, so only the
+    # first fly would ever have paid it, but "only the first one blocks the
+    # event loop" is not a defence.
+    await hass.async_add_executor_job(shared_connectome)
 
     coordinator = FlyHouseCoordinator(hass, _merged(entry), entry.entry_id)
     await coordinator.async_restore_state()
