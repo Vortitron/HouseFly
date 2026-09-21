@@ -394,6 +394,15 @@ right and is obviously wrong.
 A sleeping fly cannot act — the actuation gate refuses on mode — so shifts also
 partition *who touches what and when* without any coordination between them.
 
+Sleep is a bout, not a comparison. The fly counts as asleep after five minutes of
+quiescence and wakes as soon as it is roused, which is the standard criterion in
+the fly sleep literature and is also what makes `binary_sensor.*_awake` worth
+triggering on. It used to be a bare threshold on arousal, and because arousal is
+continuous and sits near the line for long stretches, the sensor chattered:
+measured overnight on a live house, one fly's went on and off eight times in
+eighty seconds. Waking is not instant, because the arousal cells integrate over
+minutes — turning a light on gets it up in well under a bout, not on the tick.
+
 **How they interact:** through the house, and nothing else. One fly turns a
 light on and the others smell it. Point one fly's `binary_sensor.*_escaping` at
 another's inputs and a startled fly startles its neighbours. Both are ordinary

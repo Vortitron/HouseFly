@@ -168,6 +168,31 @@ LIGHT_ON = 0.55            # fraction of the learned range that counts as "day"
 LIGHT_OFF = 0.35           # lower, so a flickering reading cannot ring the bell
 PHOTOPERIOD_RATE = 0.18
 
+# Hunger, which is a drive and therefore has to come back down.
+#
+# It used to only ever rise, at a rate that took it from its 0.2 default to
+# saturated in about twenty-two minutes, after which it stayed at 1.0 for the
+# life of the install. A drive pinned at its maximum is a constant with extra
+# steps, and this one had a visible cost: mode is chosen as sleep, then forage
+# if hunger is over 0.5, then walk or groom. With hunger permanently above 0.5,
+# "walk" and "groom" were unreachable after the first half hour, so an awake fly
+# was always foraging. Measured on a live three-fly house after fifteen hours:
+# all three flies pinned at 1.000 and all three reporting forage.
+#
+# Now it rises while the fly is up and falls while it sleeps, so it cycles with
+# the day rather than latching. The rates are set so a waking bout moves it
+# across the forage line and a night discharges it, which is the behaviour that
+# makes the mode mean something. fly_house.feed still discharges it sharply --
+# that is what makes a reward a reward, and it is unchanged.
+# The two rates are not equal, and the ratio is the point. A crepuscular fly is
+# awake about three hours in eight (measured in 11a), so a day is roughly nine
+# hours up against fifteen asleep. Rates that rose and fell equally would drain
+# the drive over a week and make "forage" the dead branch instead of "walk" --
+# the same bug wearing the other shoe. At these rates nine hours up adds 0.71
+# and fifteen asleep take 0.70, so it cycles rather than drifting to a rail.
+HUNGER_RISE = 2.2e-5       # per second awake; its 0.2 default to full in ~10 h
+HUNGER_FALL = 1.3e-5       # per second asleep; full to empty in ~21 h
+
 # How long a state change stays interesting, and how much it pulls.
 NOVELTY_SECONDS = 90.0
 NOVELTY_APPEAL = 0.8
@@ -923,8 +948,10 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._last_turn = float(result["turn"])
             self._advance_position(result)
 
+            # Rises while it is up, falls while it sleeps. See HUNGER_RISE.
+            rate = -HUNGER_FALL if result["mode"] == "sleep" else HUNGER_RISE
             self.brain.hunger = float(np.clip(
-                self.brain.hunger + 0.0006 * self._tick_interval, 0.0, 1.0
+                self.brain.hunger + rate * self._tick_interval, 0.0, 1.0
             ))
 
             await self._maybe_act(result)

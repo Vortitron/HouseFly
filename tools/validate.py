@@ -53,6 +53,16 @@ def check(name: str, ok: bool, detail: str = "") -> None:
     print(f"{PASS if ok else FAIL}  {name}" + (f"  --  {detail}" if detail else ""))
 
 
+def coord_const(name: str) -> float:
+    """Read a float constant out of coordinator.py without importing Home
+    Assistant, which is not installed where these checks run."""
+    src = (ROOT / "custom_components" / "fly_house" / "coordinator.py").read_text()
+    for line in src.splitlines():
+        if line.startswith(f"{name} ="):
+            return float(line.split("=")[1].split("#")[0].strip())
+    raise AssertionError(f"{name} not found in coordinator.py")
+
+
 def main() -> int:
     circ = _load_circuits()
     data = circ.shared_connectome()
@@ -643,7 +653,9 @@ def main() -> int:
     for hour in range(0, 24, 3):
         t = hour / 24.0
         b = circ.FlyBrain()
-        b.settle(time_of_day=t)
+        # Long enough to earn a sleep bout, or every hour reads awake: sleep is
+        # five minutes of quiescence, not an instantaneous comparison.
+        b.settle(time_of_day=t, seconds=circ.SLEEP_BOUT_SECONDS + 120.0)
         b.hunger = 0.97
         strength = float(np.clip(0.3 + 0.5 * b.hunger, 0.0, 1.0))
         for _ in range(40):
@@ -828,7 +840,8 @@ def main() -> int:
         for hour in (0, 6, 12, 18):
             subjective = ((hour + offset_h) % 24) / 24.0
             b = circ.FlyBrain()
-            b.settle(time_of_day=subjective)
+            b.settle(time_of_day=subjective,
+                     seconds=circ.SLEEP_BOUT_SECONDS + 120.0)
             for _ in range(120):
                 r = b.step(circ.Senses(time_of_day=subjective), sub_steps=20)
             if r["mode"] != "sleep":
@@ -940,6 +953,90 @@ def main() -> int:
     offenders = {k: v for k, v in offenders.items() if v}
     check("nothing but the pack fetcher can reach the network",
           not offenders, f"{len(offenders)} offenders: {offenders or 'none'}")
+
+    print("\n14. Sleep is a bout, and hunger comes back down")
+    # Both of these were found by leaving three flies running overnight rather
+    # than by reading the code, and both were invisible to every check above.
+
+    # Quiescence has to be sustained before it counts as sleep, and any rousing
+    # ends the bout at once. A bare threshold on a continuous signal chatters:
+    # live, one fly's awake sensor toggled eight times in eighty seconds.
+    sleepy = circ.FlyBrain()
+    sleepy.settle(time_of_day=0.375)          # 09:00, a fly's subjective midday
+    early, asleep_at = None, None
+    for i in range(1, 400):
+        out = sleepy.step(circ.Senses(time_of_day=0.375), sub_steps=20)
+        if sleepy.arousal >= circ.SLEEP_BELOW:
+            break
+        if early is None and out["mode"] != "sleep":
+            early = round(sleepy._quiet_for, 1)
+        if asleep_at is None and out["mode"] == "sleep":
+            asleep_at = round(sleepy._quiet_for, 1)
+            break
+    check("being quiet for a moment is not yet sleep",
+          early is not None and early < circ.SLEEP_BOUT_SECONDS,
+          f"still awake {early}s into the quiet, against a {circ.SLEEP_BOUT_SECONDS:.0f}s criterion")
+    check("but staying quiet is",
+          asleep_at is not None and asleep_at >= circ.SLEEP_BOUT_SECONDS,
+          f"asleep once quiet for {asleep_at}s")
+
+    # And waking does not need another five minutes. It is not instant either:
+    # arousal is carried by the l-LNv cells, which integrate over minutes, so
+    # the light has to be on a little while before it clears the line. What the
+    # bout criterion guarantees is that once it does clear, sleep ends at once
+    # rather than being averaged away.
+    woke_after = None
+    for i in range(1, 400):
+        r = sleepy.step(circ.Senses(time_of_day=0.375, light=1.0), sub_steps=20)
+        if r["mode"] != "sleep":
+            woke_after = i
+            break
+    check("a light gets it up again, and in well under a sleep bout",
+          woke_after is not None and woke_after < circ.SLEEP_BOUT_SECONDS,
+          f"awake {woke_after}s after the light came on, against a "
+          f"{circ.SLEEP_BOUT_SECONDS:.0f}s bout")
+    check("and waking clears the bout rather than averaging it away",
+          sleepy._quiet_for == 0.0, f"bout counter {sleepy._quiet_for}s")
+
+    # Hunger has to cycle. Pinned at its maximum it is not a drive, and it takes
+    # "walk" and "groom" out of the mode vocabulary entirely, because mode asks
+    # about hunger before it asks about speed.
+    rise, fall = coord_const("HUNGER_RISE"), coord_const("HUNGER_FALL")
+    to_full = (1.0 - 0.2) / rise / 3600.0
+    to_empty = 1.0 / fall / 3600.0
+    check("hunger takes hours to build, not minutes",
+          to_full > 4.0, f"{to_full:.1f} h awake to go from its default to full")
+    check("and a night discharges it",
+          to_empty < 24.0, f"{to_empty:.1f} h asleep to go from full to empty")
+    # The rates have to balance against a 9-up/15-down day, not an even one.
+    up, down = rise * 9 * 3600, fall * 15 * 3600
+    check("a day's waking hours carry it across the forage line",
+          0.2 + up > 0.5, f"+{up:.2f} over 9 h up, from a 0.2 default")
+    check("and a night carries it back under",
+          1.0 - down < 0.5, f"-{down:.2f} over 15 h asleep")
+    check("so it cycles instead of drifting to a rail",
+          abs(up - down) < 0.1 * up, f"+{up:.2f} a day against -{down:.2f} a night")
+
+    # The regression that actually bit: with hunger latched high, an awake fly
+    # can only ever forage, because mode asks about hunger before speed. Drive
+    # the selector from both sides and see that hunger still decides.
+    def mode_at(hunger):
+        b = circ.FlyBrain()
+        b.settle(time_of_day=0.25)            # 06:00, the morning peak
+        b._quiet_for = 0.0
+        seen = set()
+        for _ in range(40):
+            b.hunger = hunger                 # hold it, the coordinator owns drift
+            out = b.step(circ.Senses(time_of_day=0.25), sub_steps=20)
+            seen.add(out["mode"])
+        return seen
+
+    hungry, fed = mode_at(0.9), mode_at(0.1)
+    check("a hungry fly forages",
+          "forage" in hungry, f"modes seen at hunger 0.9: {sorted(hungry)}")
+    check("and a fed one does not -- walk and groom are live, not dead branches",
+          "forage" not in fed and bool(fed & {"walk", "groom"}),
+          f"modes seen at hunger 0.1: {sorted(fed)}")
 
     ok = all(_results)
     print(f"\n{sum(_results)}/{len(_results)} checks passed\n")

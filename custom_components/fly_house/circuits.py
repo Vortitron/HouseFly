@@ -138,6 +138,20 @@ AROUSAL_HI = 0.779
 # Below this fraction of the arousal range, the fly is asleep.
 SLEEP_BELOW = 0.34
 
+# Sleep is a bout, not an instantaneous comparison. A fly counts as asleep after
+# five minutes of quiescence and wakes the moment it is roused -- the standard
+# criterion in the Drosophila sleep literature (Hendricks et al. 2000; Shaw et
+# al. 2000), and asymmetric on purpose: waking is fast, falling asleep is not.
+#
+# This is also a bug fix. Arousal is continuous and spends long stretches near
+# the line, so a bare threshold chattered: measured overnight on a live house,
+# one fly's awake sensor went on and off eight times in eighty seconds, which is
+# useless to anything downstream trying to trigger on it.
+#
+# A fly that is quiet but has not yet earned the bout is not asleep, it is
+# sitting still -- which comes out as "groom", and is the honest answer.
+SLEEP_BOUT_SECONDS = 300.0
+
 # Spike-frequency adaptation. Every neuron accumulates a slow self-inhibition
 # in proportion to how much it has recently been firing.
 #
@@ -413,6 +427,7 @@ class FlyBrain:
         self.rate = np.zeros(d.n, dtype=np.float32)
         self.adapt = np.zeros(d.n, dtype=np.float32)
         self._last_seconds = DT
+        self._quiet_for = 0.0
 
         # --- cache the index sets we read and write every tick -------------
         self.i_epg = _typed(d, "EPG")
@@ -1090,9 +1105,16 @@ class FlyBrain:
             base * (1.0 - 0.6 * abs(self.turn)) + 2.5 * escape, 0.0, 3.0
         ))
 
+        # Quiescence has to be sustained before it is sleep; any rise above the
+        # line ends the bout immediately.
+        if self.arousal < SLEEP_BELOW:
+            self._quiet_for += self._last_seconds
+        else:
+            self._quiet_for = 0.0
+
         mode = (
             "escape" if escape > 0.15
-            else "sleep" if self.arousal < SLEEP_BELOW
+            else "sleep" if self._quiet_for >= SLEEP_BOUT_SECONDS
             else "forage" if self.hunger > 0.5
             else "walk" if self.speed > 0.25
             else "groom"
