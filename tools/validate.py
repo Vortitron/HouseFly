@@ -1058,6 +1058,13 @@ def main() -> int:
     check("and the restore path compares it before trusting the guard",
           'saved.get("nose")' in coord_src and "_ever_familiar = False" in coord_src,
           "a fingerprint nothing compares is a comment")
+    # State saved before the fingerprint existed could have been learned with
+    # any nose at all, so "no fingerprint" must disarm too. Writing that
+    # comparison as `not in (None, fp)` left the alert armed across the very
+    # upgrade meant to fix it -- seen on a live house.
+    check("and state with no fingerprint at all disarms it as well",
+          'saved.get("nose") != self._nose_fingerprint()' in coord_src,
+          "an unknown nose is the least trustworthy one, not an exemption")
 
     print("\n14. Sleep is a bout, and hunger comes back down")
     # Both of these were found by leaving three flies running overnight rather

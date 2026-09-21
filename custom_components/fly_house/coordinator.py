@@ -1371,7 +1371,13 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # to unarmed whenever the nose changes, and the fly has to earn the
             # alert again. Learned valence is left alone: it is not this
             # function's to throw away.
-            if saved.get("nose") not in (None, self._nose_fingerprint()):
+            # A missing fingerprint is the *least* trustworthy case, not an
+            # exemption: state saved before this was recorded could have been
+            # learned with any set of senses at all. Treating None as "leave the
+            # latch alone" is what let the alert stay armed across the very
+            # upgrade that was meant to fix it. Re-earning costs a couple of
+            # hundred ticks of habituation and nothing else.
+            if saved.get("nose") != self._nose_fingerprint():
                 if self._ever_familiar:
                     _LOGGER.info(
                         "HouseFly's watched entities changed, so it is learning "
