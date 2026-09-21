@@ -1,5 +1,33 @@
 # Additions for FrontPath_BLE_Processing_v3.yaml — colour as a twilight cue.
 #
+# UNRESOLVED, as of 2026-09-21: the colour read does not work on the unit
+# fitted to the path, and this file should not be trusted to produce a
+# twilight index until it does.
+#
+# The wiring is good and the bus is healthy -- no I2C timeouts, and the part
+# ACKs at 0x10. Writes reach it: changing the integration time visibly scales
+# the counts, 1787 at index 2 becoming 3464 at index 3. What does not work is
+# register-selected reads. A sweep of 0x00, 0x04, 0x05, 0x06, 0x08, 0x09, 0x0A
+# and 0x0B returned *one identical value* for all eight, and that value tracks
+# daylight. 0x00 is the config register, which we had just written, so a read
+# of it should return the config byte and instead returns light.
+#
+# So it is not a stuck pointer -- a stuck pointer would sit on CONF and read a
+# constant. The part answers every read with the same measurement regardless of
+# which register was asked for. Both stop conventions were tried on the pointer
+# write (stop suppressed and stop present) with no difference, and ESPHome has
+# no veml6040 component to fall back on: "No module named
+# 'esphome.components.veml6040'" on 2026.9.0.
+#
+# That behaviour is not a VEML6040's. The next step is to read the marking on
+# the part rather than write more driver code: VEML6040, VEML7700, VEML6030 and
+# VEML3235 all answer on 0x10 and only the first has colour channels.
+#
+# Illuminance and Light Level are still real and still better than the TEMT6000
+# they replaced. Twilight Index and Sky Greyness are not -- they read 1.00 and
+# 100% respectively, which is what the arithmetic gives when every channel is
+# the same number.
+#
 # NOT a replacement firmware. Paste these pieces into v3 and the rest stays as
 # it is. Nothing here has been flashed or compiled; the device was offline.
 #
@@ -102,15 +130,21 @@ script:
             id(veml_sky).publish_state("unavailable");
           };
 
-          const uint8_t conf[2] = {IT_CONF[it], 0x00};
-          if (id(frontpath_i2c)->write_register(addr, 0x00, conf, 2) != i2c::ERROR_OK) {
+          // write_register()/read_register() are i2c::I2CDevice methods -- the
+          // base class a component inherits when it owns an address. A bare bus
+          // from id() is an i2c::I2CBus and has only write() and read(), so
+          // these two are done the long way.
+          auto *bus = id(frontpath_i2c);
+          uint8_t cmd[3] = {0x00, IT_CONF[it], 0x00};
+          if (bus->write(addr, cmd, 3) != i2c::ERROR_OK) {
             fail("VEML6040 configure failed");
             return;
           }
 
           auto read_u16 = [&](uint8_t reg, uint16_t *out) -> bool {
+            if (bus->write(addr, &reg, 1) != i2c::ERROR_OK) return false;
             uint8_t data[2];
-            if (id(frontpath_i2c)->read_register(addr, reg, data, 2) != i2c::ERROR_OK) return false;
+            if (bus->read(addr, data, 2) != i2c::ERROR_OK) return false;
             *out = (uint16_t) data[0] | ((uint16_t) data[1] << 8);
             return true;
           };
