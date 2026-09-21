@@ -29,6 +29,12 @@
 # Fix: write_readv() does the whole thing as one transaction with the repeated
 # START in the middle, which is what every stock component ends up using.
 #
+# Confirmed on the path, 2026-09-21. Before: R=G=B=W=6835 and eight registers
+# reading alike. After: R=395 G=271 B=114 W=862, greyness off its pinned 100%
+# at 29%. Four distinct channels, White larger than any single colour because
+# it is unfiltered, and red over blue after dark -- which is the path's own
+# lamp, not the sky, and is the next thing to design around.
+#
 # NOT a replacement firmware. Paste these pieces into v3 and the rest stays as
 # it is. Nothing here has been flashed or compiled; the device was offline.
 #
