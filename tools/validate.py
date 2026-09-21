@@ -13,6 +13,7 @@ code Home Assistant runs.
 from __future__ import annotations
 
 import importlib.util
+import hashlib
 import math
 import subprocess
 import sys
@@ -1025,6 +1026,38 @@ def main() -> int:
     check("and another fly's entities are still news",
           set(theirs) <= set(seen),
           "one fly turning a light on is how the others find out")
+
+    print("\n13c. Changing what it can smell disarms the alert")
+    # "It has looked familiar before" is a claim about one set of senses.
+    # Remap the odour channels by changing the watched entities and novelty
+    # jumps to near 1.0, so an armed alert fires about the reconfiguration
+    # rather than about the house. Measured live: switching whole-house
+    # watching on took novelty from 0.06 to 0.98 and fired inside a minute.
+    f_start = coord_src.index("    def _nose_fingerprint")
+    f_end = coord_src.index("    def _own_entities")
+    fns = {"hashlib": hashlib}
+    exec(compile("class _N:\n" + coord_src[f_start:f_end] + "\n",
+                 "coordinator", "exec"), fns)
+
+    def fingerprint(entities, whole_house):
+        stub = fns["_N"].__new__(fns["_N"])
+        stub.input_entities = list(entities)
+        stub._watch_whole_house = whole_house
+        return fns["_N"]._nose_fingerprint(stub)
+
+    base = fingerprint(["sensor.a", "sensor.b"], False)
+    check("the same senses fingerprint the same, whatever order they are listed in",
+          base == fingerprint(["sensor.b", "sensor.a"], False),
+          "order must not matter, or every restart looks like a new nose")
+    check("adding an entity changes it",
+          base != fingerprint(["sensor.a", "sensor.b", "sensor.c"], False),
+          "a wider nose is a different nose")
+    check("and so does switching whole-house watching on",
+          base != fingerprint(["sensor.a", "sensor.b"], True),
+          "which is the change that actually fired the false alarm")
+    check("and the restore path compares it before trusting the guard",
+          'saved.get("nose")' in coord_src and "_ever_familiar = False" in coord_src,
+          "a fingerprint nothing compares is a comment")
 
     print("\n14. Sleep is a bout, and hunger comes back down")
     # Both of these were found by leaving three flies running overnight rather

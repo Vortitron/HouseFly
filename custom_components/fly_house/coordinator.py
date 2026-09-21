@@ -491,6 +491,18 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if fly.get("heading") is not None:
                 self._body_heading = float(fly["heading"]) % (2 * math.pi)
 
+    def _nose_fingerprint(self) -> str:
+        """What this fly can smell, as one short string.
+
+        Not the entities it watched on some tick -- whole-house watching makes
+        that set drift as things come and go -- but the *configuration* that
+        decides them, which only changes when somebody changes it.
+        """
+        listed = ",".join(sorted(self.input_entities))
+        return hashlib.sha256(
+            f"{int(self._watch_whole_house)}|{listed}".encode()
+        ).hexdigest()[:16]
+
     def _own_entities(self) -> frozenset[str]:
         """This fly's own entity ids, from the registry rather than by name."""
         if self._own_cache is None:
@@ -1325,6 +1337,7 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "photoperiod": [self._dawn_phase, self._dusk_phase,
                                 self._photoperiod_seen],
                 "ever_familiar": bool(self._ever_familiar),
+                "nose": self._nose_fingerprint(),
                 "adaptation": {
                     eid: [c.lo, c.hi, c.seen] for eid, c in self._adaptation.items()
                 },
@@ -1344,6 +1357,27 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if saved.get("position"):
                 self.pos = np.asarray(saved["position"], dtype=np.float64)
             self._ever_familiar = bool(saved.get("ever_familiar", False))
+            # "It has looked familiar before" is a claim about a particular set
+            # of senses. Change which entities the fly can smell and the odour
+            # channels are remapped wholesale: novelty jumps to near 1.0 and the
+            # armed alert immediately reports a house that has not changed at
+            # all. Seen on a live house -- switching whole-house watching on took
+            # novelty from 0.06 to 0.98 and fired "the house does not look like
+            # itself" within the minute, about a reconfiguration rather than
+            # anything in the building.
+            #
+            # The habituation trace heals itself in a couple of hundred ticks;
+            # the guard does not, because it is a latch. So the guard goes back
+            # to unarmed whenever the nose changes, and the fly has to earn the
+            # alert again. Learned valence is left alone: it is not this
+            # function's to throw away.
+            if saved.get("nose") not in (None, self._nose_fingerprint()):
+                if self._ever_familiar:
+                    _LOGGER.info(
+                        "HouseFly's watched entities changed, so it is learning "
+                        "what normal looks like again before it will call "
+                        "anything unusual")
+                self._ever_familiar = False
             if saved.get("photoperiod"):
                 dawn, dusk, seen = saved["photoperiod"]
                 self._dawn_phase, self._dusk_phase = float(dawn), float(dusk)

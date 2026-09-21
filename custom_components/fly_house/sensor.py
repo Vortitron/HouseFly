@@ -55,7 +55,12 @@ SENSORS: tuple[FlySensorDescription, ...] = (
             # smell at all, and silently feeding the brain a zero for it hides
             # a misconfiguration that makes the fly look broken instead.
             "live_inputs": d.get("live_inputs", 0),
+            # The list is capped -- whole-house watching on a real house can
+            # leave a hundred-odd dead entities, and that is not something to
+            # put on a state attribute every tick. The count is not capped,
+            # because ten names with no number reads like there are only ten.
             "dead_inputs": d.get("dead_inputs", []),
+            "dead_input_count": d.get("dead_input_count", 0),
         },
     ),
     FlySensorDescription(
