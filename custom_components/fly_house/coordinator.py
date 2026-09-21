@@ -26,6 +26,7 @@ from typing import Any
 
 import numpy as np
 from homeassistant.core import HomeAssistant, State
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
@@ -228,6 +229,11 @@ def _stable_channel(entity_id: str, channels: int) -> int:
 # Values that mean "this channel is telling you nothing".
 DEAD_STATES = frozenset({"unknown", "unavailable", "none", ""})
 
+# How many dead entities to name in the mode sensor's attributes. The
+# full count is reported alongside; naming all of them is what would put
+# an unbounded list into the recorder on every tick.
+DEAD_INPUTS_SHOWN = 10
+
 # Binary-ish states worth pinning to the ends of the range rather than
 # adapting, because their meaning does not drift.
 TRUE_STATES = frozenset({"on", "home", "open", "unlocked", "true", "playing",
@@ -335,6 +341,7 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     def __init__(self, hass: HomeAssistant, entry_data: dict[str, Any], entry_id: str) -> None:
         self.entry_id = entry_id
+        self._own_cache: frozenset[str] | None = None
         self.brain = FlyBrain()
         self.governor = ActuationGovernor()
         self._apply_config(entry_data)
@@ -484,6 +491,17 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if fly.get("heading") is not None:
                 self._body_heading = float(fly["heading"]) % (2 * math.pi)
 
+    def _own_entities(self) -> frozenset[str]:
+        """This fly's own entity ids, from the registry rather than by name."""
+        if self._own_cache is None:
+            registry = er.async_get(self.hass)
+            self._own_cache = frozenset(
+                entity.entity_id
+                for entity in er.async_entries_for_config_entry(
+                    registry, self.entry_id)
+            )
+        return self._own_cache
+
     def _watched(self) -> list[str]:
         """Everything the fly can smell this tick.
 
@@ -500,6 +518,7 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return self.input_entities
         chosen = list(self.input_entities)
         seen = set(chosen)
+        mine = self._own_entities()
         for state in self.hass.states.async_all():
             if len(chosen) >= MAX_WATCHED_ENTITIES:
                 break
@@ -510,7 +529,17 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 continue
             # Its own entities are not news about the house, and feeding them
             # back would make the fly smell itself thinking.
-            if entity_id.startswith(("sensor.housefly", "binary_sensor.housefly")):
+            #
+            # Asked of the entity registry rather than matched on the name.
+            # This used to test for a "housefly" prefix, which stopped being
+            # true the moment entities started being named after the entry:
+            # a fly called The Watcher owns sensor.the_watcher_*, matched
+            # nothing, and quietly spent its life smelling its own arousal.
+            #
+            # Only its *own* entities are excluded. Another fly's are real news
+            # about the house -- that is how flies here affect each other, and
+            # the README says so.
+            if entity_id in mine:
                 continue
             chosen.append(entity_id)
             seen.add(entity_id)
@@ -971,7 +1000,13 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             result["dwell"] = {"entity": self._dwell_entity, "ticks": self._dwell_ticks,
                                "spent": self._dwell_spent}
             result["safety"] = self.governor.stats
-            result["dead_inputs"] = self._dead_inputs
+            # Capped, because this rides on a state attribute every tick and
+            # whole-house watching can make it enormous: on a real house of
+            # 1,582 entities, 579 of the watchable ones were unavailable, so
+            # the full list would be a hundred-odd entity ids written to the
+            # recorder every few seconds. The count is the part worth having.
+            result["dead_inputs"] = self._dead_inputs[:DEAD_INPUTS_SHOWN]
+            result["dead_input_count"] = len(self._dead_inputs)
             result["approach_sensors"] = len(self.approach_entities)
             result["approach"] = self._approach
             result["unusual"] = self._assess_novelty(result)

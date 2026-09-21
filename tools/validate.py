@@ -53,6 +53,24 @@ def check(name: str, ok: bool, detail: str = "") -> None:
     print(f"{PASS if ok else FAIL}  {name}" + (f"  --  {detail}" if detail else ""))
 
 
+def coord_const_int(name: str) -> int:
+    """Read an int constant from coordinator.py, or const.py where it lives."""
+    for module in ("coordinator.py", "const.py"):
+        src = (ROOT / "custom_components" / "fly_house" / module).read_text()
+        for line in src.splitlines():
+            if line.startswith(f"{name} ="):
+                return int(line.split("=")[1].split("#")[0].strip())
+    raise AssertionError(f"{name} not found in coordinator.py or const.py")
+
+
+def watchable_domains():
+    """WATCHABLE_DOMAINS out of const.py, without importing Home Assistant."""
+    src = (ROOT / "custom_components" / "fly_house" / "const.py").read_text()
+    start = src.index("WATCHABLE_DOMAINS = (")
+    end = src.index(")", start) + 1
+    return eval(src[start + len("WATCHABLE_DOMAINS = "):end])
+
+
 def coord_const(name: str) -> float:
     """Read a float constant out of coordinator.py without importing Home
     Assistant, which is not installed where these checks run."""
@@ -966,6 +984,47 @@ def main() -> int:
           warmed != -1 and built != -1 and warmed < built,
           "warmed in an executor first" if warmed != -1 and warmed < built
           else "a blocking np.load inside the loop")
+
+    print("\n13b. A whole-house fly does not smell itself")
+    # Watching everything means the sweep will pick up the fly's own sensors
+    # unless something stops it, and feeding a fly its own arousal is a loop.
+    # The guard used to be a "housefly" name prefix, which the multi-fly rename
+    # silently defeated: a fly called The Watcher owns sensor.the_watcher_*,
+    # matched nothing, and spent its life smelling itself think. It is asked of
+    # the entity registry now, so the name cannot matter.
+    w_start = coord_src.index("    def _watched")
+    w_end = coord_src.index("    # ----------------------------------------------------------------- sense")
+    wns = {
+        "MAX_WATCHED_ENTITIES": coord_const_int("MAX_WATCHED_ENTITIES"),
+        "WATCHABLE_DOMAINS": watchable_domains(),
+    }
+    exec(compile("class _W:\n" + coord_src[w_start:w_end] + "\n",
+                 "coordinator", "exec"), wns)
+
+    class _FakeState:
+        def __init__(self, entity_id): self.entity_id = entity_id
+
+    house = ["light.kitchen", "binary_sensor.hall_motion", "sensor.porch_temperature"]
+    mine = ["sensor.the_watcher_arousal", "binary_sensor.the_watcher_awake"]
+    theirs = ["sensor.day_fly_mode", "binary_sensor.day_fly_escaping"]
+
+    watcher = wns["_W"].__new__(wns["_W"])
+    watcher.input_entities = []
+    watcher._watch_whole_house = True
+    watcher._own_entities = lambda: frozenset(mine)
+    watcher.hass = type("H", (), {"states": type("S", (), {
+        "async_all": staticmethod(lambda: [_FakeState(e)
+                                           for e in house + mine + theirs])})()})()
+    seen = wns["_W"]._watched(watcher)
+
+    check("a whole-house fly watches the house",
+          set(house) <= set(seen), f"{len(seen)} entities watched")
+    check("but not one of its own entities, whatever it is called",
+          not (set(mine) & set(seen)),
+          f"own entities in the sweep: {sorted(set(mine) & set(seen)) or 'none'}")
+    check("and another fly's entities are still news",
+          set(theirs) <= set(seen),
+          "one fly turning a light on is how the others find out")
 
     print("\n14. Sleep is a bout, and hunger comes back down")
     # Both of these were found by leaving three flies running overnight rather
