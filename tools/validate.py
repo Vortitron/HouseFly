@@ -1055,6 +1055,24 @@ def main() -> int:
           f"dusk seven hours after dawn, against a {coord_const('PHOTOPERIOD_MIN_GAP') / 3600:.0f} h "
           "floor that only applies dawn-to-dawn")
 
+    # A day of 24 hours, or of none, is the signature of the collapse this
+    # release fixes. Saved state saying so is discarded, not nursed back.
+    credible = coord_const("MIN_CREDIBLE_DAY")
+    def believable(dawn, dusk):
+        lit = (dusk - dawn) % 1.0
+        return not (lit < credible or lit > 1.0 - credible)
+    check("a learned day of no length at all is thrown away",
+          not believable(0.5694, 0.5694),
+          "dawn 13:37 and dusk 13:37, measured on a real house")
+    check("but a real winter day is kept",
+          believable(0.34, 0.68), "08:10 to 16:19, about eight hours")
+    check("and so is a midsummer one this far north",
+          believable(0.17, 0.93), "04:05 to 22:19, about eighteen hours")
+    check("and the reported light source is the one actually read",
+          "self._light_source = entity_id" in coord_src
+          and '"light_source": self._light_source,' in coord_src,
+          "a nominated sensor going unavailable falls through, and it says so")
+
     check("and the zeitgeber can be named rather than guessed at",
           "CONF_LIGHT_ENTITIES" in coord_src
           and "for entity_id in self.light_entities" in coord_src,

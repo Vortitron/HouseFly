@@ -193,6 +193,11 @@ PHOTOPERIOD_RATE = 0.18
 # real dawn twenty-four hours after the last one clears it comfortably.
 PHOTOPERIOD_MIN_GAP = 20 * 3600.0
 
+# The shortest day this model will believe it has learned, as a fraction of
+# one. Two hours: shorter than any real photoperiod anywhere people live, and
+# long enough to catch dawn and dusk having collapsed onto each other.
+MIN_CREDIBLE_DAY = 2.0 / 24.0
+
 # Hunger, which is a drive and therefore has to come back down.
 #
 # It used to only ever rise, at a rate that took it from its 0.2 default to
@@ -391,6 +396,7 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Learned photoperiod. Starts at the textbook 06:00/18:43 and moves to
         # wherever this house's light actually goes on and off.
         self._dawn_phase = 0.25
+        self._light_source = "nothing yet"
         self._dusk_phase = 0.78
         self._light = 0.0
         self._is_day: bool | None = None
@@ -913,6 +919,7 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             percept = _numeric(st, self._adaptation, entity_id)
             if percept.live:
                 best = percept
+                self._light_source = entity_id
                 break
         if best is None:
             for entity_id in self._watched_cache:
@@ -922,6 +929,7 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 klass = st.attributes.get("device_class")
                 if klass == "illuminance" or entity_id.startswith("sensor.light"):
                     best = _numeric(st, self._adaptation, entity_id)
+                    self._light_source = f"{entity_id} (guessed)"
                     break
         if best is None:
             sun = self.hass.states.get("sun.sun")
@@ -931,6 +939,7 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 # except on the tick it happens.
                 elev = float(sun.attributes.get("elevation", 0.0) or 0.0)
                 best = Percept("sun.sun", float(np.clip((elev + 6.0) / 24.0, 0.0, 1.0)), True)
+                self._light_source = "sun.sun elevation (no light sensor)"
         if best is None or not best.live:
             return self._light
 
@@ -1089,8 +1098,11 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "light": round(self._light, 3),
                 "transitions_seen": self._photoperiod_seen,
                 "transitions_ignored": self._photoperiod_ignored,
-                "light_source": (self.light_entities[0] if self.light_entities
-                                 else "whichever it is watching, or the sun"),
+                # What it is *actually* reading, which is not always what was
+                # asked for: a nominated sensor that has gone unavailable falls
+                # through to the next one, and reporting the name off the config
+                # rather than off the reading hides exactly that.
+                "light_source": self._light_source,
                 "daylight_hours": round(
                     ((self._dusk_phase - self._dawn_phase) % 1.0) * 24.0, 1),
             }
@@ -1451,6 +1463,21 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if saved.get("photoperiod"):
                 dawn, dusk, seen = saved["photoperiod"]
                 self._dawn_phase, self._dusk_phase = float(dawn), float(dusk)
+                # A day that is 24 hours long, or 0, is not a day. Dawn and
+                # dusk landing on the same clock reading is the signature of
+                # the flapping-light bug this release fixes, and the fix stops
+                # it getting worse without undoing it -- at PHOTOPERIOD_RATE
+                # and two teachings a day, a house left like this would take a
+                # fortnight to drift back. Saved state that says something
+                # impossible is discarded rather than nursed.
+                lit = (self._dusk_phase - self._dawn_phase) % 1.0
+                if lit < MIN_CREDIBLE_DAY or lit > 1.0 - MIN_CREDIBLE_DAY:
+                    _LOGGER.warning(
+                        "HouseFly had learned a %.1f-hour day, which is not one; "
+                        "starting its photoperiod again from the default",
+                        lit * 24.0)
+                    self._dawn_phase, self._dusk_phase = 0.25, 0.78
+                    self._photoperiod_seen = 0
                 self._photoperiod_seen = int(seen)
             stamps = saved.get("photoperiod_at")
             if isinstance(stamps, dict):
