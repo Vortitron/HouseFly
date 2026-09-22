@@ -986,6 +986,32 @@ def main() -> int:
           "warmed in an executor first" if warmed != -1 and warmed < built
           else "a blocking np.load inside the loop")
 
+    print("\n13a. A service can address one fly")
+    # With one fly it never mattered which fly a call meant. With four, a feed
+    # that reaches all of them is not a reward, it is weather -- and there is
+    # no way to teach one fly that one place is good. Checked structurally,
+    # because Home Assistant is not installed where this runs: every service
+    # declares a target, the handlers route through the config-entry
+    # extractor, and an untargeted call still reaches every fly as it did.
+    import yaml as _yaml
+    services = _yaml.safe_load(
+        (ROOT / "custom_components" / "fly_house" / "services.yaml").read_text())
+    init_src = (ROOT / "custom_components" / "fly_house" / "__init__.py").read_text()
+    check("every service declares a target",
+          all("target" in services[k] for k in ("loom", "feed", "reset_memory")),
+          f"{[k for k in services if 'target' in services[k]]}")
+    check("and the target is limited to this integration's own entities",
+          all(services[k]["target"]["entity"].get("integration") == "fly_house"
+              for k in ("loom", "feed", "reset_memory")),
+          "so the picker cannot offer a light as a fly")
+    check("handlers resolve the target to config entries",
+          "async_extract_config_entry_ids" in init_src
+          and init_src.count("await _addressed(call)") == 3,
+          "all three handlers go through _addressed()")
+    check("and no target still means every fly",
+          "if not wanted:\n            return flies" in init_src,
+          "the one-fly behaviour is unchanged")
+
     print("\n13b. A whole-house fly does not smell itself")
     # Watching everything means the sweep will pick up the fly's own sensors
     # unless something stops it, and feeding a fly its own arousal is a loop.

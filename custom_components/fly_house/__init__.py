@@ -13,7 +13,9 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall, callback
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import service as service_helper
 
 from .const import (
     ATTR_AMOUNT,
@@ -45,14 +47,22 @@ _FRONTEND_KEY = f"{DOMAIN}_frontend_registered"
 CARDS = ("housefly-overlay.js", "housefly-brain-card.js", "housefly-eye-card.js",
          "housefly-house-card.js")
 
+# Every service takes an optional target. With one fly in the house it never
+# mattered which fly a call meant; with several, "feed" that reaches all of
+# them is not a reward, it is weather. Target any of a fly's entities or its
+# device and only that fly is addressed; leave it out and, as before, every
+# fly is.
 LOOM_SCHEMA = vol.Schema({
+    **cv.ENTITY_SERVICE_FIELDS,
     vol.Optional(ATTR_STRENGTH, default=DEFAULT_LOOM_STRENGTH):
         vol.All(vol.Coerce(float), vol.Range(min=0.1, max=3.0)),
 })
 FEED_SCHEMA = vol.Schema({
+    **cv.ENTITY_SERVICE_FIELDS,
     vol.Optional(ATTR_AMOUNT, default=DEFAULT_FEED_AMOUNT):
         vol.All(vol.Coerce(float), vol.Range(min=0.05, max=2.0)),
 })
+RESET_SCHEMA = vol.Schema({**cv.ENTITY_SERVICE_FIELDS})
 
 
 def _merged(entry: ConfigEntry) -> dict[str, Any]:
@@ -191,20 +201,29 @@ def _register_services(hass: HomeAssistant) -> None:
     def _each() -> list[FlyHouseCoordinator]:
         return [c for c in hass.data[DOMAIN].values() if isinstance(c, FlyHouseCoordinator)]
 
+    async def _addressed(call: ServiceCall) -> list[FlyHouseCoordinator]:
+        """The flies a call is for: those owning a targeted entity or device,
+        or every fly when nothing was targeted."""
+        wanted = await service_helper.async_extract_config_entry_ids(hass, call)
+        flies = _each()
+        if not wanted:
+            return flies
+        return [c for c in flies if c.entry_id in wanted]
+
     async def async_loom(call: ServiceCall) -> None:
         strength = float(call.data[ATTR_STRENGTH])
-        for coordinator in _each():
+        for coordinator in await _addressed(call):
             coordinator.loom(strength)
             await coordinator.async_request_refresh()
 
     async def async_feed(call: ServiceCall) -> None:
         amount = float(call.data[ATTR_AMOUNT])
-        for coordinator in _each():
+        for coordinator in await _addressed(call):
             coordinator.feed(amount)
             await coordinator.async_request_refresh()
 
     async def async_reset_memory(call: ServiceCall) -> None:
-        for coordinator in _each():
+        for coordinator in await _addressed(call):
             coordinator.brain.kc_mbon_gain[:] = 1.0
             await coordinator.async_save_state()
         _LOGGER.info("HouseFly memory reset -- every learned synapse back to measured strength")
@@ -212,7 +231,7 @@ def _register_services(hass: HomeAssistant) -> None:
     for name, handler, schema in (
         (SERVICE_LOOM, async_loom, LOOM_SCHEMA),
         (SERVICE_FEED, async_feed, FEED_SCHEMA),
-        (SERVICE_RESET_MEMORY, async_reset_memory, None),
+        (SERVICE_RESET_MEMORY, async_reset_memory, RESET_SCHEMA),
     ):
         if not hass.services.has_service(DOMAIN, name):
             hass.services.async_register(DOMAIN, name, handler, schema=schema)

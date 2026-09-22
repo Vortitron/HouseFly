@@ -1,4 +1,9 @@
 loom:
+  target:
+    entity:
+      integration: fly_house
+    device:
+      integration: fly_house
   name: Loom
   description: >-
     Rush something at the fly. Drives the LPLC2 looming-detector population,
@@ -16,6 +21,11 @@ loom:
           step: 0.1
 
 feed:
+  target:
+    entity:
+      integration: fly_house
+    device:
+      integration: fly_house
   name: Feed
   description: >-
     Give it sugar. Drives the PAM dopaminergic neurons, which is the teaching
@@ -31,6 +41,11 @@ feed:
           step: 0.1
 
 reset_memory:
+  target:
+    entity:
+      integration: fly_house
+    device:
+      integration: fly_house
   name: Reset memory
   description: >-
     Restore every KC->MBON synapse to its measured strength, wiping everything
