@@ -35,6 +35,7 @@ from .circuits import FlyBrain, Senses, shared_connectome
 from .const import (
     CONF_ACTUATION_ENABLED,
     CONF_APPROACH_ENTITIES,
+    CONF_LIGHT_ENTITIES,
     CONF_CLOCK_OFFSET,
     CONF_HOURLY_BUDGET,
     CONF_INPUT_ENTITIES,
@@ -168,6 +169,29 @@ LAYOUT_TTL = 30.0
 LIGHT_ON = 0.55            # fraction of the learned range that counts as "day"
 LIGHT_OFF = 0.35           # lower, so a flickering reading cannot ring the bell
 PHOTOPERIOD_RATE = 0.18
+
+# How close together two dawns are allowed to be, which is: a day.
+#
+# A house gets one dawn and one dusk in twenty-four hours. Without this, every
+# crossing of the light threshold was taken for one, and _drag_phase chases
+# each at PHOTOPERIOD_RATE -- so a light source that flips a few times an hour
+# drags dawn and dusk together until they sit on the same clock reading, which
+# is the average of nothing in particular.
+#
+# Measured on a real house three days in: 289 transitions seen, dawn 13:11 and
+# dusk 13:11. It was watching an indoor lux sensor topping out at 28 lx that
+# crossed the line whenever somebody turned a lamp on, and had concluded this
+# house's day begins and ends at ten past one. Over one 11.75-hour stretch that
+# sensor crossed seventeen times, twice within the same second.
+#
+# The gap is counted per kind -- dawns against dawns, dusks against dusks --
+# rather than between transitions of any sort. A shared floor has to be shorter
+# than the shortest night or it swallows a real dusk, and anything that short
+# still admits several teachings a day: at four hours, a lamp flipping every
+# twenty minutes taught the clock six times in a day against the two a day
+# reality offers. Per kind, twenty hours says the thing actually meant, and a
+# real dawn twenty-four hours after the last one clears it comfortably.
+PHOTOPERIOD_MIN_GAP = 20 * 3600.0
 
 # Hunger, which is a drive and therefore has to come back down.
 #
@@ -371,6 +395,8 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._light = 0.0
         self._is_day: bool | None = None
         self._photoperiod_seen = 0
+        self._last_photoperiod_at: dict[str, float] = {}
+        self._photoperiod_ignored = 0
         self._position_from_card = False
         self._watched_cache: list[str] = list(self.input_entities)
         self._dwell_entity: str | None = None
@@ -408,6 +434,7 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def _apply_config(self, entry_data: dict[str, Any]) -> None:
         self.input_entities: list[str] = list(entry_data.get(CONF_INPUT_ENTITIES, []))
         self._watch_whole_house = bool(entry_data.get(CONF_WATCH_WHOLE_HOUSE, False))
+        self.light_entities: list[str] = list(entry_data.get(CONF_LIGHT_ENTITIES, []))
         # Fractions of a day, not hours, because that is what everything
         # downstream speaks.
         self._clock_offset = (float(entry_data.get(CONF_CLOCK_OFFSET, 0)) / 24.0) % 1.0
@@ -847,6 +874,25 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     break
         return out
 
+    def _photoperiod_due(self, now, kind: str) -> bool:
+        """Whether enough of the day has passed for this to be a real dawn.
+
+        The light crossing its threshold still flips day and night
+        immediately -- that is what rouses the fly, and a lamp at two in the
+        morning should rouse it. This governs only whether the crossing may
+        teach the clock where this house's day *is*, which is a claim about
+        the year rather than about the minute.
+
+        Counted per kind, so a dusk is never measured against a dawn.
+        """
+        stamp = now.timestamp()
+        last = self._last_photoperiod_at.get(kind)
+        if last is not None and stamp - last < PHOTOPERIOD_MIN_GAP:
+            self._photoperiod_ignored += 1
+            return False
+        self._last_photoperiod_at[kind] = stamp
+        return True
+
     def _observe_light(self, states: dict[str, State | None]) -> float:
         """Ambient light, 0..1, and the dawn/dusk times it implies.
 
@@ -857,14 +903,26 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         "bright" without anyone configuring a scale.
         """
         best = None
-        for entity_id in self._watched_cache:
-            st = states.get(entity_id)
+        # Somebody's explicit choice first. This is the zeitgeber -- the fly
+        # sets its whole day by it -- so guessing is a last resort, not a
+        # feature.
+        for entity_id in self.light_entities:
+            st = states.get(entity_id) or self.hass.states.get(entity_id)
             if st is None:
                 continue
-            klass = st.attributes.get("device_class")
-            if klass == "illuminance" or entity_id.startswith("sensor.light"):
-                best = _numeric(st, self._adaptation, entity_id)
+            percept = _numeric(st, self._adaptation, entity_id)
+            if percept.live:
+                best = percept
                 break
+        if best is None:
+            for entity_id in self._watched_cache:
+                st = states.get(entity_id)
+                if st is None:
+                    continue
+                klass = st.attributes.get("device_class")
+                if klass == "illuminance" or entity_id.startswith("sensor.light"):
+                    best = _numeric(st, self._adaptation, entity_id)
+                    break
         if best is None:
             sun = self.hass.states.get("sun.sun")
             if sun is not None:
@@ -885,16 +943,18 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._is_day = self._light >= LIGHT_ON
         elif not self._is_day and self._light >= LIGHT_ON:
             self._is_day = True
-            self._dawn_phase = _drag_phase(self._dawn_phase, phase, PHOTOPERIOD_RATE)
-            self._photoperiod_seen += 1
-            _LOGGER.debug("HouseFly saw dawn at %.3f; learned dawn now %.3f",
-                          phase, self._dawn_phase)
+            if self._photoperiod_due(now, "dawn"):
+                self._dawn_phase = _drag_phase(self._dawn_phase, phase, PHOTOPERIOD_RATE)
+                self._photoperiod_seen += 1
+                _LOGGER.debug("HouseFly saw dawn at %.3f; learned dawn now %.3f",
+                              phase, self._dawn_phase)
         elif self._is_day and self._light <= LIGHT_OFF:
             self._is_day = False
-            self._dusk_phase = _drag_phase(self._dusk_phase, phase, PHOTOPERIOD_RATE)
-            self._photoperiod_seen += 1
-            _LOGGER.debug("HouseFly saw dusk at %.3f; learned dusk now %.3f",
-                          phase, self._dusk_phase)
+            if self._photoperiod_due(now, "dusk"):
+                self._dusk_phase = _drag_phase(self._dusk_phase, phase, PHOTOPERIOD_RATE)
+                self._photoperiod_seen += 1
+                _LOGGER.debug("HouseFly saw dusk at %.3f; learned dusk now %.3f",
+                              phase, self._dusk_phase)
         return self._light
 
     def _wander(self) -> float:
@@ -1028,6 +1088,9 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "dusk": _clock_string(self._dusk_phase),
                 "light": round(self._light, 3),
                 "transitions_seen": self._photoperiod_seen,
+                "transitions_ignored": self._photoperiod_ignored,
+                "light_source": (self.light_entities[0] if self.light_entities
+                                 else "whichever it is watching, or the sun"),
                 "daylight_hours": round(
                     ((self._dusk_phase - self._dawn_phase) % 1.0) * 24.0, 1),
             }
@@ -1336,6 +1399,7 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 # actually having them.
                 "photoperiod": [self._dawn_phase, self._dusk_phase,
                                 self._photoperiod_seen],
+                "photoperiod_at": dict(self._last_photoperiod_at),
                 "ever_familiar": bool(self._ever_familiar),
                 "nose": self._nose_fingerprint(),
                 "adaptation": {
@@ -1388,6 +1452,9 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 dawn, dusk, seen = saved["photoperiod"]
                 self._dawn_phase, self._dusk_phase = float(dawn), float(dusk)
                 self._photoperiod_seen = int(seen)
+            stamps = saved.get("photoperiod_at")
+            if isinstance(stamps, dict):
+                self._last_photoperiod_at = {k: float(v) for k, v in stamps.items()}
             for eid, (lo, hi, seen) in (saved.get("adaptation") or {}).items():
                 self._adaptation[eid] = SensoryAdaptation(float(lo), float(hi), int(seen))
 

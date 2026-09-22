@@ -41,6 +41,7 @@ CONF_HOURLY_BUDGET = "hourly_budget"
 CONF_QUIET_HOURS_START = "quiet_hours_start"
 CONF_QUIET_HOURS_END = "quiet_hours_end"
 CONF_APPROACH_ENTITIES = "approach_entities"
+CONF_LIGHT_ENTITIES = "light_entities"
 
 DEFAULT_TICK_INTERVAL = 2
 DEFAULT_HOURLY_BUDGET = 30

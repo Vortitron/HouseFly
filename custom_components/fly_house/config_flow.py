@@ -18,6 +18,7 @@ from homeassistant.helpers import selector
 from .const import (
     CONF_ACTUATION_ENABLED,
     CONF_APPROACH_ENTITIES,
+    CONF_LIGHT_ENTITIES,
     CONF_CLOCK_OFFSET,
     CONF_NAME,
     CONF_HOURLY_BUDGET,
@@ -68,6 +69,21 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
             selector.EntitySelector(
                 selector.EntitySelectorConfig(multiple=True, domain="sensor",
                                               device_class="distance")
+            ),
+        # Which light the fly should call daylight. Its own slot for the same
+        # reason ranging sensors have one: this is not a smell, it is the
+        # zeitgeber, and the fly sets its whole day by it.
+        #
+        # Left empty it falls back to the old behaviour -- the first
+        # illuminance sensor it happens to be watching, then the sun's
+        # elevation. That fallback was fine when a fly watched six entities
+        # somebody had chosen. With whole-house watching it means "whichever
+        # illuminance sensor sorts first out of 250", which on a real house
+        # was an indoor one that flips whenever a room light does.
+        vol.Optional(CONF_LIGHT_ENTITIES, default=defaults.get(CONF_LIGHT_ENTITIES, [])):
+            selector.EntitySelector(
+                selector.EntitySelectorConfig(multiple=True, domain="sensor",
+                                              device_class="illuminance")
             ),
         vol.Optional(CONF_ACTUATION_ENABLED,
                      default=defaults.get(CONF_ACTUATION_ENABLED, DEFAULT_ACTUATION_ENABLED)):

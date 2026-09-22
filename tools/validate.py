@@ -78,7 +78,10 @@ def coord_const(name: str) -> float:
     src = (ROOT / "custom_components" / "fly_house" / "coordinator.py").read_text()
     for line in src.splitlines():
         if line.startswith(f"{name} ="):
-            return float(line.split("=")[1].split("#")[0].strip())
+            # Evaluated, not float()ed: constants are allowed to be written the
+            # way they are meant to be read, and "4 * 3600.0" says four hours
+            # where 14400.0 says nothing.
+            return float(eval(line.split("=", 1)[1].split("#")[0].strip(), {}))
     raise AssertionError(f"{name} not found in coordinator.py")
 
 
@@ -985,6 +988,77 @@ def main() -> int:
           warmed != -1 and built != -1 and warmed < built,
           "warmed in an executor first" if warmed != -1 and warmed < built
           else "a blocking np.load inside the loop")
+
+    print("\n12b. One dawn a day, not forty-eight")
+    # Every crossing of the light threshold used to teach the clock where this
+    # house's day is, and _drag_phase chases each one. A light source that
+    # flips a few times an hour therefore drags dawn and dusk together until
+    # they land on the same reading. Measured on a real house three days in:
+    # 289 transitions seen, dawn 13:11 and dusk 13:11 -- it had concluded the
+    # day begins and ends at ten past one.
+    g_start = coord_src.index("    def _photoperiod_due")
+    g_end = coord_src.index("    def _observe_light")
+    gns = {"PHOTOPERIOD_MIN_GAP": coord_const("PHOTOPERIOD_MIN_GAP")}
+    exec(compile("class _P:\n" + coord_src[g_start:g_end] + "\n", "coordinator", "exec"), gns)
+
+    class _When:
+        def __init__(self, t): self._t = t
+        def timestamp(self): return self._t
+
+    def fresh():
+        st = gns["_P"].__new__(gns["_P"])
+        st._last_photoperiod_at = {}
+        st._photoperiod_ignored = 0
+        return st
+
+    due = gns["_P"]._photoperiod_due
+
+    # A day of an indoor lamp flipping every twenty minutes: the light really
+    # does cross, alternating dawn and dusk, seventy-two times.
+    # Asserted as the invariant rather than as a count. Twice while writing
+    # this the expected number was wrong and the code was right -- 72 flips
+    # span 23.7 hours, not 24, so a second pair fits under any floor shorter
+    # than that. The guarantee is about spacing, so test spacing.
+    stub = fresh()
+    accepted = {"dawn": [], "dusk": []}
+    for i in range(72):
+        kind = "dawn" if i % 2 == 0 else "dusk"
+        when = i * 1200.0
+        if due(stub, _When(when), kind):
+            accepted[kind].append(when)
+    gap = coord_const("PHOTOPERIOD_MIN_GAP")
+    closest = min(
+        (b - a for times in accepted.values() for a, b in zip(times, times[1:])),
+        default=float("inf"))
+    n = len(accepted["dawn"]) + len(accepted["dusk"])
+    check("no two dawns land closer together than a day, whatever the lamp does",
+          closest >= gap,
+          f"{n} of 72 crossings accepted, closest same-kind pair "
+          f"{closest / 3600:.1f} h apart against a {gap / 3600:.0f} h floor")
+    check("which cuts an indoor lamp from ninety-six teachings a day to a handful",
+          n <= 4, f"{n} accepted across 23.7 simulated hours")
+
+    # A real day, and the next one.
+    stub2 = fresh()
+    real = [due(stub2, _When(t), k) for t, k in
+            ((0.0, "dawn"), (8 * 3600.0, "dusk"),
+             (24 * 3600.0, "dawn"), (32 * 3600.0, "dusk"))]
+    check("but a real dawn and dusk both still count, two days running",
+          all(real), f"accepted {sum(real)} of 4")
+
+    # Counted per kind, so a short winter day cannot have its dusk swallowed
+    # by its own dawn -- the case a single shared floor gets wrong.
+    stub3 = fresh()
+    midwinter = [due(stub3, _When(0.0), "dawn"), due(stub3, _When(7 * 3600.0), "dusk")]
+    check("including a seven-hour midwinter day at 56 degrees north",
+          all(midwinter),
+          f"dusk seven hours after dawn, against a {coord_const('PHOTOPERIOD_MIN_GAP') / 3600:.0f} h "
+          "floor that only applies dawn-to-dawn")
+
+    check("and the zeitgeber can be named rather than guessed at",
+          "CONF_LIGHT_ENTITIES" in coord_src
+          and "for entity_id in self.light_entities" in coord_src,
+          "an explicit light sensor beats whichever one sorts first out of 250")
 
     print("\n13a. A service can address one fly")
     # With one fly it never mattered which fly a call meant. With four, a feed
