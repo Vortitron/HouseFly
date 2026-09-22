@@ -158,24 +158,52 @@ def build() -> tuple[dict, dict]:
     #
     # Ninety seconds, not three minutes. Nobody watches a demo for three
     # minutes to find out whether it does anything.
-    walk_time = "{% set t = as_timestamp(now()) % 90 %}"
+    #
+    # But not *every* ninety seconds on the dot, which is what this used to be:
+    # `as_timestamp(now()) % 90`, locked to the wall clock, someone walking up
+    # at t=60 and away by t=75, for ever. A house that runs on a metronome makes
+    # the fly look like one too -- it startled at the same offset in every
+    # minute and a half of its life, which reads as a loop rather than an
+    # animal.
+    #
+    # So the slot is a hundred seconds, the walk starts somewhere inside it, and
+    # roughly one slot in six nobody comes at all. The offset is hashed from the
+    # slot number rather than drawn at random, which matters: this template is
+    # re-evaluated every second, so a per-tick `random` would make the approach
+    # jitter *within itself* and destroy the smooth ramp that looming is a
+    # derivative of. Hashing the slot gives a figure that is fixed for the whole
+    # cycle and unpredictable from one cycle to the next.
+    #
+    # Gaps between approaches then run from about forty seconds to about four
+    # minutes. What this does *not* do is make the approach more novel to the
+    # mushroom body: familiarity is about the pattern, not its schedule, and
+    # "someone at two metres" is the same smell whenever it happens.
+    walk_time = (
+        "{% set n = as_timestamp(now()) | int %}"
+        "{% set slot = (n / 100) | int %}"
+        "{% set h = (slot * 1103515245 + 12345) % 2147483648 %}"
+        "{% set t = n % 100 - (10 + (h // 7) % 50) %}"
+        "{% if h % 6 == 0 %}{% set t = -1 %}{% endif %}"
+    )
     # `t` has to be set BEFORE the if/elif chain, not inside it: Jinja evaluates
     # each elif as it walks the chain, so a set placed after the first branch
     # leaves t undefined for every comparison that follows.
     nobody = "{% if is_state('input_boolean.simulated_occupant', 'off') %}"
+    #   t < 0    nobody there          0-6    walking in, 5.0 m -> 0.5 m
+    #   6-9      standing still        9-15   walking away
     radar_distance = (
         walk_time + nobody + "500"
-        + "{% elif t < 60 %}500"
-        "{% elif t < 66 %}{{ (500 - (t - 60) / 6 * 450) | round(0) }}"
-        "{% elif t < 69 %}50"
-        "{% elif t < 75 %}{{ (50 + (t - 69) / 6 * 450) | round(0) }}"
+        + "{% elif t < 0 %}500"
+        "{% elif t < 6 %}{{ (500 - t / 6 * 450) | round(0) }}"
+        "{% elif t < 9 %}50"
+        "{% elif t < 15 %}{{ (50 + (t - 9) / 6 * 450) | round(0) }}"
         "{% else %}500"
         "{% endif %}"
     )
     radar_energy = (
         walk_time + nobody + "0"
-        + "{% elif t < 60 or t > 75 %}0"
-        "{% elif t < 69 %}{{ range(70, 101) | random }}"
+        + "{% elif t < 0 or t > 15 %}0"
+        "{% elif t < 9 %}{{ range(70, 101) | random }}"
         "{% else %}{{ range(40, 71) | random }}"
         "{% endif %}"
     )

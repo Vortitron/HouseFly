@@ -15,16 +15,19 @@ template:
     device_class: distance
     unit_of_measurement: cm
     state_class: measurement
-    state: '{% set t = as_timestamp(now()) % 90 %}{% if is_state(''input_boolean.simulated_occupant'',
-      ''off'') %}500{% elif t < 60 %}500{% elif t < 66 %}{{ (500 - (t - 60) / 6 * 450) | round(0) }}{%
-      elif t < 69 %}50{% elif t < 75 %}{{ (50 + (t - 69) / 6 * 450) | round(0) }}{% else %}500{% endif
-      %}'
+    state: '{% set n = as_timestamp(now()) | int %}{% set slot = (n / 100) | int %}{% set h = (slot *
+      1103515245 + 12345) % 2147483648 %}{% set t = n % 100 - (10 + (h // 7) % 50) %}{% if h % 6 == 0
+      %}{% set t = -1 %}{% endif %}{% if is_state(''input_boolean.simulated_occupant'', ''off'') %}500{%
+      elif t < 0 %}500{% elif t < 6 %}{{ (500 - t / 6 * 450) | round(0) }}{% elif t < 9 %}50{% elif t
+      < 15 %}{{ (50 + (t - 9) / 6 * 450) | round(0) }}{% else %}500{% endif %}'
   - name: Radar Moving Energy
     unique_id: demo_radar_energy
     state_class: measurement
-    state: '{% set t = as_timestamp(now()) % 90 %}{% if is_state(''input_boolean.simulated_occupant'',
-      ''off'') %}0{% elif t < 60 or t > 75 %}0{% elif t < 69 %}{{ range(70, 101) | random }}{% else %}{{
-      range(40, 71) | random }}{% endif %}'
+    state: '{% set n = as_timestamp(now()) | int %}{% set slot = (n / 100) | int %}{% set h = (slot *
+      1103515245 + 12345) % 2147483648 %}{% set t = n % 100 - (10 + (h // 7) % 50) %}{% if h % 6 == 0
+      %}{% set t = -1 %}{% endif %}{% if is_state(''input_boolean.simulated_occupant'', ''off'') %}0{%
+      elif t < 0 or t > 15 %}0{% elif t < 9 %}{{ range(70, 101) | random }}{% else %}{{ range(40, 71)
+      | random }}{% endif %}'
 - binary_sensor:
   - name: Radar Presence
     unique_id: demo_radar_presence
