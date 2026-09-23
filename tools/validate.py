@@ -1139,6 +1139,7 @@ def main() -> int:
     def restored(saved, offset_h=0):
         f = rns["_R"].__new__(rns["_R"])
         f._clock_offset = offset_h / 24.0
+        f.light_entities = []
         f._dawn_phase, f._dusk_phase = 0.25, 0.78
         f._photoperiod_seen, f._last_photoperiod_at = 0, {}
         rns["_R"]._photoperiod_from_saved(f, saved)
@@ -1161,6 +1162,30 @@ def main() -> int:
           good._dawn_phase == 0.284 and good._photoperiod_seen == 5
           and good._last_photoperiod_at == stamps,
           f"dawn {good._dawn_phase}, seen {good._photoperiod_seen}")
+    def restored_with(saved, light):
+        f = rns["_R"].__new__(rns["_R"])
+        f._clock_offset = 0.0
+        f.light_entities = list(light)
+        f._dawn_phase, f._dusk_phase = 0.25, 0.78
+        f._photoperiod_seen, f._last_photoperiod_at = 0, {}
+        rns["_R"]._photoperiod_from_saved(f, saved)
+        return f
+
+    lamp_day = {"photoperiod": [0.341, 0.699, 4], "photoperiod_frame": "house"}
+    moved = restored_with({**lamp_day, "photoperiod_light": ["sensor.indoor"]},
+                          ["sensor.outdoor"])
+    check("a day learned from one light is dropped when daylight is a different sensor",
+          moved._dawn_phase == 0.25,
+          "08:11-16:46 from an indoor sensor is not evidence about an outdoor one")
+    same = restored_with({**lamp_day, "photoperiod_light": ["sensor.outdoor"]},
+                         ["sensor.outdoor"])
+    check("but kept when it is the same sensor, however long it was offline",
+          same._dawn_phase == 0.341, "availability is not a change of instrument")
+    legacy_auto = restored_with(lamp_day, [])
+    legacy_named = restored_with(lamp_day, ["sensor.outdoor"])
+    check("and old state is kept if it is still automatic, dropped if a sensor is now named",
+          legacy_auto._dawn_phase == 0.341 and legacy_named._dawn_phase == 0.25,
+          "learned from a guess either way, but only one of those is still guessing")
     check("and a nominated light that is down falls back to the sun, not a guess",
           "if best is None and not self.light_entities:" in coord_src,
           "naming a sensor says which light is daylight; guessing past it undoes that")

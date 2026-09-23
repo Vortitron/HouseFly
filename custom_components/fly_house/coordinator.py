@@ -1480,6 +1480,7 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                                 self._photoperiod_seen],
                 "photoperiod_at": dict(self._last_photoperiod_at),
                 "photoperiod_frame": "house",
+                "photoperiod_light": sorted(self.light_entities),
                 "ever_familiar": bool(self._ever_familiar),
                 "nose": self._nose_fingerprint(),
                 "adaptation": {
@@ -1521,6 +1522,27 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "HouseFly's learned dawn and dusk were recorded in its own "
                 "shifted clock, which cancels the shift over time; starting "
                 "them again in the house's frame")
+            self._restart_photoperiod()
+            return
+
+        # A day learned from one light is not evidence about another. Point the
+        # fly at a different sensor and what it knew about dawn came from an
+        # instrument it is no longer reading -- on a real house, an indoor lux
+        # sensor that had taught it an 8.6-hour late-September day from lamp
+        # switchings. Keyed on the *configured* source, not on what happened
+        # to be live, so a sensor dropping offline for an hour does not wipe a
+        # week of learning; only somebody changing the choice does.
+        #
+        # State saved before this was recorded has no key. With no nomination
+        # now, it was learned the same way it will be learned next -- the
+        # automatic choice -- and is kept. With a nomination now, it predates
+        # there being one, so it was learned from a guess, and is not.
+        was = saved.get("photoperiod_light")
+        now_light = sorted(self.light_entities)
+        if (was is None and now_light) or (was is not None and sorted(was) != now_light):
+            _LOGGER.info(
+                "HouseFly's daylight sensor has changed, so what it had learned "
+                "about dawn and dusk came from a different light; starting again")
             self._restart_photoperiod()
             return
 
