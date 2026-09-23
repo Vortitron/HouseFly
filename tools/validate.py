@@ -1078,6 +1078,174 @@ def main() -> int:
           and "for entity_id in self.light_entities" in coord_src,
           "an explicit light sensor beats whichever one sorts first out of 250")
 
+    print("\n12c. A shift survives learning where the day is")
+    import logging as _logging
+    # Dawn is learned from the light, and was learned in the fly's own shifted
+    # clock. A +6 h fly sees the real sunrise at its subjective 12:49, learns
+    # that, and its morning cells then peak at 06:49 on the wall -- the same
+    # moment as the unshifted fly. Over days the photoperiod learning erased
+    # the very shift it was supposed to sit on top of. Simulated here as a
+    # month of real sunrises, once with the fix and once with the old frame as
+    # a control, so this fails loudly if the frame ever slips back.
+    import datetime as _dt
+    d_start = coord_src.index("def _drag_phase")
+    d_end = coord_src.index("\n\n\n", d_start)
+    pns = {"math": math}
+    exec(compile(coord_src[d_start:d_end], "coordinator", "exec"), pns)
+    l_start = coord_src.index("    def _learning_phase")
+    l_end = coord_src.index("    def _expire_layout")
+    s_start = coord_src.index("    def _subjective_day")
+    s_end = coord_src.index("    def ", s_start + 10)
+    exec(compile("class _F:\n" + coord_src[l_start:l_end] + coord_src[s_start:s_end] + "\n",
+                 "coordinator", "exec"), pns)
+    rate = coord_const("PHOTOPERIOD_RATE")
+    sunrise = _dt.datetime(2026, 9, 23, 6, 49)
+
+    def peak_after_a_month(offset_h, frame):
+        fly = pns["_F"].__new__(pns["_F"])
+        fly._clock_offset = offset_h / 24.0
+        dawn = 0.25
+        for _ in range(30):
+            seen = fly._learning_phase(sunrise) if frame == "house" else fly._subjective_day(sunrise)
+            dawn = pns["_drag_phase"](dawn, seen, rate)
+        return ((dawn - fly._clock_offset) % 1.0) * 24.0     # wall-clock morning peak
+
+    def apart(a, b):
+        d = abs(a - b) % 24.0
+        return min(d, 24.0 - d)
+
+    fixed = apart(peak_after_a_month(0, "house"), peak_after_a_month(6, "house"))
+    broken = apart(peak_after_a_month(0, "fly"), peak_after_a_month(6, "fly"))
+    check("a month of real sunrises leaves a +6 h fly six hours off the day fly",
+          abs(fixed - 6.0) < 0.25,
+          f"morning peaks {fixed:.1f} h apart after 30 dawns")
+    check("where learning in the fly's own clock would have erased the shift",
+          broken < 1.0,
+          f"the old frame: {broken:.1f} h apart after 30 dawns -- the control")
+    check("and the unshifted fly learns the real sunrise either way",
+          abs(peak_after_a_month(0, "house") - 6.82) < 0.3,
+          f"learned {peak_after_a_month(0, 'house'):.2f} h against a 06:49 sunrise")
+
+    # Restoring is load-then-judge. The judgement used to sit in the middle,
+    # so a reset was followed by the old counter and the old stamps being put
+    # straight back: a repaired fly reported 299 transitions seen when it had
+    # just started over. Driven with the real restore code.
+    r_start = coord_src.index("    def _photoperiod_from_saved")
+    r_end = coord_src.index("    async def async_restore_state")
+    rns = {"Any": object, "_LOGGER": _logging.getLogger("validate"),
+           "MIN_CREDIBLE_DAY": coord_const("MIN_CREDIBLE_DAY")}
+    exec(compile("class _R:\n" + coord_src[r_start:r_end] + "\n", "coordinator", "exec"), rns)
+
+    def restored(saved, offset_h=0):
+        f = rns["_R"].__new__(rns["_R"])
+        f._clock_offset = offset_h / 24.0
+        f._dawn_phase, f._dusk_phase = 0.25, 0.78
+        f._photoperiod_seen, f._last_photoperiod_at = 0, {}
+        rns["_R"]._photoperiod_from_saved(f, saved)
+        return f
+
+    stamps = {"dawn": 1.0e9, "dusk": 1.0e9}
+    collapsed = restored({"photoperiod": [0.5674, 0.5674, 299], "photoperiod_at": stamps,
+                          "photoperiod_frame": "house"})
+    check("a discarded day really is started over, counter and all",
+          (collapsed._dawn_phase, collapsed._dusk_phase) == (0.25, 0.78)
+          and collapsed._photoperiod_seen == 0 and collapsed._last_photoperiod_at == {},
+          f"seen {collapsed._photoperiod_seen}, pending stamps {collapsed._last_photoperiod_at}")
+    shifted = restored({"photoperiod": [0.396, 0.862, 5], "photoperiod_at": stamps}, offset_h=6)
+    check("a shifted fly's old-frame day is started over in the house's frame",
+          shifted._dawn_phase == 0.25 and shifted._last_photoperiod_at == {},
+          f"dawn {shifted._dawn_phase}, stamps {shifted._last_photoperiod_at}")
+    good = restored({"photoperiod": [0.284, 0.781, 5], "photoperiod_at": stamps,
+                     "photoperiod_frame": "house"}, offset_h=6)
+    check("but a good house-frame day is kept, with what it has learned",
+          good._dawn_phase == 0.284 and good._photoperiod_seen == 5
+          and good._last_photoperiod_at == stamps,
+          f"dawn {good._dawn_phase}, seen {good._photoperiod_seen}")
+    check("and a nominated light that is down falls back to the sun, not a guess",
+          "if best is None and not self.light_entities:" in coord_src,
+          "naming a sensor says which light is daylight; guessing past it undoes that")
+
+    print("\n12d. An alert says what kind of strange, and does not flicker")
+    # Seen live: The Meddler raised "the house does not look like itself" with
+    # an empty suspect list, and cleared ten seconds later. Both have one cause
+    # each. The surprise was arriving through the clock-context channels, which
+    # no entity maps to; and clearing took one tick below the line while
+    # raising took two minutes above it. Driven here with the real code and a
+    # replay of the live novelty trace.
+    a_start = coord_src.index("    def _assess_novelty")
+    a_end = coord_src.index("    def _suspects")
+
+    class _Clock:
+        t = 0.0
+        def utcnow(self):
+            me = self
+            class _Now:
+                def timestamp(self): return me.t
+                def isoformat(self): return str(me.t)
+            return _Now()
+
+    clock = _Clock()
+    fired = []
+    ans = {
+        "dt_util": clock, "Any": object, "DOMAIN": "fly_house",
+        "_LOGGER": _logging.getLogger("validate"),
+        "NOVELTY_UNUSUAL": coord_const("NOVELTY_UNUSUAL"),
+        "UNUSUAL_SECONDS": coord_const("UNUSUAL_SECONDS"),
+        "UNUSUAL_CLEAR_SECONDS": coord_const("UNUSUAL_CLEAR_SECONDS"),
+        "FAMILIAR_ONCE": coord_const("NOVELTY_UNUSUAL"),
+    }
+    exec(compile("class _A:\n" + coord_src[a_start:a_end] + "\n", "coordinator", "exec"), ans)
+
+    def fly_with(hour_share):
+        f = ans["_A"].__new__(ans["_A"])
+        f._ever_familiar, f._unusual = True, False
+        f._unusual_since = f._settled_since = None
+        f.entry_id = "test"
+        f.hass = type("H", (), {"bus": type("B", (), {
+            "async_fire": staticmethod(lambda name, data: fired.append(data))})()})()
+        f._suspects = lambda: ([], hour_share)
+        return f
+
+    # The live trace, 2 s ticks: 124 s just over the line, 10 s just under,
+    # then genuinely settled.
+    trace = [0.115] * 62 + [0.094] * 5 + [0.03] * 40
+    fly = fly_with(0.8)
+    states = []
+    for i, nov in enumerate(trace):
+        clock.t = i * 2.0
+        states.append(ans["_A"]._assess_novelty(fly, {"novelty": nov, "settled": 0.02}))
+    on = [s["unusual"] for s in states]
+    raised_at = on.index(True) * 2 if True in on else None
+    cleared_at = (len(on) - on[::-1].index(True)) * 2 if True in on else None
+    check("a dip of ten seconds does not stand the alert down",
+          all(on[62:67]), f"still raised through the 10 s dip that used to clear it")
+    check("but it does clear once the house has settled for a minute",
+          not on[-1] and cleared_at is not None,
+          f"raised at {raised_at} s, cleared at {cleared_at} s")
+    check("and it fires once, not once per flicker",
+          len(fired) == 1, f"{len(fired)} rising-edge event(s)")
+    check("when the surprise is the hour, it says so rather than naming nobody",
+          states[62]["reason"] == "the house looks like itself, but not at this hour"
+          and states[62]["hour_share"] > 0.5,
+          f"reason: {states[62]['reason']!r}")
+    fired.clear()
+    fly2 = fly_with(0.1)
+    clock.t = 0.0
+    for i, nov in enumerate([0.3] * 62):
+        clock.t = i * 2.0
+        last = ans["_A"]._assess_novelty(fly2, {"novelty": nov, "settled": 0.02})
+    check("and when it is the house, it says that instead",
+          last["reason"] == "the house does not look like itself",
+          f"reason: {last['reason']!r}")
+
+    init_now = (ROOT / "custom_components" / "fly_house" / "__init__.py").read_text()
+    check("the service helper is called the way HA 2026.10 will still accept",
+          "async_extract_config_entry_ids(call)" in init_now
+          and "async_extract_config_entry_ids(hass, call)" in init_now
+          and init_now.index("async_extract_config_entry_ids(call)")
+              < init_now.index("async_extract_config_entry_ids(hass, call)"),
+          "new form first, old form only for cores before the change")
+
     print("\n13a. A service can address one fly")
     # With one fly it never mattered which fly a call meant. With four, a feed
     # that reaches all of them is not a reward, it is weather -- and there is

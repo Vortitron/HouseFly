@@ -133,6 +133,7 @@ DISTANCE_UNITS = {"cm": 0.01, "mm": 0.001, "m": 1.0, "km": 1000.0}
 #                   settled to novelty 0.057 by nine minutes.
 NOVELTY_UNUSUAL = 0.10
 UNUSUAL_SECONDS = 120.0
+UNUSUAL_CLEAR_SECONDS = 60.0   # and it must stay settled this long to stand down
 FAMILIAR_ONCE = NOVELTY_UNUSUAL   # it has to have looked familiar by the same
                                   # standard used to call it unfamiliar
 
@@ -392,6 +393,7 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._wander_bearing = 0.0
         self._unusual_since: float | None = None
         self._unusual = False
+        self._settled_since: float | None = None
         self._ever_familiar = False
         # Learned photoperiod. Starts at the textbook 06:00/18:43 and moves to
         # wherever this house's light actually goes on and off.
@@ -789,6 +791,17 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         wall = (now.hour * 3600 + now.minute * 60 + now.second) / 86400.0
         return (wall + self._clock_offset) % 1.0
 
+    def _learning_phase(self, now) -> float:
+        """The house's time of day, 0..1 -- the frame dawn and dusk live in.
+
+        Deliberately not _subjective_day. The fly's clock is offset; the sky is
+        not. Passing a wall-frame dawn to the circuits, which compare it with
+        the fly's *subjective* time, puts the morning peak at wall-clock
+        (dawn - offset): shifted by exactly the offset, as intended, and
+        staying shifted however long the fly lives.
+        """
+        return (now.hour * 3600 + now.minute * 60 + now.second) / 86400.0
+
     def _expire_layout(self) -> None:
         """Forget a dashboard that has stopped reporting.
 
@@ -921,7 +934,14 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 best = percept
                 self._light_source = entity_id
                 break
-        if best is None:
+        # Guess only when nobody has said. Naming a light sensor is a statement
+        # about which light is daylight; if it has gone unavailable, the honest
+        # stand-in is the sun, not whichever illuminance sensor happens to
+        # sort first. On a real house the guess was an indoor sensor topping
+        # out at 28 lx, and even rate-limited to one teaching a day it learned
+        # an 8.6-hour late-September day from lamp switchings -- while a fly on
+        # the sun, a few hundred kilometres away, learned 06:49 and 18:44.
+        if best is None and not self.light_entities:
             for entity_id in self._watched_cache:
                 st = states.get(entity_id)
                 if st is None:
@@ -947,7 +967,20 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         # A crossing, with hysteresis, is dawn or dusk.
         now = dt_util.now()
-        phase = self._subjective_day(now)
+        # The *house's* clock, not the fly's. Dawn is a fact about the building
+        # and the sky, and every fly in it sees the same one. A fly's shift is
+        # its phase angle to that light -- a nocturnal animal and a diurnal one
+        # entrain to the same sunrise and simply sit differently against it.
+        #
+        # This used to record the phase in the fly's own shifted frame, which
+        # is self-consistent and quietly undoes the shift. A +6 h fly sees the
+        # 06:49 sunrise at its subjective 12:49 and learns dawn = 12:49; its
+        # morning cells then peak when its clock reads 12:49, which is 06:49 on
+        # the wall -- the same moment as the unshifted fly. Measured on a
+        # four-fly house two days in: the +6 h fly's learned dawn had already
+        # drifted from 06:00 to 09:30, on its way to erasing the difference
+        # between it and the fly it was meant to cover for.
+        phase = self._learning_phase(now)
         if self._is_day is None:
             self._is_day = self._light >= LIGHT_ON
         elif not self._is_day and self._light >= LIGHT_ON:
@@ -1140,24 +1173,49 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     "learned_the_place": False, "for_seconds": 0}
 
         if novelty >= NOVELTY_UNUSUAL:
+            self._settled_since = None
             if self._unusual_since is None:
                 self._unusual_since = now
             held = now - self._unusual_since
-            self._unusual = held >= UNUSUAL_SECONDS
+            if held >= UNUSUAL_SECONDS:
+                self._unusual = True
         else:
             self._unusual_since = None
-            self._unusual = False
             held = 0.0
+            # Raising takes two minutes above the line; clearing used to take
+            # one tick below it. With novelty hovering near 0.10 that is a
+            # latch with a spring on one side only: seen live, an alert raised
+            # at 22:02:04 and cleared at 22:02:14, so the notification it
+            # triggered existed for ten seconds. It has to stay settled for a
+            # minute before it stands down.
+            if self._unusual:
+                if self._settled_since is None:
+                    self._settled_since = now
+                if now - self._settled_since >= UNUSUAL_CLEAR_SECONDS:
+                    self._unusual = False
+                    self._settled_since = None
 
+        suspects, hour_share = self._suspects() if self._unusual else ([], 0.0)
+        if not self._unusual:
+            reason = "nothing it has not seen before"
+        elif hour_share >= 0.5:
+            # The two kinds of strange the clock channels exist to separate.
+            # When most of the surprise arrives through them, the house looks
+            # like itself -- it is the time of day that is unfamiliar. Saying
+            # "the house does not look like itself" with no suspects, which is
+            # what this used to do, is both wrong and useless.
+            reason = "the house looks like itself, but not at this hour"
+        else:
+            reason = "the house does not look like itself"
         report = {
             "unusual": self._unusual,
             "novelty": round(novelty, 4),
             "settled": round(settled, 4),
             "learned_the_place": True,
             "for_seconds": int(held),
-            "suspects": self._suspects() if self._unusual else [],
-            "reason": ("the house does not look like itself" if self._unusual
-                       else "nothing it has not seen before"),
+            "suspects": suspects,
+            "hour_share": round(hour_share, 3),
+            "reason": reason,
         }
 
         # Fire once on the rising edge, not every tick. The point of this event
@@ -1176,7 +1234,7 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 novelty, int(held), ", ".join(x["entity_id"] for x in report["suspects"]) or "none")
         return report
 
-    def _suspects(self) -> list[dict[str, Any]]:
+    def _suspects(self) -> tuple[list[dict[str, Any]], float]:
         """Which configured inputs the surprise is arriving through.
 
         Emphatically not "what is wrong". The Kenyon code is a hash and does
@@ -1190,12 +1248,21 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """
         channels = self.brain.n_odour_channels
         if not channels:
-            return []
+            return [], 0.0
         by_channel: dict[int, list[str]] = {}
         for entity_id in self._watched_cache:
             by_channel.setdefault(_stable_channel(entity_id, channels), []).append(entity_id)
         out: list[dict[str, Any]] = []
+        hour_share = 0.0
         for channel, share in self.brain.novel_channels():
+            # The clock-context channels sit after the odour channels in the
+            # projection-neuron population. No entity maps to them, so they
+            # used to vanish here -- and when they carried the surprise, the
+            # alert named nobody. Their share is the fraction that is "the
+            # hour" rather than anything in the house.
+            if channel >= channels:
+                hour_share += share
+                continue
             for entity_id in by_channel.get(channel, []):
                 st = self.hass.states.get(entity_id)
                 out.append({
@@ -1203,7 +1270,7 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     "state": st.state if st else None,
                     "share": share,
                 })
-        return out[:6]
+        return out[:6], hour_share
 
     def _advance_position(self, result: dict[str, Any]) -> None:
         """Move the body the way the motor output says to.
@@ -1412,6 +1479,7 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "photoperiod": [self._dawn_phase, self._dusk_phase,
                                 self._photoperiod_seen],
                 "photoperiod_at": dict(self._last_photoperiod_at),
+                "photoperiod_frame": "house",
                 "ever_familiar": bool(self._ever_familiar),
                 "nose": self._nose_fingerprint(),
                 "adaptation": {
@@ -1420,6 +1488,58 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             })
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("HouseFly could not save state: %s", err)
+
+    def _photoperiod_from_saved(self, saved: dict[str, Any]) -> None:
+        """Restore the learned day, then decide whether to believe it.
+
+        Everything is loaded first and judged last. The judgement used to sit
+        in the middle, with the counter and the dawn/dusk stamps restored
+        *after* it -- so a reset set the counter to zero and the very next
+        line put the old count back, and a reset that cleared the stamps had
+        them restored a moment later. A repaired fly reported 299 transitions
+        seen when it had just started again, and a migrated one would have
+        been blocked from learning its first real dawn for twenty hours.
+        """
+        if saved.get("photoperiod"):
+            dawn, dusk, seen = saved["photoperiod"]
+            self._dawn_phase, self._dusk_phase = float(dawn), float(dusk)
+            self._photoperiod_seen = int(seen)
+        stamps = saved.get("photoperiod_at")
+        if isinstance(stamps, dict):
+            self._last_photoperiod_at = {k: float(v) for k, v in stamps.items()}
+        if not saved.get("photoperiod"):
+            return
+
+        # Phases saved before 2.14.3 were learned in the fly's own frame, which
+        # for a shifted fly is a mixture of the default and (real dawn +
+        # offset) that cannot be separated again. An unshifted fly's frame
+        # *was* the house's, so its learning is kept; a shifted fly starts
+        # again from the default rather than spending a fortnight dragging a
+        # contaminated value back into place.
+        if saved.get("photoperiod_frame") != "house" and self._clock_offset:
+            _LOGGER.info(
+                "HouseFly's learned dawn and dusk were recorded in its own "
+                "shifted clock, which cancels the shift over time; starting "
+                "them again in the house's frame")
+            self._restart_photoperiod()
+            return
+
+        # A day that is 24 hours long, or 0, is not a day. Dawn and dusk
+        # landing on the same clock reading is the signature of the
+        # flapping-light bug, and the guard that stops it getting worse cannot
+        # undo it. Saved state that says something impossible is discarded.
+        lit = (self._dusk_phase - self._dawn_phase) % 1.0
+        if lit < MIN_CREDIBLE_DAY or lit > 1.0 - MIN_CREDIBLE_DAY:
+            _LOGGER.warning(
+                "HouseFly had learned a %.1f-hour day, which is not one; "
+                "starting its photoperiod again from the default", lit * 24.0)
+            self._restart_photoperiod()
+
+    def _restart_photoperiod(self) -> None:
+        """Back to the default day, with nothing learned and nothing pending."""
+        self._dawn_phase, self._dusk_phase = 0.25, 0.78
+        self._photoperiod_seen = 0
+        self._last_photoperiod_at = {}
 
     async def async_restore_state(self) -> None:
         try:
@@ -1460,28 +1580,7 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         "what normal looks like again before it will call "
                         "anything unusual")
                 self._ever_familiar = False
-            if saved.get("photoperiod"):
-                dawn, dusk, seen = saved["photoperiod"]
-                self._dawn_phase, self._dusk_phase = float(dawn), float(dusk)
-                # A day that is 24 hours long, or 0, is not a day. Dawn and
-                # dusk landing on the same clock reading is the signature of
-                # the flapping-light bug this release fixes, and the fix stops
-                # it getting worse without undoing it -- at PHOTOPERIOD_RATE
-                # and two teachings a day, a house left like this would take a
-                # fortnight to drift back. Saved state that says something
-                # impossible is discarded rather than nursed.
-                lit = (self._dusk_phase - self._dawn_phase) % 1.0
-                if lit < MIN_CREDIBLE_DAY or lit > 1.0 - MIN_CREDIBLE_DAY:
-                    _LOGGER.warning(
-                        "HouseFly had learned a %.1f-hour day, which is not one; "
-                        "starting its photoperiod again from the default",
-                        lit * 24.0)
-                    self._dawn_phase, self._dusk_phase = 0.25, 0.78
-                    self._photoperiod_seen = 0
-                self._photoperiod_seen = int(seen)
-            stamps = saved.get("photoperiod_at")
-            if isinstance(stamps, dict):
-                self._last_photoperiod_at = {k: float(v) for k, v in stamps.items()}
+            self._photoperiod_from_saved(saved)
             for eid, (lo, hi, seen) in (saved.get("adaptation") or {}).items():
                 self._adaptation[eid] = SensoryAdaptation(float(lo), float(hi), int(seen))
 

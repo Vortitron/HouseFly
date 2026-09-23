@@ -204,7 +204,18 @@ def _register_services(hass: HomeAssistant) -> None:
     async def _addressed(call: ServiceCall) -> list[FlyHouseCoordinator]:
         """The flies a call is for: those owning a targeted entity or device,
         or every fly when nothing was targeted."""
-        wanted = await service_helper.async_extract_config_entry_ids(hass, call)
+        # The helper dropped its hass argument: Home Assistant 2026.9 warns when
+        # it is passed and 2026.10 removes it, which would break every Feed and
+        # Startle button the moment somebody updated. But this integration
+        # supports HA back to 2024.7, where the new single-argument form does
+        # not exist. Calling the new form on an old core fails at the call
+        # itself -- a missing positional argument, raised before anything runs
+        # -- so that TypeError is an unambiguous signal to use the old one.
+        try:
+            pending = service_helper.async_extract_config_entry_ids(call)
+        except TypeError:
+            pending = service_helper.async_extract_config_entry_ids(hass, call)
+        wanted = await pending
         flies = _each()
         if not wanted:
             return flies
