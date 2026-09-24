@@ -2,8 +2,6 @@ loom:
   target:
     entity:
       integration: fly_house
-    device:
-      integration: fly_house
   name: Loom
   description: >-
     Rush something at the fly. Drives the LPLC2 looming-detector population,
@@ -24,8 +22,6 @@ feed:
   target:
     entity:
       integration: fly_house
-    device:
-      integration: fly_house
   name: Feed
   description: >-
     Give it sugar. Drives the PAM dopaminergic neurons, which is the teaching
@@ -43,8 +39,6 @@ feed:
 reset_memory:
   target:
     entity:
-      integration: fly_house
-    device:
       integration: fly_house
   name: Reset memory
   description: >-

@@ -42,7 +42,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - run: pip install numpy
+      # PyYAML because the checks read services.yaml the way Home Assistant
+      # does. It was missing for two releases, and this job was red while
+      # the same suite passed locally, where it happened to be installed.
+      - run: pip install numpy pyyaml
       # Every check behind every number in the README: cell counts against the
       # literature, the ring attractor's Mexican hat, PEN hemispheres shifting
       # oppositely, the bump forming and integrating turns, KC->MBON depression,
