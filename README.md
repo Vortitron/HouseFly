@@ -159,6 +159,18 @@ Someone walking in at 1 m/s, sampled at a range of distances:
 
 Walking away produces nothing, because receding is not looming.
 
+Nor does something *appearing*. An expansion rate is the growth of an image the
+fly was already looking at, so both ends of a step have to be in range. This
+matters more than it sounds: a real front-path radar reporting a fused
+"position" parks on sentinels when nobody is there (0, or the far end of the
+path) and flicks between targets several times a second, so 14.9 m followed by
+1.1 m read as 13.8 m of closing in a second. Replayed through the coordinator
+at its real 2 s tick, 7.4 hours of that radar gave **27 escape episodes an hour**
+judging only the new reading, and **0.8 an hour** requiring both — while a walk
+up the path in the radar's 0.75 m gates still ramps 0.03 → 0.25 → 0.29 as it
+nears. (Check 6c runs both rules on both traces.) A fused position is still a
+poorer input than a per-radar distance; this only stops it lying.
+
 **Do not also feed it the presence sensor.** A PIR going high carries no
 distance at all, so HouseFly delivers it as a flat startle — which is honest for
 a PIR and above the escape threshold by design. But a presence binary sensor

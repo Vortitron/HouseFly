@@ -790,7 +790,17 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             dt = reading_at - last_at
             if dt <= 0.0 or dt > LOOM_MAX_AGE:
                 continue
-            if not (LOOM_MIN_RANGE <= metres <= LOOM_MAX_RANGE):
+            # Both ends of the step have to be something the fly could see. An
+            # expansion rate is the growth of an image it was already looking
+            # at; a thing that *appears* close has no rate at all. Radar
+            # "position" sensors park on sentinels when nobody is there (0, or
+            # the far end of the path) and swap between targets, so a reading
+            # of 14.9 m followed by 1.1 m is not someone covering 13.8 m in a
+            # second. Replayed through this method at the real 2 s tick, 7.4 h
+            # of the GamlaBio front path gave 27 escape episodes an hour with
+            # only the new reading checked, and 0.8 an hour with both.
+            if not (LOOM_MIN_RANGE <= metres <= LOOM_MAX_RANGE
+                    and LOOM_MIN_RANGE <= last_metres <= LOOM_MAX_RANGE):
                 continue
 
             closing = (last_metres - metres) / dt          # metres per second
@@ -813,10 +823,10 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """What time of day it is *for this fly*, 0..1.
 
         With no offset this is the wall clock. With one, the fly's whole day
-        moves: its clock drive, the hour it habituates against, and the phase
-        it records when it sees dawn. Everything stays in one frame, so a night
-        fly is not a day fly that has been told to stay up -- it has its own
-        morning, and it has lived through hundreds of them.
+        moves: its clock drive and the hour it habituates against. Dawn is the
+        exception -- it is learned in the house's frame (_learning_phase), and
+        the offset is the phase angle the fly keeps to it, so a night fly is
+        not a day fly that has been told to stay up.
         """
         wall = (now.hour * 3600 + now.minute * 60 + now.second) / 86400.0
         return (wall + self._clock_offset) % 1.0

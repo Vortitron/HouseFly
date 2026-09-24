@@ -484,6 +484,62 @@ def main() -> int:
           real > 0.15 and real > trivial * 4,
           f"1e-2 -> {first_burst(1e-2):.4f}, 0.5 -> {real:.4f}")
 
+    print("\n6c. It only looms at what it has seen")
+    # The real front-path radar reports a *position*: 0 when nobody is there,
+    # the far end of the path when the far radar sees its own clutter, and it
+    # flicks between targets several times a second. Differencing 14.9 m
+    # against 1.1 m reads as 13.8 m of closing -- a full escape, 27 times an
+    # hour. Run the coordinator's own method, as it ticks, on both kinds of
+    # trace, and run the old rule beside it to show the check can fail.
+    from types import SimpleNamespace as _NS
+    from datetime import datetime as _dt, timezone as _tz
+    coord_src = (ROOT / "custom_components" / "fly_house" / "coordinator.py").read_text()
+    method = coord_src[coord_src.index("    def _approach_looming"):
+                       coord_src.index("    def _subjective_day")]
+    consts = {k: coord_const(k) for k in
+              ("LOOM_SCALE", "LOOM_MIN_RANGE", "LOOM_MAX_RANGE", "LOOM_MAX_AGE")}
+    old_rule = method.replace(
+        "\n                    and LOOM_MIN_RANGE <= last_metres <= LOOM_MAX_RANGE", "")
+
+    def looming_peaks(src: str, trace, tick: float = 2.0):
+        ns = {"np": np, "Any": object, "DISTANCE_UNITS": {"m": 1.0}, **consts}
+        exec(compile("class _C:\n" + src, "coordinator", "exec"), ns)
+        fly = ns["_C"].__new__(ns["_C"])
+        fly.approach_entities, fly._ranges = ["sensor.path"], {}
+        now_state = {}
+        fly.hass = _NS(states=_NS(get=lambda e: now_state.get(e)))
+        drives, k = [], 0
+        for now in np.arange(tick, trace[-1][0], tick):
+            while k + 1 < len(trace) and trace[k + 1][0] <= now:
+                k += 1
+            at, metres = trace[k]
+            now_state["sensor.path"] = _NS(
+                state=str(metres), attributes={"unit_of_measurement": "m"},
+                last_changed=_dt.fromtimestamp(1.8e9 + at, _tz.utc))
+            drives.append(ns["_C"]._approach_looming(fly))
+        return drives
+
+    rng = np.random.default_rng(7)
+    flicker, at = [], 0.0
+    for _ in range(3000):          # ~15 min of an empty path, as the radar tells it
+        at += float(rng.choice([0.1, 0.2, 0.3, 0.5, 0.7, 1.2]))
+        flicker.append((at, float(rng.choice([0.0, 0.0, 14.88, 14.88, 1.12, 10.38]))))
+    walk = [(0.3 * i, round(max(0.6, 7.5 - 1.3 * 0.3 * i) / 0.75) * 0.75)
+            for i in range(60)]    # walking up the path at 1.3 m/s, in 0.75 m gates
+    walk = [(0.0, 0.0)] + [(a + 1.0, m) for a, m in walk]
+    new_flicker = sum(d >= 1.0 for d in looming_peaks(method, flicker))
+    old_flicker = sum(d >= 1.0 for d in looming_peaks(old_rule, flicker))
+    walk_drive = looming_peaks(method, walk)
+    closing_ticks = [d for d in walk_drive if d > 0.0]
+    check("an empty path flickering between sentinels does not loom",
+          new_flicker == 0 and old_flicker > 20,
+          f"escape-strength ticks in ~15 min: {new_flicker}, "
+          f"against {old_flicker} judging only the new reading")
+    check("someone walking up the path still does, and more so as they near",
+          max(walk_drive) >= 0.2 and closing_ticks == sorted(closing_ticks)
+          and len(closing_ticks) >= 3,
+          "drive by tick: " + " ".join(f"{d:.2f}" for d in walk_drive))
+
     print("\n7. Steering output is differentiated, not saturated")
     brain = circ.FlyBrain()
     brain.settle()
