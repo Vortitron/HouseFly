@@ -1218,6 +1218,7 @@ def main() -> int:
         "UNUSUAL_SECONDS": coord_const("UNUSUAL_SECONDS"),
         "UNUSUAL_CLEAR_SECONDS": coord_const("UNUSUAL_CLEAR_SECONDS"),
         "LEARNING_DAY_SECONDS": coord_const("LEARNING_DAY_SECONDS"),
+        "STARTUP_GRACE_SECONDS": coord_const("STARTUP_GRACE_SECONDS"),
         "FAMILIAR_ONCE": coord_const("NOVELTY_UNUSUAL"),
     }
     exec(compile("class _A:\n" + coord_src[a_start:a_end] + "\n", "coordinator", "exec"), ans)
@@ -1232,6 +1233,7 @@ def main() -> int:
         f._suspects = lambda: ([], hour_share)
         f._recently_changed = lambda: []
         f._learning_since = -1.0e9            # long settled, unless a test says not
+        f._started_at = -1.0e9                # long since started, likewise
         return f
 
     # The live trace, 2 s ticks: 124 s just over the line, 10 s just under,
@@ -1290,6 +1292,49 @@ def main() -> int:
     check("and every way of starting to learn again restarts the day",
           coord_src.count("self._ever_familiar = False\n                self._learning_since = dt_util.utcnow().timestamp()") >= 2,
           "a nose change, and a familiarity memory that could not be restored")
+
+    # And not while Home Assistant is still starting. Entities come back
+    # unavailable and fill in over minutes, so a fly with its memory intact
+    # still reads the house as strange: first-tick novelty after one restart
+    # ran 0.024, 0.078, 0.389 and 0.588 across four flies, and the 0.389 one
+    # raised the alert.
+    fired.clear()
+    booting = fly_with(0.0)
+    booting._started_at = 50_000.0
+    for i in range(80):
+        clock.t = 50_000.0 + i * 2.0                  # the first 160 s after start
+        boot = ans["_A"]._assess_novelty(booting, {"novelty": 0.39, "settled": 0.02})
+    check("a house that is still starting up is not called unusual",
+          not boot["unusual"] and not fired, f"{boot['reason']!r}")
+    for i in range(62):
+        clock.t = 50_000.0 + 700 + i * 2.0            # once it has settled
+        after = ans["_A"]._assess_novelty(booting, {"novelty": 0.39, "settled": 0.02})
+    check("but the same reading once it has settled is",
+          after["unusual"] and len(fired) == 1, f"{after['reason']!r}")
+
+    rc_start = coord_src.index("    def _recently_changed")
+    rc_end = coord_src.index("    def _suspects")
+    import datetime as _dtm
+    rcns = {"Any": object, "RECENT_CHANGE_SECONDS": coord_const("RECENT_CHANGE_SECONDS"),
+            "STARTUP_GRACE_SECONDS": coord_const("STARTUP_GRACE_SECONDS"),
+            "dt_util": type("U", (), {"utcnow": staticmethod(
+                lambda: _dtm.datetime.fromtimestamp(10_000.0, _dtm.timezone.utc))})}
+    exec(compile("class _C:\n" + coord_src[rc_start:rc_end] + "\n", "coordinator", "exec"), rcns)
+
+    class _St:
+        def __init__(self, state, at):
+            self.state = state
+            self.last_changed = _dtm.datetime.fromtimestamp(at, _dtm.timezone.utc)
+
+    house_now = {"sun.sun": _St("below_horizon", 9_000.0),        # stamped at boot
+                 "light.hall": _St("on", 9_990.0)}                 # a real change
+    rc = rcns["_C"].__new__(rcns["_C"])
+    rc._watched_cache = list(house_now)
+    rc._started_at = 9_000.0 - coord_const("STARTUP_GRACE_SECONDS") + 5.0
+    rc.hass = type("H", (), {"states": type("S", (), {"get": staticmethod(house_now.get)})()})()
+    listed = [row["entity_id"] for row in rcns["_C"]._recently_changed(rc)]
+    check("and what Home Assistant stamped at startup is not reported as a change",
+          listed == ["light.hall"], f"reported: {listed}")
 
     print("\n12f. Who the alert blames")
     # Suspects are traced back through the measured PN->KC wiring. Weighting by

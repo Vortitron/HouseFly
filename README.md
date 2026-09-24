@@ -316,6 +316,15 @@ call anything unusual; it says "still learning what a whole day here looks
 like" until then. A restart does not count as starting again: its familiarity
 is saved.
 
+**Nor while Home Assistant is starting up.** A house that is booting is not
+itself: entities come back unavailable and fill in over a minute or several,
+and every one of them is stamped as having just changed. With their memories
+intact, four flies read 0.024, 0.078, 0.389 and 0.588 on the first tick after
+one restart — the whole-house one hardest — and the 0.389 one raised the alert
+before it had settled. So for the first ten minutes after a start the fly keeps
+learning but passes no judgement, and changes stamped in that window are not
+reported as changes.
+
 `binary_sensor.housefly_unusual` is that, made slow enough to be worth saying:
 it stays silent until it has actually learned something, then wants two minutes
 of sustained strangeness before it speaks. **No training set, no labels, no

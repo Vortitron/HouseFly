@@ -149,6 +149,19 @@ LEARNING_DAY_SECONDS = 24 * 3600.0
 # needs two minutes above the line, so whatever set it off happened within the
 # last few; ten covers that with room.
 RECENT_CHANGE_SECONDS = 600.0
+
+# The house is not itself while Home Assistant starts. Entities come back
+# unavailable and fill in over a minute or several, and every one of them is
+# stamped as having just changed. Measured on the four-fly house, with every
+# fly's familiarity restored: first-tick novelty after one restart was 0.024,
+# 0.078, 0.389 and 0.588 across the four -- the whole-house fly hardest, as
+# you would expect of something watching the most entities come back -- and
+# the one at 0.389 took four and a half minutes to settle and raised the alert
+# on the way. Its "recent changes" were the sun and two motion sensors, all
+# stamped at the moment of the restart. A house with devices that take minutes
+# to reconnect is worse. The fly keeps learning through this; it just does not
+# pass judgement on a house that is still starting up.
+STARTUP_GRACE_SECONDS = 600.0
 FAMILIAR_ONCE = NOVELTY_UNUSUAL   # it has to have looked familiar by the same
                                   # standard used to call it unfamiliar
 
@@ -410,6 +423,7 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._unusual = False
         self._settled_since: float | None = None
         self._learning_since: float = dt_util.utcnow().timestamp()
+        self._started_at: float = dt_util.utcnow().timestamp()
         self._ever_familiar = False
         # Learned photoperiod. Starts at the textbook 06:00/18:43 and moves to
         # wherever this house's light actually goes on and off.
@@ -1187,6 +1201,14 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return {"unusual": False, "reason": "still learning what normal looks like",
                     "novelty": round(novelty, 4), "settled": round(settled, 4),
                     "learned_the_place": False, "for_seconds": 0}
+        if now - self._started_at < STARTUP_GRACE_SECONDS:
+            self._unusual_since = None
+            self._unusual = False
+            self._settled_since = None
+            return {"unusual": False,
+                    "reason": "waiting for the house to finish starting up",
+                    "novelty": round(novelty, 4), "settled": round(settled, 4),
+                    "learned_the_place": True, "for_seconds": 0}
         learning_left = LEARNING_DAY_SECONDS - (now - self._learning_since)
         if learning_left > 0:
             self._unusual_since = None
@@ -1277,7 +1299,13 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             st = self.hass.states.get(entity_id)
             if st is None:
                 continue
-            ago = now - st.last_changed.timestamp()
+            changed = st.last_changed.timestamp()
+            # Home Assistant stamps every entity as changed when it starts, so
+            # anything stamped while it was still coming up is a restoration,
+            # not a change -- otherwise the whole house "changed" at boot.
+            if changed < self._started_at + STARTUP_GRACE_SECONDS:
+                continue
+            ago = now - changed
             if 0 <= ago <= RECENT_CHANGE_SECONDS:
                 out.append({"entity_id": entity_id, "state": st.state,
                             "seconds_ago": int(ago)})
