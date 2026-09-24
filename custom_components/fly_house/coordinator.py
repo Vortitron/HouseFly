@@ -1470,6 +1470,15 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "kc_mbon_gain": base64.b64encode(
                     self.brain.kc_mbon_gain.astype(np.float32).tobytes()
                 ).decode("ascii"),
+                # The familiarity memory itself. "It has found this place
+                # familiar before" was saved and this was not, so every restart
+                # kept the latch and wiped what it was about: novelty 0.98 with
+                # the alert armed, and all four flies on the four-fly house
+                # reporting the house unusual exactly two minutes after it came
+                # back up. 1,927 floats, beside 20,391 already being written.
+                "kc_habituation": base64.b64encode(
+                    self.brain.kc_habituation.astype(np.float32).tobytes()
+                ).decode("ascii"),
                 # The learned sensory ranges are part of what the fly knows
                 # about the house; throwing them away every restart means it
                 # spends its first half hour with no resolution on any channel.
@@ -1605,6 +1614,24 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._photoperiod_from_saved(saved)
             for eid, (lo, hi, seen) in (saved.get("adaptation") or {}).items():
                 self._adaptation[eid] = SensoryAdaptation(float(lo), float(hi), int(seen))
+
+            # Familiarity and the latch that trusts it travel together. If the
+            # memory cannot come back -- state from before it was saved, or a
+            # data pack with a different number of Kenyon cells -- the fly is
+            # starting to learn the house again, and must earn the alert again
+            # rather than raising it about its own amnesia.
+            hab = saved.get("kc_habituation")
+            restored_hab = False
+            if hab:
+                values = np.frombuffer(base64.b64decode(hab), dtype=np.float32)
+                if values.shape == self.brain.kc_habituation.shape:
+                    self.brain.kc_habituation = values.copy()
+                    restored_hab = True
+            if not restored_hab and self._ever_familiar:
+                _LOGGER.info(
+                    "HouseFly could not restore what it had learned the house looks "
+                    "like, so it will learn again before calling anything unusual")
+                self._ever_familiar = False
 
             blob = saved.get("kc_mbon_gain")
             if blob:

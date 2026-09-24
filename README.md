@@ -394,6 +394,18 @@ right and is obviously wrong.
 A sleeping fly cannot act — the actuation gate refuses on mode — so shifts also
 partition *who touches what and when* without any coordination between them.
 
+**Every fly learns the same dawn.** Where this house's day is gets learned from
+the light (see below), and it is learned on the *house's* clock, not the fly's.
+Dawn is a fact about the sky; a fly's shift is its fixed phase angle to it — a
+nocturnal animal and a diurnal one entrain to the same sunrise and simply sit
+differently against it. This was once done the other way, in each fly's own
+shifted clock, which is self-consistent and quietly fatal: a +6 h fly sees the
+06:49 sunrise at its subjective 12:49, learns *that*, and ends up peaking at
+06:49 on the wall alongside the fly it was meant to cover for. On a four-fly
+house the shifted flies' learned dawns had drifted three and a half hours in
+two days. `tools/validate.py` simulates a month of sunrises both ways: the old
+frame leaves the two flies 0.0 h apart, the fixed one 6.0 h.
+
 Sleep is a bout, not a comparison. The fly counts as asleep after five minutes of
 quiescence and wakes as soon as it is roused, which is the standard criterion in
 the fly sleep literature and is also what makes `binary_sensor.*_awake` worth

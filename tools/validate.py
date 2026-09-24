@@ -1271,6 +1271,40 @@ def main() -> int:
               < init_now.index("async_extract_config_entry_ids(hass, call)"),
           "new form first, old form only for cores before the change")
 
+    print("\n12e. A restart does not make the house strange")
+    # "It has found this place familiar before" was saved across restarts and
+    # the familiarity memory was not, so every restart kept the latch and wiped
+    # the thing it latched on. Measured live: all four flies of a four-fly
+    # house raised "the house does not look like itself" exactly two minutes
+    # after it came back up, at novelty 0.98, naming the sun and a kitchen
+    # thermometer. Round-tripped here through the bytes that are written.
+    import base64 as _b64
+    rng12e = np.random.default_rng(3)
+    home12e = np.zeros(width, dtype=np.float32)
+    home12e[rng12e.choice(width, 12, replace=False)] = rng12e.uniform(0.5, 1.2, 12)
+    lived = circ.FlyBrain(); lived.settle(time_of_day=0.45)
+    for _ in range(300):
+        lived.step(circ.Senses(odour=home12e, time_of_day=0.45))
+    written = _b64.b64encode(lived.kc_habituation.astype(np.float32).tobytes()).decode("ascii")
+    amnesic = circ.FlyBrain(); amnesic.settle(time_of_day=0.45)
+    forgot = amnesic.step(circ.Senses(odour=home12e, time_of_day=0.45))["novelty"]
+    back = circ.FlyBrain(); back.settle(time_of_day=0.45)
+    back.kc_habituation = np.frombuffer(_b64.b64decode(written), dtype=np.float32).copy()
+    kept = back.step(circ.Senses(odour=home12e, time_of_day=0.45))["novelty"]
+    unusual_line = coord_const("NOVELTY_UNUSUAL")
+    check("a fly that comes back with its familiarity still knows the house",
+          kept < unusual_line,
+          f"first tick after restart: novelty {kept:.3f}, against {forgot:.3f} without it "
+          f"and an alert line at {unusual_line}")
+    check("so the familiarity memory is written with everything else",
+          '"kc_habituation": base64.b64encode(' in coord_src,
+          f"{len(lived.kc_habituation)} floats")
+    check("and when it cannot be restored, the alert is disarmed rather than trusted",
+          'if not restored_hab and self._ever_familiar:' in coord_src
+          and coord_src.index('hab = saved.get("kc_habituation")')
+              > coord_src.index('self._ever_familiar = bool(saved.get("ever_familiar"'),
+          "judged after the latch is loaded, so it can only ever disarm it")
+
     print("\n13a. A service can address one fly")
     # With one fly it never mattered which fly a call meant. With four, a feed
     # that reaches all of them is not a reward, it is weather -- and there is
