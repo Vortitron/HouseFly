@@ -1217,6 +1217,7 @@ def main() -> int:
         "NOVELTY_UNUSUAL": coord_const("NOVELTY_UNUSUAL"),
         "UNUSUAL_SECONDS": coord_const("UNUSUAL_SECONDS"),
         "UNUSUAL_CLEAR_SECONDS": coord_const("UNUSUAL_CLEAR_SECONDS"),
+        "LEARNING_DAY_SECONDS": coord_const("LEARNING_DAY_SECONDS"),
         "FAMILIAR_ONCE": coord_const("NOVELTY_UNUSUAL"),
     }
     exec(compile("class _A:\n" + coord_src[a_start:a_end] + "\n", "coordinator", "exec"), ans)
@@ -1229,6 +1230,8 @@ def main() -> int:
         f.hass = type("H", (), {"bus": type("B", (), {
             "async_fire": staticmethod(lambda name, data: fired.append(data))})()})()
         f._suspects = lambda: ([], hour_share)
+        f._recently_changed = lambda: []
+        f._learning_since = -1.0e9            # long settled, unless a test says not
         return f
 
     # The live trace, 2 s ticks: 124 s just over the line, 10 s just under,
@@ -1262,6 +1265,68 @@ def main() -> int:
     check("and when it is the house, it says that instead",
           last["reason"] == "the house does not look like itself",
           f"reason: {last['reason']!r}")
+
+    # A fly may not raise the alert until it has lived one whole day since it
+    # started learning. Every marginal alert seen live fell inside that first
+    # day: a new fly at 13:02 and 22:02, and two flies 9 and 52 minutes after an
+    # upgrade reset their learning, the second at dusk. The hour is part of the
+    # code, so being familiar at four o'clock says nothing about sunset.
+    fired.clear()
+    novice = fly_with(0.0)
+    clock.t = 1000.0
+    novice._learning_since = clock.t
+    first_day = None
+    for i in range(62):
+        clock.t = 1000.0 + 5 * 3600 + i * 2.0          # five hours in: a spike
+        first_day = ans["_A"]._assess_novelty(novice, {"novelty": 0.16, "settled": 0.02})
+    check("a fly in its first day does not raise the alert",
+          not first_day["unusual"] and not fired,
+          f"{first_day['reason']!r}, {first_day.get('learning_hours_left')} h to go")
+    for i in range(62):
+        clock.t = 1000.0 + 25 * 3600 + i * 2.0         # a day and an hour in
+        later = ans["_A"]._assess_novelty(novice, {"novelty": 0.16, "settled": 0.02})
+    check("but a day later the same surprise does",
+          later["unusual"] and len(fired) == 1, f"reason {later['reason']!r}")
+    check("and every way of starting to learn again restarts the day",
+          coord_src.count("self._ever_familiar = False\n                self._learning_since = dt_util.utcnow().timestamp()") >= 2,
+          "a nose change, and a familiarity memory that could not be restored")
+
+    print("\n12f. Who the alert blames")
+    # Suspects are traced back through the measured PN->KC wiring. Weighting by
+    # what each channel is carrying removes the silent channels that made small
+    # flies name nobody; what the trace cannot do at all is name something that
+    # has *gone*, which stays documented here as a negative result.
+    def trace_trial(seed, appear):
+        tb = circ.FlyBrain(); w = tb.n_odour_channels
+        r = np.random.default_rng(seed)
+        pool = r.choice(w, 16, replace=False)
+        fed, extra = pool[:12], pool[12:]
+        base = np.zeros(w, dtype=np.float32); base[fed] = r.uniform(0.5, 1.2, 12)
+        tb.settle(time_of_day=0.45)
+        for _ in range(300):
+            tb.step(circ.Senses(odour=base, time_of_day=0.45))
+        now_smell = base.copy()
+        target = extra if appear else fed[:4]
+        now_smell[target] = 1.0 if appear else 0.0
+        for _ in range(3):
+            tb.step(circ.Senses(odour=now_smell, time_of_day=0.45))
+        top = tb.novel_channels(top=4)
+        silent = sum(1 for ch, _ in top if ch < w and base[ch] == 0 and now_smell[ch] == 0)
+        on_target = sum(sh for ch, sh in top if ch in set(int(x) for x in target))
+        return silent, on_target
+    appeared = [trace_trial(s, True) for s in (0, 1, 3)]
+    vanished = [trace_trial(s, False) for s in (0, 1)]
+    check("the trace never blames a channel nothing is arriving on",
+          all(sl == 0 for sl, _ in appeared + vanished),
+          f"silent channels in the top four: {[sl for sl, _ in appeared + vanished]}")
+    mean_on = sum(o for _, o in appeared) / len(appeared)
+    check("and names things that appeared well above chance",
+          mean_on > 0.25, f"{mean_on:.0%} of its share on what appeared, "
+          f"against about 3% for four channels of 131")
+    check("but cannot name what went away -- which is why recent changes ride along",
+          all(o == 0 for _, o in vanished)
+          and '"recently_changed": self._recently_changed()' in coord_src,
+          "0% on inputs that switched off: nothing arrives on them to trace")
 
     init_now = (ROOT / "custom_components" / "fly_house" / "__init__.py").read_text()
     check("the service helper is called the way HA 2026.10 will still accept",

@@ -134,6 +134,21 @@ DISTANCE_UNITS = {"cm": 0.01, "mm": 0.001, "m": 1.0, "km": 1000.0}
 NOVELTY_UNUSUAL = 0.10
 UNUSUAL_SECONDS = 120.0
 UNUSUAL_CLEAR_SECONDS = 60.0   # and it must stay settled this long to stand down
+
+# A fly must have lived one whole day in this house -- with these senses --
+# before it may call anything unusual. The hour is part of the Kenyon code, so
+# having found the house familiar at four in the afternoon says nothing about
+# what it looks like at dusk. Every marginal alert seen live fell inside the
+# first day of learning: a new fly at 13:02 and 22:02 on its first day, and
+# two flies 9 and 52 minutes after an upgrade restarted their learning, the
+# second of them at 18:44, which is when the sun goes down there. Found the
+# house familiar once, then met an hour it had never lived through.
+LEARNING_DAY_SECONDS = 24 * 3600.0
+
+# How far back "recently changed" looks when an alert is raised. The alert
+# needs two minutes above the line, so whatever set it off happened within the
+# last few; ten covers that with room.
+RECENT_CHANGE_SECONDS = 600.0
 FAMILIAR_ONCE = NOVELTY_UNUSUAL   # it has to have looked familiar by the same
                                   # standard used to call it unfamiliar
 
@@ -394,6 +409,7 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._unusual_since: float | None = None
         self._unusual = False
         self._settled_since: float | None = None
+        self._learning_since: float = dt_util.utcnow().timestamp()
         self._ever_familiar = False
         # Learned photoperiod. Starts at the textbook 06:00/18:43 and moves to
         # wherever this house's light actually goes on and off.
@@ -1171,6 +1187,16 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return {"unusual": False, "reason": "still learning what normal looks like",
                     "novelty": round(novelty, 4), "settled": round(settled, 4),
                     "learned_the_place": False, "for_seconds": 0}
+        learning_left = LEARNING_DAY_SECONDS - (now - self._learning_since)
+        if learning_left > 0:
+            self._unusual_since = None
+            self._unusual = False
+            self._settled_since = None
+            return {"unusual": False,
+                    "reason": "still learning what a whole day here looks like",
+                    "novelty": round(novelty, 4), "settled": round(settled, 4),
+                    "learned_the_place": False, "for_seconds": 0,
+                    "learning_hours_left": round(learning_left / 3600.0, 1)}
 
         if novelty >= NOVELTY_UNUSUAL:
             self._settled_since = None
@@ -1214,6 +1240,11 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "learned_the_place": True,
             "for_seconds": int(held),
             "suspects": suspects,
+            # Not the mushroom body's opinion -- the coordinator's record of what
+            # in the fly's senses actually changed just now. The trace above can
+            # name things that appeared and structurally cannot name things that
+            # went away; this names both, and says it is only a record.
+            "recently_changed": self._recently_changed() if self._unusual else [],
             "hour_share": round(hour_share, 3),
             "reason": reason,
         }
@@ -1233,6 +1264,25 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "HouseFly: something unusual (novelty %.2f for %ds); suspect channels %s",
                 novelty, int(held), ", ".join(x["entity_id"] for x in report["suspects"]) or "none")
         return report
+
+    def _recently_changed(self) -> list[dict[str, Any]]:
+        """What among the watched entities changed state in the last few minutes.
+
+        A record, not an inference. Sorted most recent first, so the change that
+        tipped the alert tends to lead the list.
+        """
+        now = dt_util.utcnow().timestamp()
+        out: list[dict[str, Any]] = []
+        for entity_id in self._watched_cache:
+            st = self.hass.states.get(entity_id)
+            if st is None:
+                continue
+            ago = now - st.last_changed.timestamp()
+            if 0 <= ago <= RECENT_CHANGE_SECONDS:
+                out.append({"entity_id": entity_id, "state": st.state,
+                            "seconds_ago": int(ago)})
+        out.sort(key=lambda row: row["seconds_ago"])
+        return out[:6]
 
     def _suspects(self) -> tuple[list[dict[str, Any]], float]:
         """Which configured inputs the surprise is arriving through.
@@ -1491,6 +1541,7 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "photoperiod_frame": "house",
                 "photoperiod_light": sorted(self.light_entities),
                 "ever_familiar": bool(self._ever_familiar),
+                "learning_since": self._learning_since,
                 "nose": self._nose_fingerprint(),
                 "adaptation": {
                     eid: [c.lo, c.hi, c.seen] for eid, c in self._adaptation.items()
@@ -1584,6 +1635,14 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if saved.get("position"):
                 self.pos = np.asarray(saved["position"], dtype=np.float64)
             self._ever_familiar = bool(saved.get("ever_familiar", False))
+            # State from before this was kept has no learning_since. A fly that
+            # comes back already familiar has, by definition, been living here;
+            # one that does not is starting now.
+            since = saved.get("learning_since")
+            if since is not None:
+                self._learning_since = float(since)
+            elif self._ever_familiar:
+                self._learning_since = 0.0
             # "It has looked familiar before" is a claim about a particular set
             # of senses. Change which entities the fly can smell and the odour
             # channels are remapped wholesale: novelty jumps to near 1.0 and the
@@ -1611,6 +1670,7 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         "what normal looks like again before it will call "
                         "anything unusual")
                 self._ever_familiar = False
+                self._learning_since = dt_util.utcnow().timestamp()
             self._photoperiod_from_saved(saved)
             for eid, (lo, hi, seen) in (saved.get("adaptation") or {}).items():
                 self._adaptation[eid] = SensoryAdaptation(float(lo), float(hi), int(seen))
@@ -1632,6 +1692,7 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     "HouseFly could not restore what it had learned the house looks "
                     "like, so it will learn again before calling anything unusual")
                 self._ever_familiar = False
+                self._learning_since = dt_util.utcnow().timestamp()
 
             blob = saved.get("kc_mbon_gain")
             if blob:

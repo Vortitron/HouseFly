@@ -122,7 +122,7 @@
       <div class="stat"><b>126,108</b><span>SYNAPSES</span></div>
       <div class="stat"><b>20,391</b><span>PLASTIC SYNAPSES</span></div>
       <div class="stat"><b>428&nbsp;KB</b><span>DATA PACK</span></div>
-      <div class="stat"><b>138</b><span>CHECKS, ALL PASSING</span></div>
+      <div class="stat"><b>144</b><span>CHECKS, ALL PASSING</span></div>
       <div class="stat"><b>0</b><span>GPUS</span></div>
     </div>
     <div class="cta">
@@ -504,9 +504,17 @@ figure, how long it has held, and a shortlist of <strong>suspects</strong> — w
 the surprise is arriving through, obtained by reading the measured PN→KC wiring backwards from the
 cells that are active and have not habituated.</p>
 <p>This is not a diagnosis. The Kenyon code is a hash, hashes do not invert, and channels collide
-whenever there are more entities than glomeruli. Measured on a synthetic input, three of the top
-four channels were among the eight actually driven and one was not. It narrows the field, which is
-all you need from something that is about to hand the question to a system that can go and look.</p>
+whenever there are more entities than glomeruli. Each channel is weighted by what is actually arriving
+on it, so a channel nothing feeds is never blamed; when four new things switch on, about half the share
+lands on those four, against about 3% by chance.</p>
+<p><strong>What it cannot do is name something that went away.</strong> A trace backwards through
+current activity has nothing to follow on a channel whose input just switched off — 0% in every trial.
+So the event also carries <code>recently_changed</code>, the coordinator's plain record of what changed
+in the last ten minutes, labelled as a record rather than an inference. Together they narrow the field,
+which is all you need from something about to hand the question to a system that can go and look.</p>
+<p>And it keeps quiet for its first day. The hour is part of what it knows, so being familiar at four
+in the afternoon says nothing about dusk — every marginal alert seen live fell in a fly's first day of
+learning, one of them at sunset.</p>
 </div>
 
 <div class="panel">
@@ -617,7 +625,7 @@ a tick costs a fraction of what it covers  59 ms of CPU for 2 s of fly  <span cl
 nothing but the fetcher reaches the network  0 offenders                 <span class="pass">PASS</span>
 an empty quiet-hours window means never    not, as it did, always       <span class="pass">PASS</span>
 
-138/138 checks passed</code></pre>
+144/144 checks passed</code></pre>
 
 <h2 id="where">Where the brain lives</h2>
 <p class="lede">On your own machine, and it is not talking to anything. The wiring diagram is a

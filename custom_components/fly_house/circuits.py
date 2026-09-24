@@ -664,6 +664,7 @@ class FlyBrain:
         # output weakens where it has been active before), and it still drives
         # the network through the alpha'3 edges.
         self.kc_habituation = np.ones(len(self.i_kc), dtype=np.float32)
+        self._pn_drive = np.zeros(len(self.i_pn), dtype=np.float32)
         self.kc_slot = np.full(d.n, -1, dtype=np.int32)
         self.kc_slot[self.i_kc] = np.arange(len(self.i_kc), dtype=np.int32)
         self.novelty = 1.0
@@ -853,6 +854,27 @@ class FlyBrain:
             bump = np.maximum(np.cos(phase - centres), 0.0) ** 2
             inj[self.i_clock_ctx] += (CLOCK_CONTEXT_GAIN * bump).astype(np.float32)
 
+        # What each projection-neuron channel is being *told* this tick -- the
+        # house's smell on the odour channels, the clock's bump on the context
+        # ones -- for novel_channels, which must know which channels carry
+        # anything before it blames one. Built from the senses, not read back
+        # out of inj: inj also holds the tonic background every neuron gets, so
+        # a channel with nothing arriving still looked faintly driven, and a
+        # silent channel could still make the top four. Measured both ways:
+        # the snapshot let one in on two trials of five and put 38% of the share
+        # on what had appeared; the sensory drive lets none in and puts 48%.
+        drive = np.zeros(len(self.i_pn), dtype=np.float32)
+        if senses.odour is not None and len(self.i_pn):
+            k = min(len(self.i_pn), len(senses.odour))
+            drive[:k] = senses.odour[:k].astype(np.float32) * 0.9
+        if len(self.i_clock_ctx):
+            n = len(self.i_clock_ctx)
+            phase = (senses.time_of_day % 1.0) * 2.0 * math.pi
+            centres = np.arange(n, dtype=np.float32) * (2.0 * math.pi / n)
+            drive[-n:] += (CLOCK_CONTEXT_GAIN
+                           * np.maximum(np.cos(phase - centres), 0.0) ** 2).astype(np.float32)
+        self._pn_drive = drive
+
         # --- Looming: LPLC2 ------------------------------------------------
         # LPLC2 is the population that detects expanding dark edges and drives
         # escape. Feed it optic expansion, not a generic "motion" number.
@@ -973,7 +995,23 @@ class FlyBrain:
         if act.sum() <= 1e-6:
             return []
         surprise = act * self.kc_habituation          # active AND still novel
-        weight = surprise[self.pn_kc_kc] * self.pn_kc_w
+        # Each channel's share is what it actually sent to the surprised cells:
+        # its drive, times the synapse, times how surprised the cell is. This
+        # used to leave the drive out, so every projection neuron wired to a
+        # surprised Kenyon cell got blamed whether or not anything was arriving
+        # on it -- and a fly watching twelve entities has about 110 channels
+        # carrying nothing. Measured: three of the top four suspects were such
+        # silent channels, which is why alerts on small-territory flies named
+        # nobody. With the drive in, silent channels drop out entirely and the
+        # share landing on inputs that had just appeared rises from 29% to 48%
+        # (chance, for four of 131 channels, is about 3%).
+        #
+        # What it still cannot do, by construction: name something that has
+        # *gone*. A channel whose input just switched off is sending nothing,
+        # so a trace that runs through current activity gives it no share at
+        # all -- 0% in every trial. The coordinator reports recent changes
+        # alongside for exactly that reason.
+        weight = surprise[self.pn_kc_kc] * self.pn_kc_w * self._pn_drive[self.pn_kc_pn]
         scores = np.bincount(self.pn_kc_pn, weights=weight, minlength=len(self.i_pn))
         total = float(scores.sum())
         if total <= 1e-9:

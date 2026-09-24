@@ -291,10 +291,30 @@ habituated.
 
 Not "what is wrong": the Kenyon code is a hash and a hash does not invert, and
 channels collide because a random projection with more entities than glomeruli
-must. Measured on a synthetic input, three of the top four channels were among
-the eight genuinely driven and one was not. It narrows the field, which is the
-right job for something whose next step is to hand the question to a system
-that can actually go and look.
+must. Each channel's share is weighted by what is actually arriving on it, so a
+channel nothing feeds is never blamed — before that, on a fly watching twelve
+entities, three of the top four "suspects" were channels carrying nothing, and
+alerts named nobody. Measured on a house where four new things switch on, 49% of
+the share lands on those four, against about 3% by chance.
+
+**What it cannot do, and this stays written down: name something that went
+away.** A trace that runs backwards through current activity has nothing to
+follow on a channel whose input just switched off — 0% of the share in every
+trial. So the event also carries `recently_changed`: the entities it watches
+that changed state in the last ten minutes, most recent first. That is the
+coordinator's record, not the mushroom body's inference, and it is labelled as
+such. Between them they narrow the field, which is the right job for something
+whose next step is to hand the question to a system that can go and look.
+
+**It will not raise the alert in its first day.** The hour is part of what the
+fly knows, so having found the house familiar at four in the afternoon says
+nothing about what it looks like at dusk. Every marginal alert seen on a live
+house fell inside a fly's first day of learning — one of them at 18:44, which is
+when the sun goes down there. A fly must have lived one whole day since it last
+started learning (a new install, or a change to what it watches) before it may
+call anything unusual; it says "still learning what a whole day here looks
+like" until then. A restart does not count as starting again: its familiarity
+is saved.
 
 `binary_sensor.housefly_unusual` is that, made slow enough to be worth saying:
 it stays silent until it has actually learned something, then wants two minutes
