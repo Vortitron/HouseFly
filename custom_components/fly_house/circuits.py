@@ -152,6 +152,29 @@ SLEEP_BELOW = 0.34
 # sitting still -- which comes out as "groom", and is the honest answer.
 SLEEP_BOUT_SECONDS = 300.0
 
+# Sleep pressure: the homeostat. The clock says *when* a fly would like to
+# sleep; how long it has been up says how badly. In Drosophila that drive is
+# carried by its own circuits -- R5 ellipsoid-body neurons that potentiate with
+# time awake (Liu et al. 2016) and dorsal fan-shaped body neurons that switch
+# sleep on (Donlea et al. 2011) -- and it is what makes a deprived fly sleep
+# more afterwards.
+#
+# Without it the clock was the only reason to sleep, and a fly whose clock is
+# held up by a busy house never did: The Watcher, smelling 101 entities, did
+# not sleep once in a week, because its night-time arousal never fell below
+# 0.50 against a line at 0.34. Pressure raises the line instead. Replaying a
+# day of each live fly's real arousal through this rule: The Watcher sleeps
+# 12% of the day in about a dozen broken bouts -- a fly in a noisy room --
+# while the quiet flies move from 36% to 40% and from 29% to 39%.
+#
+# The two time constants are borrowed from the two-process model of human
+# sleep (Daan, Beersma & Borbely 1984): builds over about 18 h awake, clears
+# over about 4 h asleep. The fly's are not measured to that precision; the
+# shape -- slow to build, quick to discharge -- is what matters.
+SLEEP_PRESSURE_GAIN = 0.45
+SLEEP_PRESSURE_BUILD = 18.0 * 3600.0     # seconds awake
+SLEEP_PRESSURE_CLEAR = 4.0 * 3600.0      # seconds asleep
+
 # Spike-frequency adaptation. Every neuron accumulates a slow self-inhibition
 # in proportion to how much it has recently been firing.
 #
@@ -421,6 +444,7 @@ class FlyBrain:
     valence: float = 0.0
     arousal: float = 0.5
     hunger: float = 0.2
+    sleep_pressure: float = 0.0
 
     def __post_init__(self) -> None:
         d = self.data
@@ -558,6 +582,37 @@ class FlyBrain:
         # Settling is deliberately *not* done here. It takes a couple of
         # seconds of CPU, and FlyBrain is constructed on Home Assistant's event
         # loop; the coordinator calls settle() from an executor thread instead.
+
+    @property
+    def asleep(self) -> bool:
+        """Whether the current quiet has lasted a full bout."""
+        return self._quiet_for >= SLEEP_BOUT_SECONDS
+
+    @property
+    def sleep_line(self) -> float:
+        """The arousal below which quiet counts towards sleep, raised by pressure."""
+        return SLEEP_BELOW + SLEEP_PRESSURE_GAIN * self.sleep_pressure
+
+    def _sleep_bout(self, seconds: float) -> bool:
+        """Advance the bout counter; True once the quiet has lasted a bout.
+
+        Quiescence has to be sustained before it is sleep; any rise above the
+        line ends the bout immediately. Where the line sits depends on how long
+        the fly has been up. See SLEEP_PRESSURE_GAIN.
+        """
+        if self.arousal < self.sleep_line:
+            self._quiet_for += seconds
+        else:
+            self._quiet_for = 0.0
+        return self.asleep
+
+    def _carry_pressure(self, asleep: bool, seconds: float) -> None:
+        """Pressure builds while up and clears while asleep."""
+        if asleep:
+            self.sleep_pressure -= self.sleep_pressure * seconds / SLEEP_PRESSURE_CLEAR
+        else:
+            self.sleep_pressure += (1.0 - self.sleep_pressure) * seconds / SLEEP_PRESSURE_BUILD
+        self.sleep_pressure = float(min(max(self.sleep_pressure, 0.0), 1.0))
 
     def settle(self, time_of_day: float = 0.5, seconds: float = 120.0) -> None:
         """Run the network forward with no sensory input, to a resting state.
@@ -878,7 +933,16 @@ class FlyBrain:
         # --- Looming: LPLC2 ------------------------------------------------
         # LPLC2 is the population that detects expanding dark edges and drives
         # escape. Feed it optic expansion, not a generic "motion" number.
-        if senses.looming > 0.0 and len(self.i_loom):
+        #
+        # Not while it is asleep. Reduced responsiveness is what *defines*
+        # sleep in a fly (Hendricks et al. 2000; Shaw et al. 2000), and without
+        # it the house could not leave a sleeping fly alone: every walk past the
+        # demo's radar fired one tick of escape, the awake sensor flicked on
+        # for two seconds and straight off again -- 720 times a day per fly,
+        # the very chatter the sleep bout was meant to end -- and the escape
+        # drive kicked a sleeping body across the room. Light still wakes it,
+        # through the clock, and so does being swatted: loom() ends the bout.
+        if senses.looming > 0.0 and len(self.i_loom) and not self.asleep:
             inj[self.i_loom] += np.float32(senses.looming * 1.4)
 
         # --- Dopaminergic teaching signals ---------------------------------
@@ -1143,20 +1207,15 @@ class FlyBrain:
             base * (1.0 - 0.6 * abs(self.turn)) + 2.5 * escape, 0.0, 3.0
         ))
 
-        # Quiescence has to be sustained before it is sleep; any rise above the
-        # line ends the bout immediately.
-        if self.arousal < SLEEP_BELOW:
-            self._quiet_for += self._last_seconds
-        else:
-            self._quiet_for = 0.0
-
+        asleep = self._sleep_bout(self._last_seconds)
         mode = (
             "escape" if escape > 0.15
-            else "sleep" if self._quiet_for >= SLEEP_BOUT_SECONDS
+            else "sleep" if asleep
             else "forage" if self.hunger > 0.5
             else "walk" if self.speed > 0.25
             else "groom"
         )
+        self._carry_pressure(mode == "sleep", self._last_seconds)
 
         return {
             "heading": self.heading,
@@ -1167,6 +1226,8 @@ class FlyBrain:
             "escape": round(escape, 4),
             "valence": round(self.valence, 4),
             "arousal": round(self.arousal, 4),
+            "sleep_pressure": round(self.sleep_pressure, 4),
+            "sleep_line": round(self.sleep_line, 4),
             "mode": mode,
             "tick": self.tick,
             "kc_active": kc_active,

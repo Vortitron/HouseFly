@@ -901,12 +901,16 @@ def main() -> int:
           f"{steered} landings in 100 simulated minutes, against {drifting} while "
           "flying a fixed heading")
 
-    # Nothing to touch means nothing to stand on.
+    # Nothing to touch and nothing watched means nothing to stand on. A fly
+    # that only watches does get places -- the things it watches, so that it
+    # can land and eat (14b) -- but never anything invented.
     stub._layout = []
     stub.output_entities = []
-    check("and nothing to touch means nothing to stand on",
+    stub._watched_cache = []
+    ns["NOTIONAL_PLACES"] = coord_const_int("NOTIONAL_PLACES")
+    check("and with nothing to touch or watch there is nothing to stand on",
           ns["_C"]._effective_layout(stub) == [],
-          "observe-only installs get no phantom furniture")
+          "no phantom furniture: every place is a real entity")
 
     print("\n11e. Shifts: six hours, not twelve")
     # The obvious way to put a fly on nights is to move its day by twelve
@@ -1624,21 +1628,10 @@ def main() -> int:
     # Hunger has to cycle. Pinned at its maximum it is not a drive, and it takes
     # "walk" and "groom" out of the mode vocabulary entirely, because mode asks
     # about hunger before it asks about speed.
-    rise, fall = coord_const("HUNGER_RISE"), coord_const("HUNGER_FALL")
+    rise = coord_const("HUNGER_RISE")
     to_full = (1.0 - 0.2) / rise / 3600.0
-    to_empty = 1.0 / fall / 3600.0
     check("hunger takes hours to build, not minutes",
           to_full > 4.0, f"{to_full:.1f} h awake to go from its default to full")
-    check("and a night discharges it",
-          to_empty < 24.0, f"{to_empty:.1f} h asleep to go from full to empty")
-    # The rates have to balance against a 9-up/15-down day, not an even one.
-    up, down = rise * 9 * 3600, fall * 15 * 3600
-    check("a day's waking hours carry it across the forage line",
-          0.2 + up > 0.5, f"+{up:.2f} over 9 h up, from a 0.2 default")
-    check("and a night carries it back under",
-          1.0 - down < 0.5, f"-{down:.2f} over 15 h asleep")
-    check("so it cycles instead of drifting to a rail",
-          abs(up - down) < 0.1 * up, f"+{up:.2f} a day against -{down:.2f} a night")
 
     # The regression that actually bit: with hunger latched high, an awake fly
     # can only ever forage, because mode asks about hunger before speed. Drive
@@ -1660,6 +1653,194 @@ def main() -> int:
     check("and a fed one does not -- walk and groom are live, not dead branches",
           "forage" not in fed and bool(fed & {"walk", "groom"}),
           f"modes seen at hunger 0.1: {sorted(fed)}")
+
+    print("\n14b. Meals, not a timetable, bring hunger down")
+    # The previous fix let sleep discharge hunger at rates balanced for a fly
+    # awake three hours in eight. The live Swarm flies were awake two in three,
+    # and a week later every one was pinned again. Run the coordinator's own
+    # meal code through a week at the waking share the live flies actually
+    # had, with the sleep-discharge rule beside it as the control.
+    from types import SimpleNamespace as _NS
+    coord_src = (ROOT / "custom_components" / "fly_house" / "coordinator.py").read_text()
+    meal_src = coord_src[coord_src.index("    def _eat_or_starve"):
+                         coord_src.index("    # ---------------------------------------------------------------- action")]
+    clock = {"t": 0.0}
+    ns = {"np": np, "Any": object,
+          "dt_util": _NS(utcnow=lambda: _NS(timestamp=lambda: clock["t"])),
+          **{k: coord_const(k) for k in ("HUNGER_RISE", "HUNGER_ASLEEP", "MEAL_RATE",
+                                          "SATED", "MEAL_RESUME_SECONDS")}}
+    exec(compile("class _C:\n" + meal_src, "coordinator", "exec"), ns)
+
+    def fresh_fly():
+        f = ns["_C"].__new__(ns["_C"])
+        f.brain = _NS(hunger=0.2)
+        f._tick_interval = 2
+        f._eating, f._meal_at, f._meal_ended_at = False, None, 0.0
+        f._meals, f._last_meal_at, f._pending_reward = 0, None, 0.0
+        f._under = None
+        f._entity_under_fly = lambda: f._under
+        return f
+
+    def week(awake_share, rule):
+        f = fresh_fly()
+        old_fall = 1.3e-5                        # the rule being replaced, as the control
+        foraging_for, pinned, awake, forage, rewards = 0, 0, 0, 0, 0
+        for tick in range(7 * 43200):
+            clock["t"] = tick * 2.0
+            asleep = (tick % 43200) / 43200 >= awake_share
+            mode = "sleep" if asleep else ("forage" if f.brain.hunger > 0.5 else "walk")
+            foraging_for = foraging_for + 1 if mode == "forage" else 0
+            # A forager reaches something within a minute and stays on it; a
+            # walker is somewhere else.
+            f._under = "light.a" if foraging_for > 30 or f._eating else None
+            if rule == "meals":
+                f._pending_reward = 0.0
+                f._eat_or_starve({"mode": mode})
+                rewards += f._pending_reward > 0
+            else:
+                f.brain.hunger = min(1.0, max(0.0, f.brain.hunger + 2 * (
+                    -old_fall if asleep else rise)))
+            if not asleep:
+                awake += 1
+                forage += mode == "forage"
+            pinned += f.brain.hunger >= 0.99
+        return pinned / (7 * 43200), forage / max(awake, 1), f._meals, rewards
+
+    old_pin, old_forage, _, _ = week(0.65, "sleep")
+    new_pin, new_forage, meals, rewards = week(0.65, "meals")
+    check("at the live flies' real waking share, the old rule pins and meals do not",
+          old_pin > 0.3 and new_pin == 0.0,
+          f"time at 99%+ hunger over a week: {old_pin:.0%} sleep-discharged, {new_pin:.0%} with meals")
+    check("so a fed fly spends most of its waking day doing something other than forage",
+          old_forage > 0.9 and new_forage < 0.5,
+          f"foraging {old_forage:.1%} of waking time before, {new_forage:.1%} now")
+    q_pin, q_forage, _, _ = week(0.375, "meals")
+    check("and it does not depend on how much the house lets it sleep",
+          q_pin == 0.0 and q_forage < 0.5,
+          f"at three hours in eight awake: {q_pin:.0%} pinned, foraging {q_forage:.1%}")
+    check("one reward per meal, not per mouthful",
+          meals > 7 and rewards == meals, f"{meals} meals in a week, {rewards} rewards")
+
+    f = fresh_fly()
+    f.brain.hunger, f._under = 0.9, "light.a"
+    for tick in range(400):
+        clock["t"] = 1e6 + tick * 2.0
+        f._eat_or_starve({"mode": "forage" if f.brain.hunger > 0.5 else "walk"})
+    check("a meal runs to satiety, not just under the line",
+          f.brain.hunger <= coord_const("SATED") + 0.02 and not f._eating,
+          f"left the food at {f.brain.hunger:.2f}, forage line 0.5, sated "
+          f"{coord_const('SATED')}")
+    f = fresh_fly()
+    f.brain.hunger, f._under = 0.9, "light.a"
+    f._eat_or_starve({"mode": "forage"})
+    f._under = None
+    f._eat_or_starve({"mode": "forage"})
+    check("and leaving the food ends it",
+          not f._eating, "walked off mid-meal; eating is now off")
+    f = fresh_fly()
+    f.brain.hunger = 0.5
+    for _ in range(100):
+        f._eat_or_starve({"mode": "sleep"})
+    slept = f.brain.hunger - 0.5
+    check("a sleeping fly burns less, but sleep does not feed it",
+          0.0 < slept < 100 * 2 * rise,
+          f"+{slept:.5f} over 200 s asleep against +{200 * rise:.5f} awake")
+    # The whole-house fly could not eat because it had nowhere to land: no
+    # outputs meant no notional room. It now walks among what it watches.
+    layout_src = coord_src[coord_src.index("    def _effective_layout"):
+                           coord_src.index("    def _landmarks")]
+    lns = {"math": math, "Any": object, "NOTIONAL_PLACES": coord_const_int("NOTIONAL_PLACES")}
+    exec(compile("class _C:\n" + layout_src + "\n", "coordinator", "exec"), lns)
+    watcher = lns["_C"].__new__(lns["_C"])
+    watcher._layout, watcher._viewport, watcher.output_entities = [], (1920.0, 1080.0), []
+    watcher._watched_cache = [f"sensor.thing_{i:03d}" for i in range(101)]
+    grid = lns["_C"]._effective_layout(watcher)
+    check("a fly that may touch nothing still has somewhere to land",
+          0 < len(grid) <= 9 and all(c["entity"] in watcher._watched_cache for c in grid),
+          f"{len(grid)} places drawn from 101 watched entities")
+
+    print("\n14c. A fly that is kept up sleeps anyway")
+    # The clock was the only reason to sleep, so a fly whose clock a busy house
+    # held up never did: The Watcher, smelling 101 entities, did not sleep once
+    # in a week. Replay arousal shaped like its real day (never under 0.50, a
+    # night floor near 0.55) and like a quiet fly's, through the brain's own
+    # bout and pressure code, with the pressure gain zeroed as the control.
+    def replay_sleep(trace, gain=None, days=5):
+        b = circ.FlyBrain.__new__(circ.FlyBrain)
+        b._quiet_for, b.sleep_pressure = 0.0, 0.0
+        saved = circ.SLEEP_PRESSURE_GAIN
+        if gain is not None:
+            circ.SLEEP_PRESSURE_GAIN = gain
+        try:
+            slept, bouts, was = 0, 0, False
+            for d in range(days):
+                for x in trace:
+                    b.arousal = x
+                    asleep = circ.FlyBrain._sleep_bout(b, 60.0)
+                    circ.FlyBrain._carry_pressure(b, asleep, 60.0)
+                    if d == days - 1:
+                        slept += asleep
+                        bouts += asleep and not was
+                    was = asleep
+        finally:
+            circ.SLEEP_PRESSURE_GAIN = saved
+        return slept / len(trace), bouts
+
+    minutes = np.arange(1440) / 60.0
+    rng = np.random.default_rng(3)
+    busy = 0.72 + 0.17 * np.cos((minutes - 11.0) / 24 * 2 * math.pi) + rng.normal(0, 0.03, 1440)
+    quiet = 0.45 + 0.45 * np.cos((minutes - 13.0) / 24 * 2 * math.pi) + rng.normal(0, 0.03, 1440)
+    busy, quiet = np.clip(busy, 0.5, 1.0), np.clip(quiet, 0.0, 1.0)
+    never, _ = replay_sleep(busy, gain=0.0)
+    kept_up, kept_bouts = replay_sleep(busy)
+    q_before, _ = replay_sleep(quiet, gain=0.0)
+    q_after, _ = replay_sleep(quiet)
+    check("a fly a busy house holds up still sleeps, in broken bouts",
+          never == 0.0 and kept_up > 0.05 and kept_bouts >= 2,
+          f"{never:.0%} asleep without pressure, {kept_up:.0%} with, in {kept_bouts} bouts")
+    check("while a quiet fly's sleep barely moves",
+          abs(q_after - q_before) < 0.12,
+          f"{q_before:.0%} -> {q_after:.0%} of the day asleep")
+    b = circ.FlyBrain.__new__(circ.FlyBrain)
+    b.sleep_pressure = 0.0
+    for _ in range(18 * 60):
+        circ.FlyBrain._carry_pressure(b, False, 60.0)
+    up = b.sleep_pressure
+    for _ in range(4 * 60):
+        circ.FlyBrain._carry_pressure(b, True, 60.0)
+    check("pressure is slow to build and quick to clear",
+          0.5 < up <= 1.0 and b.sleep_pressure < up * 0.6,
+          f"{up:.2f} after a day up, {b.sleep_pressure:.2f} after four hours down")
+
+    print("\n14d. The house does not startle a sleeping fly; a swat does")
+    # Every walk past the demo radar fired one tick of escape in a sleeping
+    # fly: the awake sensor flicked on for two seconds and off again 720 times
+    # a day, and the escape drive kicked a sleeping body across the room.
+    def startled(asleep):
+        b = circ.FlyBrain()
+        b.settle(time_of_day=0.375)
+        b._quiet_for = circ.SLEEP_BOUT_SECONDS if asleep else 0.0
+        modes, peak = set(), 0.0
+        for _ in range(6):
+            out = b.step(circ.Senses(time_of_day=0.375, looming=1.25), sub_steps=20)
+            if not asleep:
+                b._quiet_for = 0.0
+            modes.add(out["mode"])
+            peak = max(peak, out["escape"])
+        return modes, peak
+
+    awake_modes, awake_peak = startled(False)
+    asleep_modes, asleep_peak = startled(True)
+    check("an approach that makes a waking fly bolt",
+          "escape" in awake_modes, f"modes {sorted(awake_modes)}, escape {awake_peak:.3f}")
+    check("leaves a sleeping one asleep, and where it was",
+          asleep_modes == {"sleep"} and asleep_peak < 0.05,
+          f"modes {sorted(asleep_modes)}, escape {asleep_peak:.3f}")
+    loom_src = coord_src[coord_src.index("    def loom"):coord_src.index("    def see")]
+    check("but swatting it ends the bout first",
+          "self.brain._quiet_for = 0.0" in loom_src
+          and loom_src.index("_quiet_for") < loom_src.index("_pending_loom ="),
+          "the loom service wakes it, then the looming arrives")
 
     ok = all(_results)
     print(f"\n{sum(_results)}/{len(_results)} checks passed\n")

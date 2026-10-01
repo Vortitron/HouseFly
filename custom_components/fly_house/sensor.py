@@ -115,6 +115,10 @@ SENSORS: tuple[FlySensorDescription, ...] = (
             # Where this house's day was measured to be. Learning it and then
             # not showing it means nobody can tell whether it worked.
             **d.get("photoperiod", {}),
+            # The clock says when; this says how badly. Sleep starts when
+            # arousal stays under sleep_line, which rises with time awake.
+            "sleep_pressure": d.get("sleep_pressure", 0.0),
+            "sleep_line": d.get("sleep_line", 0.34),
         },
     ),
     FlySensorDescription(
@@ -124,6 +128,11 @@ SENSORS: tuple[FlySensorDescription, ...] = (
         native_unit_of_measurement=PERCENTAGE,
         state_class=SensorStateClass.MEASUREMENT,
         value=lambda d, c: round(d.get("hunger", 0.0) * 100),
+        attrs=lambda d, c: {
+            "eating": d.get("eating"),
+            "meals": d.get("meals", 0),
+            "last_meal": d.get("last_meal"),
+        },
     ),
     FlySensorDescription(
         key="kenyon_cells",

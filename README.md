@@ -456,6 +456,37 @@ measured overnight on a live house, one fly's went on and off eight times in
 eighty seconds. Waking is not instant, because the arousal cells integrate over
 minutes — turning a light on gets it up in well under a bout, not on the tick.
 
+The clock says *when* a fly would like to sleep; how long it has been up says how
+badly. That second drive is real fly biology — R5 ellipsoid-body neurons
+potentiate with time awake (Liu et al. 2016), and it is why a deprived fly sleeps
+more afterwards — and without it a fly whose clock a busy house held up simply
+never slept. The whole-house Watcher, smelling 101 entities, did not sleep once in
+a week; its night-time arousal never fell below 0.50 against a line at 0.34. The
+demo box's main fly was the same at 0.46. Sleep pressure now builds while the fly
+is up (over about 18 h) and clears while it sleeps (about 4 h), and raises the
+line as it builds. Replaying a real day of each live fly's arousal through it, the
+Watcher sleeps 12% of the day in about a dozen broken bouts, a fly in a noisy
+room, while the quiet flies move only a few points. The time constants are
+borrowed from the two-process model of human sleep; the shape — slow to build,
+quick to clear — is the claim, not the numbers.
+
+**Hunger is discharged by eating.** It rises while the fly is up and, more
+slowly, while it sleeps. A foraging fly that lands on something starts a meal,
+eats until it is full rather than just under the forage line, and stops if it
+leaves, sleeps or bolts. Food is wherever its walking takes it — not a claim that
+your lights are edible, but that its meals come from behaviour rather than a
+timetable. An earlier version let sleep discharge hunger at rates balanced for a
+fly awake three hours in eight. The live flies were awake nearer two in three,
+and a week later all of them were pinned at 95–100%: foraging almost every waking
+minute, walking 4% of the time, grooming never. A starving fly also parks on its
+favourite light for ever, and since a landing earns one decision, the demo fly
+stopped acting entirely. Meals also give the memory something to learn from: a
+hungry fly's meal is a sugar reward to its PAM neurons — which is why
+appetitive conditioning starts by starving the flies — so the mushroom body
+finally learns what the house looks like when it has just eaten. Until now,
+`memory` stayed at 0.0 on every fly nobody had pressed Feed for. Checks 14b and
+14c run a week of both the old and new rules.
+
 **How they interact:** through the house, and nothing else. One fly turns a
 light on and the others smell it. Point one fly's `binary_sensor.*_escaping` at
 another's inputs and a startled fly startles its neighbours. Both are ordinary

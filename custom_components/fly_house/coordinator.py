@@ -229,28 +229,32 @@ MIN_CREDIBLE_DAY = 2.0 / 24.0
 
 # Hunger, which is a drive and therefore has to come back down.
 #
-# It used to only ever rise, at a rate that took it from its 0.2 default to
-# saturated in about twenty-two minutes, after which it stayed at 1.0 for the
-# life of the install. A drive pinned at its maximum is a constant with extra
-# steps, and this one had a visible cost: mode is chosen as sleep, then forage
-# if hunger is over 0.5, then walk or groom. With hunger permanently above 0.5,
-# "walk" and "groom" were unreachable after the first half hour, so an awake fly
-# was always foraging. Measured on a live three-fly house after fifteen hours:
-# all three flies pinned at 1.000 and all three reporting forage.
+# It used to only ever rise, saturating in twenty-two minutes and staying at 1.0
+# for the life of the install. Mode is chosen as sleep, then forage if hunger is
+# over 0.5, then walk or groom, so a pinned drive made "walk" and "groom"
+# unreachable and an awake fly was always foraging.
 #
-# Now it rises while the fly is up and falls while it sleeps, so it cycles with
-# the day rather than latching. The rates are set so a waking bout moves it
-# across the forage line and a night discharges it, which is the behaviour that
-# makes the mode mean something. fly_house.feed still discharges it sharply --
-# that is what makes a reward a reward, and it is unchanged.
-# The two rates are not equal, and the ratio is the point. A crepuscular fly is
-# awake about three hours in eight (measured in 11a), so a day is roughly nine
-# hours up against fifteen asleep. Rates that rose and fell equally would drain
-# the drive over a week and make "forage" the dead branch instead of "walk" --
-# the same bug wearing the other shoe. At these rates nine hours up adds 0.71
-# and fifteen asleep take 0.70, so it cycles rather than drifting to a rail.
+# The first fix let sleep discharge it, at rates balanced for a fly awake about
+# three hours in eight. Real flies in a real house were awake nearer two hours
+# in three, so a week later all four Swarm flies were pinned again: 70-99% for
+# the quiet ones, 100% for the whole-house one, walk 4% of the time, groom 0%.
+# A balance that depends on an assumed sleep share is a balance waiting to tip.
+#
+# And it was the wrong mechanism. Sleep does not feed a fly; eating does. So
+# now it eats. A foraging fly that lands on something starts a meal, eats until
+# it is full rather than merely under the line, and stops if it leaves, sleeps
+# or bolts. Asleep it burns less, so hunger rises more slowly but does not fall
+# -- the sleeping metabolic drop is measured in flies (Stahl et al. 2017); a
+# night of free calories is not. The cycle is now set by meals, which happen
+# wherever the fly goes, rather than by a ratio of hours that the house decides.
 HUNGER_RISE = 2.2e-5       # per second awake; its 0.2 default to full in ~10 h
-HUNGER_FALL = 1.3e-5       # per second asleep; full to empty in ~21 h
+HUNGER_ASLEEP = 0.25       # fraction of that rate while it sleeps
+MEAL_RATE = 0.005          # per second while eating: a full meal is a few minutes
+SATED = 0.1                # it eats down to here, not just under the forage line
+MEAL_RESUME_SECONDS = 120.0  # back on the same food this soon is the same meal
+
+# The most places a watch-only fly's notional room is laid out with.
+NOTIONAL_PLACES = 9
 
 # How long a state change stays interesting, and how much it pulls.
 NOVELTY_SECONDS = 90.0
@@ -438,6 +442,11 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._position_from_card = False
         self._watched_cache: list[str] = list(self.input_entities)
         self._dwell_entity: str | None = None
+        self._eating = False
+        self._meal_at: str | None = None
+        self._meal_ended_at = 0.0
+        self._meals = 0
+        self._last_meal_at: float | None = None
         self._dwell_ticks = 0
         self._dwell_spent = False
         self._layout_at = 0.0
@@ -507,7 +516,12 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     # -------------------------------------------------------------- stimuli
     def loom(self, strength: float = 1.0) -> None:
-        """Something rushed at the fly. This is what LPLC2 exists to detect."""
+        """Something rushed at the fly. This is what LPLC2 exists to detect.
+
+        Deliberate, so it wakes a sleeping fly: the house's own looming does
+        not reach one mid-bout (see FlyBrain.asleep), but being swatted does.
+        """
+        self.brain._quiet_for = 0.0
         self._pending_loom = max(self._pending_loom, float(strength))
         self._pending_punishment = max(self._pending_punishment, float(strength) * 0.7)
 
@@ -881,18 +895,29 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """
         if self._layout:
             return self._layout
-        if not self.output_entities:
+        places = sorted(self.output_entities)
+        if not places:
+            # A fly that may touch nothing still has to stand somewhere, and
+            # somewhere to land is somewhere to eat. Without this The Watcher,
+            # which only watches, had no layout, never landed, never ate, and
+            # sat at 100% hunger for a week. A spread of what it watches,
+            # never more than nine; landing on one cannot act on it, because
+            # actuation is still the governor's allowlist and nothing else.
+            watched = list(getattr(self, "_watched_cache", []) or [])
+            step = max(1, int(math.ceil(len(watched) / NOTIONAL_PLACES)))
+            places = watched[::step][:NOTIONAL_PLACES]
+        if not places:
             return []
         vw, vh = self._viewport
-        columns = max(1, int(math.ceil(math.sqrt(len(self.output_entities)))))
-        rows = max(1, int(math.ceil(len(self.output_entities) / columns)))
+        columns = max(1, int(math.ceil(math.sqrt(len(places)))))
+        rows = max(1, int(math.ceil(len(places) / columns)))
         # Inset from the edges, so the wall-avoidance reflex is not permanently
         # arguing with a goal sitting in a corner.
         pad_x, pad_y = vw * 0.12, vh * 0.12
         cell_w = (vw - 2 * pad_x) / columns
         cell_h = (vh - 2 * pad_y) / rows
         grid: list[dict[str, Any]] = []
-        for i, entity in enumerate(sorted(self.output_entities)):
+        for i, entity in enumerate(places):
             col, row = i % columns, i // columns
             grid.append({
                 "entity": entity,
@@ -1131,11 +1156,7 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._last_turn = float(result["turn"])
             self._advance_position(result)
 
-            # Rises while it is up, falls while it sleeps. See HUNGER_RISE.
-            rate = -HUNGER_FALL if result["mode"] == "sleep" else HUNGER_RISE
-            self.brain.hunger = float(np.clip(
-                self.brain.hunger + rate * self._tick_interval, 0.0, 1.0
-            ))
+            self._eat_or_starve(result)
 
             await self._maybe_act(result)
 
@@ -1144,6 +1165,10 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
             result["position"] = [round(float(self.pos[0]), 4), round(float(self.pos[1]), 4)]
             result["hunger"] = round(self.brain.hunger, 3)
+            result["meals"] = self._meals
+            result["last_meal"] = (
+                dt_util.utc_from_timestamp(self._last_meal_at).isoformat()
+                if self._last_meal_at else None)
             result["goal_entity"] = self._goal_entity
             result["landmarks"] = len(senses.landmarks)
             # Whether those landmarks are real cards or the notional grid it
@@ -1395,6 +1420,47 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self.pos[axis] = 1.96 - self.pos[axis]
         np.clip(self.pos, 0.0, 1.0, out=self.pos)
 
+    # ------------------------------------------------------------------ food
+    def _eat_or_starve(self, result: dict[str, Any]) -> None:
+        """Hunger rises with time and falls with meals. See HUNGER_RISE.
+
+        Food is whatever it lands on. That is not a claim that your lights are
+        edible; it is that a fly's meals happen where its walking takes it, so
+        the drive is discharged by behaviour rather than by a timetable.
+        """
+        now = dt_util.utcnow().timestamp()
+        mode = result["mode"]
+        food = None if mode in ("sleep", "escape") else self._entity_under_fly()
+
+        if self._eating and (food != self._meal_at or self.brain.hunger <= SATED):
+            self._eating = False
+            self._meal_ended_at = now
+
+        if not self._eating and food is not None and mode == "forage":
+            resuming = (food == self._meal_at
+                        and now - self._meal_ended_at < MEAL_RESUME_SECONDS)
+            self._eating, self._meal_at = True, food
+            if not resuming:
+                self._meals += 1
+                self._last_meal_at = now
+                # Sugar to a hungry fly is a reward, and only to a hungry one:
+                # it is why appetitive conditioning starts by starving the
+                # flies. Scaled by how hungry it was, delivered once per meal
+                # rather than per mouthful, so the memory it leaves recovers
+                # within the hour instead of being driven to a rail.
+                self._pending_reward = max(self._pending_reward, self.brain.hunger)
+
+        if self._eating:
+            rate = -MEAL_RATE
+        elif mode == "sleep":
+            rate = HUNGER_RISE * HUNGER_ASLEEP
+        else:
+            rate = HUNGER_RISE
+        self.brain.hunger = float(np.clip(
+            self.brain.hunger + rate * self._tick_interval, 0.0, 1.0
+        ))
+        result["eating"] = self._meal_at if self._eating else None
+
     # ---------------------------------------------------------------- action
     async def _maybe_act(self, result: dict[str, Any]) -> None:
         """A fly changes something by landing on it, not by ticking.
@@ -1552,6 +1618,9 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         try:
             await self._store.async_save({
                 "hunger": float(self.brain.hunger),
+                "sleep_pressure": float(self.brain.sleep_pressure),
+                "meals": self._meals,
+                "last_meal_at": self._last_meal_at,
                 "birth": self._birth.isoformat(),
                 "tick": int(self.brain.tick),
                 "position": [float(self.pos[0]), float(self.pos[1])],
@@ -1667,6 +1736,9 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if not saved:
                 return
             self.brain.hunger = float(saved.get("hunger", 0.2))
+            self.brain.sleep_pressure = float(saved.get("sleep_pressure", 0.0))
+            self._meals = int(saved.get("meals", 0))
+            self._last_meal_at = saved.get("last_meal_at")
             self.brain.tick = int(saved.get("tick", 0))
             if saved.get("birth"):
                 self._birth = dt_util.parse_datetime(saved["birth"]) or self._birth
