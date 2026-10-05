@@ -1,0 +1,10 @@
+[Unit]
+Description=Reissue housefly.vome.io's public demo guest sign-ins before they expire
+After=network-online.target nginx.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# The portal's code mints the links; its venv has what that needs.
+ExecStart=/var/www/vome.home.live/venv/bin/python /usr/local/lib/housefly/renew_guest_links.py
+Environment=VOME_ROLE=jobs

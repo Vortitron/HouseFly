@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily check of housefly.vome.io's guest sign-ins (each is reissued about monthly)
+
+[Timer]
+OnCalendar=*-*-* 04:20:00
+RandomizedDelaySec=30min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
