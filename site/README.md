@@ -9,6 +9,19 @@ it and copy it up:
 sudo cp site/index.html /var/www/housefly/index.html
 ```
 
+## house.wad's watch page
+
+`doom/index.html` is the page to share for the house.wad video
+(https://housefly.vome.io/doom/): the clip, a "play the demo" button and
+Open Graph tags, so a link to it on Facebook or LinkedIn shows the poster and
+title. The media it plays sit outside the repository, under
+`/var/www/housefly/media/` (`housewad-demo.mp4`, `housewad-demo.gif`,
+`housewad-poster.jpg`); the house.wad README embeds the GIF from there.
+
+```bash
+sudo install -d /var/www/housefly/doom && sudo cp site/doom/index.html /var/www/housefly/doom/index.html
+```
+
 ## The demo link
 
 `/demo` is an nginx 302 to the hosted demo's guest sign-in, so the token is not

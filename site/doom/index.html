@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>house.wad: your Home Assistant house as a Doom level</title>
+<meta name="description" content="Shoot the lamp in Doom and the real light goes off. The spider is a real fruit-fly brain. The front door asks Y/N before it unlocks. A free Home Assistant card.">
+<meta property="og:type" content="video.other">
+<meta property="og:title" content="house.wad: your Home Assistant house as a Doom level">
+<meta property="og:description" content="Shoot the lamp in Doom and the real light goes off. The spider is a real fruit-fly brain. Free on HACS.">
+<meta property="og:url" content="https://housefly.vome.io/doom/">
+<meta property="og:image" content="https://housefly.vome.io/media/housewad-poster.jpg">
+<meta property="og:image:width" content="1280">
+<meta property="og:image:height" content="720">
+<meta property="og:video" content="https://housefly.vome.io/media/housewad-demo.mp4">
+<meta property="og:video:secure_url" content="https://housefly.vome.io/media/housewad-demo.mp4">
+<meta property="og:video:type" content="video/mp4">
+<meta property="og:video:width" content="1280">
+<meta property="og:video:height" content="720">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://housefly.vome.io/media/housewad-poster.jpg">
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; background: radial-gradient(circle at 50% 30%, #3a0a05, #0b0000 70%); color: #f2d7a6; font: 17px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; min-height: 100vh; }
+  main { max-width: 960px; margin: 0 auto; padding: 24px 16px 40px; }
+  h1 { margin: 8px 0 4px; font: 900 clamp(40px, 9vw, 84px)/1 ui-monospace, Menlo, Consolas, monospace; color: #ff3b1f; text-shadow: 0 4px 0 #5a0000; letter-spacing: 1px; }
+  .tag { margin: 0 0 18px; font-size: clamp(17px, 3vw, 22px); }
+  video { width: 100%; height: auto; border-radius: 10px; background: #000; box-shadow: 0 10px 40px #000a; display: block; }
+  .row { display: flex; flex-wrap: wrap; gap: 12px; margin: 20px 0 10px; }
+  a.btn { display: inline-block; padding: 12px 18px; border-radius: 10px; text-decoration: none; font-weight: 800; }
+  a.play { background: #ff3b1f; color: #200; }
+  a.gh { border: 2px solid #f2d7a6; color: #f2d7a6; }
+  ul { padding-left: 20px; }
+  small { opacity: .65; }
+</style>
+</head>
+<body>
+<main>
+  <h1>HOUSE.WAD</h1>
+  <p class="tag">Your Home Assistant house, as a Doom level. Shooting the lamp turns off the light.</p>
+  <video src="/media/housewad-demo.mp4" poster="/media/housewad-poster.jpg" controls autoplay muted loop playsinline preload="metadata"></video>
+  <div class="row">
+    <a class="btn play" href="/housewad">Play the demo house</a>
+    <a class="btn gh" href="https://github.com/Vortitron/housewad">Get it free (HACS)</a>
+  </div>
+  <ul>
+    <li>Shoot a lamp and the real light goes off; use it and it comes back on.</li>
+    <li>The spiders are real fruit-fly brains. Shoot one and its escape neurons fire.</li>
+    <li>The front door asks Y/N, then really unlocks. The robot vacuum is a demon on its dock.</li>
+    <li>Your cameras are screens on the walls, and your floor plan can be the level.</li>
+  </ul>
+  <p><small>The demo house is simulated and shared by everyone who visits. Made by <a href="https://vome.io" style="color:inherit">Vome</a>.</small></p>
+</main>
+</body>
+</html>
