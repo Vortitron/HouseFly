@@ -298,6 +298,57 @@ def main() -> int:
     check("the memory is a real population", len(brain.kc_mbon_gain) > 10_000,
           f"{len(brain.kc_mbon_gain):,} plastic synapses")
 
+    print("\n5d. What the memory does not do yet (issue #4)")
+    # The rule above runs, and the synapses it depresses are real. What it does
+    # not yet do is reach behaviour, and the valence everyone could see move
+    # was something else: a flip-flop in the MBON/DAN loop, because the build
+    # let every dopaminergic neuron drive its targets as fast excitation.
+    # These two checks pin that down as it is. They are written to FAIL once
+    # issue #4 is fixed, so the README cannot go on describing the old state.
+    def odour(seed):
+        rng = np.random.default_rng(seed)
+        v = np.zeros(40, dtype=np.float32)
+        v[rng.choice(40, 8, replace=False)] = rng.uniform(0.5, 1.2, 8)
+        return v
+
+    # What the synapses learned, measured on its own. A reward also trips the
+    # flip-flop below, which moves valence by itself, so train one brain and
+    # then hand its learned gains to a fresh one that has never been rewarded:
+    # any difference from an identical naive brain is the memory and nothing
+    # else.
+    trained = circ.FlyBrain()
+    trained.settle(time_of_day=0.45)
+    for _ in range(20):
+        trained.step(circ.Senses(odour=odour(1), reward=0.8, time_of_day=0.45), sub_steps=40)
+    learned_gain = trained.kc_mbon_gain.copy()
+
+    def valence_with(gain):
+        b = circ.FlyBrain()
+        b.settle(time_of_day=0.45)
+        b.kc_mbon_gain = gain.copy()
+        vals = [b.step(circ.Senses(odour=odour(1), time_of_day=0.45), sub_steps=40)["valence"]
+                for _ in range(30)]
+        return float(np.mean(vals[-10:]))
+
+    naive_v = valence_with(np.ones_like(learned_gain))
+    learned_v = valence_with(learned_gain)
+    check("known limitation (#4): what the synapses learn does not yet change how the fly values it",
+          abs(learned_v - naive_v) < 0.05,
+          f"valence for the rewarded odour: {naive_v:+.3f} naive, {learned_v:+.3f} with the "
+          f"learned synapses ({1 - learned_gain.mean():.4f} mean depression)")
+
+    flip = circ.FlyBrain()
+    flip.settle(time_of_day=0.45)
+    for _ in range(60):
+        rest = flip.step(circ.Senses(time_of_day=0.45), sub_steps=40)["valence"]
+    flip.step(circ.Senses(time_of_day=0.45, reward=0.6), sub_steps=40)
+    for _ in range(150):
+        held = flip.step(circ.Senses(time_of_day=0.45), sub_steps=40)
+    check("known defect (#4): one reward flips valence and holds it, with no synapse changed",
+          held["valence"] - rest > 0.2 and held["memory_depression"] < 1e-3,
+          f"{rest:+.3f} at rest, {held['valence']:+.3f} five minutes after one reward, "
+          f"memory {held['memory_depression']:.5f}")
+
     print("\n5b. It can tell familiar from unfamiliar, with nobody labelling anything")
     # The claim behind binary_sensor.housefly_unusual. The Kenyon layer is a
     # locality-sensitive hash (Dasgupta, Stevens & Navlakha 2017) and the
