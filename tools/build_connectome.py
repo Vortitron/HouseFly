@@ -84,10 +84,17 @@ NT_SIGN = {
     "octopamine": 0.0,
 }
 FAST_NT = ("acetylcholine", "glutamate", "gaba", "histamine")
+# Recognised too, so that a cell labelled with one is *kept* as that and gets
+# its sign of 0, rather than falling through to the cholinergic default below.
+# Dropping these used to do exactly that: every PAM and PPL1 dopaminergic
+# neuron in the pack came out as acetylcholine and drove its targets as fast
+# excitation -- 6,787 synapses onto Kenyon cells, MBONs and each other -- so a
+# single reward flipped the MBON/DAN loop into a state it then held for hours.
+MODULATORY_NT = ("dopamine", "serotonin", "octopamine")
 
 
-def parse_nt(raw: str) -> str:
-    """Pull one fast transmitter out of FlyWire's free-text known_nt field.
+def parse_nt(raw: str, modulatory: bool = False) -> str:
+    """Pull one transmitter out of FlyWire's free-text known_nt field.
 
     That column is not a controlled vocabulary -- it holds co-transmitters,
     duplications and explicit negatives, e.g.
@@ -95,13 +102,21 @@ def parse_nt(raw: str) -> str:
         "acetylcholine-negative, glutamate-negative, gaba-negative"
     Taking it literally silently assigns a synaptic sign of zero to cells whose
     label happens to be messy, which mutes them entirely. Parse it properly:
-    split, discard negatives and neuropeptides, keep the first fast transmitter.
+    split, discard negatives and neuropeptides, keep the first transmitter.
+
+    Modulatory transmitters are accepted only from the curated known_nt column,
+    never from top_nt, the per-neuron classifier. The curated labels are right
+    where it matters -- PAM and ExR2 dopamine, ExR3 serotonin -- while the
+    classifier calls the l-LNv clock cells serotonergic, which known_nt flatly
+    contradicts ("pdf, dNPF; glycine, acetylcholine-negative"). Glycine is not
+    modelled, so l-LNv stays at the cholinergic default it has always had; that
+    is a known inaccuracy, kept separate from this.
     """
     for part in re.split(r"[;,]", (raw or "").lower()):
         tok = part.strip()
         if not tok or tok.endswith("-negative"):
             continue
-        if tok in FAST_NT:
+        if tok in FAST_NT or (modulatory and tok in MODULATORY_NT):
             return tok
     return ""
 # Types whose transmitter is established in the literature, used when the
@@ -119,6 +134,12 @@ NT_KNOWN = {
 # inverts the sign of every landmark the fly sees.
 NT_KNOWN_PREFIX = {
     "ER": "gaba",
+    # The PAM and PPL1 clusters are *defined* as dopaminergic -- they are the
+    # tyrosine-hydroxylase-positive cells innervating the mushroom body (Mao &
+    # Davis 2009; Aso et al. 2014) -- so no per-neuron prediction overrides it.
+    # Their effect is the learning rule's dopamine gate, not a fast synapse.
+    "PAM": "dopamine",
+    "PPL1": "dopamine",
 }
 
 
@@ -202,7 +223,8 @@ def load_flywire_nt_and_pos(tsv_path: str):
             hb = (row.get("hemibrain_type") or "").strip()
             if not hb:
                 continue
-            nt = parse_nt(row.get("known_nt", "")) or parse_nt(row.get("top_nt", ""))
+            nt = (parse_nt(row.get("known_nt", ""), modulatory=True)
+                  or parse_nt(row.get("top_nt", "")))
             if nt:
                 nt_votes[hb][nt] += 1
             try:
