@@ -480,12 +480,12 @@ fly awake three hours in eight. The live flies were awake nearer two in three,
 and a week later all of them were pinned at 95–100%: foraging almost every waking
 minute, walking 4% of the time, grooming never. A starving fly also parks on its
 favourite light for ever, and since a landing earns one decision, the demo fly
-stopped acting entirely. Meals also give the memory something to learn from: a
-hungry fly's meal is a sugar reward to its PAM neurons — which is why
-appetitive conditioning starts by starving the flies — so the mushroom body
-finally learns what the house looks like when it has just eaten. Until now,
-`memory` stayed at 0.0 on every fly nobody had pressed Feed for. Checks 14b and
-14c run a week of both the old and new rules.
+stopped acting entirely. A hungry fly's meal is also delivered as a sugar
+reward to its PAM neurons — which is why appetitive conditioning starts by
+starving the flies. This was meant to give the memory something to learn
+from, and a week of live flies showed it does not yet reach behaviour: see
+the mushroom-body entry under *Honest limits*. Checks 14b and 14c run a week
+of both the old and new hunger rules.
 
 **How they interact:** through the house, and nothing else. One fly turns a
 light on and the others smell it. Point one fly's `binary_sensor.*_escaping` at
@@ -646,6 +646,20 @@ This is a real model of real circuits, and it is still a model.
   FlyWire's classifier returns acetylcholine for most ring neurons, which is
   wrong — they are GABAergic. Where the literature is settled it overrides the
   prediction, and every such override is listed in `tools/build_connectome.py`.
+- **The valence memory does not reach behaviour yet** ([#4](https://github.com/Vortitron/HouseFly/issues/4)).
+  The learning rule runs on the real KC→MBON synapses and depresses them as
+  described, but MBON firing here is set by tonic drive and MBON–MBON
+  inhibition; Kenyon-cell input is about 1% of it. Twenty pairings of an odour
+  with reward move that odour's valence by under 0.01. What visibly moved
+  valence after Feed, or after a meal, was something else: a build bug let
+  every PAM and PPL1 dopaminergic neuron drive its targets as fast excitation,
+  which made the MBON/DAN loop a flip-flop. One reward set valence to about
+  +0.39 and held it, with no synapse changed, until a punishment reset it; on
+  the live Swarm that lasted one to fifteen hours per meal. The build fix is on
+  the `mb-valence` branch. It is not merged, because with the dopamine neurons
+  muted the MBONs fall nearly silent and valence becomes noise. The proper fix
+  is a retune of the mushroom-body output, and check 5d is written to fail
+  when that lands.
 - **Roughly six free parameters** — global gains, time constants, an
   excitation/inhibition ratio — tuned so the network sits in a regime where the
   bump is stable. The *connectivity* is untouched; the operating point is not
