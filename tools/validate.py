@@ -198,8 +198,22 @@ def main() -> int:
     for _ in range(40):
         brain.step(circ.Senses(time_of_day=0.5), sub_steps=10)
     prof = np.array(brain.compass_profile())
-    check("a bump forms", prof.max() > 3 * prof.min() and prof.max() > 0.05,
-          f"peak {prof.max():.3f}, trough {prof.min():.3f}")
+    check("a bump forms, and holds with the fly standing still",
+          prof.max() > 3 * prof.min() and prof.max() > 0.05,
+          f"peak {prof.max():.3f}, trough {prof.min():.3f}, 40 ticks after the last turn")
+    # Stated rather than hidden: from absolute stillness, with no self-motion
+    # ever, the bump does not ignite on its own. It used to, but only because
+    # one cell (ExR7) sat a hair above threshold; with the MBONs firing as they
+    # should, MBON11 holds it a hair below. settle() therefore ends with a few
+    # seconds of turning. This check fails if ignition from a vacuum returns,
+    # which would be worth knowing either way.
+    vacuum = circ.FlyBrain()
+    vacuum.step(circ.Senses(time_of_day=0.5), sub_steps=int(120.0 / circ.DT))
+    for _ in range(40):
+        vacuum.step(circ.Senses(time_of_day=0.5), sub_steps=10)
+    check("known limitation: a brain that has never moved finds no heading",
+          max(vacuum.compass_profile()) < 0.05,
+          f"peak {max(vacuum.compass_profile()):.3f} with no self-motion ever")
 
     headings = [brain.heading]
     for _ in range(40):
@@ -298,56 +312,85 @@ def main() -> int:
     check("the memory is a real population", len(brain.kc_mbon_gain) > 10_000,
           f"{len(brain.kc_mbon_gain):,} plastic synapses")
 
-    print("\n5d. What the memory does not do yet (issue #4)")
-    # The rule above runs, and the synapses it depresses are real. What it does
-    # not yet do is reach behaviour, and the valence everyone could see move
-    # was something else: a flip-flop in the MBON/DAN loop, because the build
-    # let every dopaminergic neuron drive its targets as fast excitation.
-    # These two checks pin that down as it is. They are written to FAIL once
-    # issue #4 is fixed, so the README cannot go on describing the old state.
+    print("\n5d. What it learns reaches what it does (issue #4)")
+    # Until 2.16 none of this was true, and these checks pinned that: a build
+    # bug made the dopaminergic neurons fast excitatory synapses, so one reward
+    # flipped the MBON/DAN loop into a state it held for hours with no synapse
+    # changed; and learned synapses, transplanted into a fresh brain, moved
+    # valence by 0.0003. Everything below measures the *synapses*: train one
+    # brain, hand its gains to an untouched one, compare with an identical
+    # naive one. Nothing but the memory can make that difference.
+    d = circ.shared_connectome()
+    dans = d.group_index["mb_dan"]
+    check("dopaminergic neurons have no fast synapses",
+          bool(np.all(d.sign[dans] == 0)),
+          f"{len(dans)} PAM/PPL1 cells at sign 0; they act through the learning rule only")
+    probe = circ.FlyBrain()
+    fed = int(probe.mbon_approach.sum() + probe.mbon_avoid.sum())
+    check("valence is read only from MBONs whose Kenyon input is in the data",
+          40 <= fed < len(probe.i_mbon),
+          f"{fed} of {len(probe.i_mbon)} MBONs: {int(probe.mbon_approach.sum())} approach, "
+          f"{int(probe.mbon_avoid.sum())} avoid; the rest have their dendrites outside the hemibrain")
+
     def odour(seed):
         rng = np.random.default_rng(seed)
         v = np.zeros(40, dtype=np.float32)
         v[rng.choice(40, 8, replace=False)] = rng.uniform(0.5, 1.2, 8)
         return v
 
-    # What the synapses learned, measured on its own. A reward also trips the
-    # flip-flop below, which moves valence by itself, so train one brain and
-    # then hand its learned gains to a fresh one that has never been rewarded:
-    # any difference from an identical naive brain is the memory and nothing
-    # else.
-    trained = circ.FlyBrain()
-    trained.settle(time_of_day=0.45)
-    for _ in range(20):
-        trained.step(circ.Senses(odour=odour(1), reward=0.8, time_of_day=0.45), sub_steps=40)
-    learned_gain = trained.kc_mbon_gain.copy()
-
-    def valence_with(gain):
+    def trained_on(o, **teach):
         b = circ.FlyBrain()
         b.settle(time_of_day=0.45)
+        for _ in range(20):
+            b.step(circ.Senses(odour=o, time_of_day=0.45, **teach), sub_steps=40)
+        return b, b.kc_mbon_gain.copy()
+
+    def valence_with(gain, o, tod=0.45):
+        b = circ.FlyBrain()
+        b.settle(time_of_day=tod)
         b.kc_mbon_gain = gain.copy()
-        vals = [b.step(circ.Senses(odour=odour(1), time_of_day=0.45), sub_steps=40)["valence"]
+        vals = [b.step(circ.Senses(odour=o, time_of_day=tod), sub_steps=40)["valence"]
                 for _ in range(30)]
         return float(np.mean(vals[-10:]))
 
-    naive_v = valence_with(np.ones_like(learned_gain))
-    learned_v = valence_with(learned_gain)
-    check("known limitation (#4): what the synapses learn does not yet change how the fly values it",
-          abs(learned_v - naive_v) < 0.05,
-          f"valence for the rewarded odour: {naive_v:+.3f} naive, {learned_v:+.3f} with the "
-          f"learned synapses ({1 - learned_gain.mean():.4f} mean depression)")
+    naive = np.ones(len(probe.kc_mbon_edges), dtype=np.float32)
+    a, b_ = odour(1), odour(2)
+    _, rewarded = trained_on(a, reward=0.8)
+    _, punished = trained_on(b_, punishment=0.8)
+    up = valence_with(rewarded, a) - valence_with(naive, a)
+    down = valence_with(punished, b_) - valence_with(naive, b_)
+    check("a smell paired with sugar becomes more attractive",
+          up > 0.08, f"valence for it {up:+.3f}, with only the learned synapses changed")
+    check("and one paired with punishment, less",
+          down < -0.08, f"valence for it {down:+.3f}")
+    # Part of what any reward teaches is general: Kenyon cells that fire
+    # whatever the smell are in every code, so everything shifts a little --
+    # "good things happen", and around this hour more so. What is about the
+    # smell is what the paired one gains *beyond* that, measured at another
+    # hour so the hour itself cannot carry it.
+    def gained(o):
+        return valence_with(rewarded, o, 0.85) - valence_with(naive, o, 0.85)
 
-    flip = circ.FlyBrain()
-    flip.settle(time_of_day=0.45)
+    general = gained(np.zeros(40, dtype=np.float32))
+    paired_own, unpaired_own = gained(a) - general, gained(b_) - general
+    check("the memory is mostly about the smell it was paired with",
+          paired_own > 0.02 and paired_own > 2.0 * unpaired_own,
+          f"at another hour, beyond a general {general:+.3f}: the paired smell "
+          f"{paired_own:+.3f}, an unpaired one {unpaired_own:+.3f}")
+
+    lone, _ = trained_on(np.zeros(40, dtype=np.float32))
+    lone.step(circ.Senses(time_of_day=0.45, reward=0.8), sub_steps=40)
     for _ in range(60):
-        rest = flip.step(circ.Senses(time_of_day=0.45), sub_steps=40)["valence"]
-    flip.step(circ.Senses(time_of_day=0.45, reward=0.6), sub_steps=40)
-    for _ in range(150):
-        held = flip.step(circ.Senses(time_of_day=0.45), sub_steps=40)
-    check("known defect (#4): one reward flips valence and holds it, with no synapse changed",
-          held["valence"] - rest > 0.2 and held["memory_depression"] < 1e-3,
-          f"{rest:+.3f} at rest, {held['valence']:+.3f} five minutes after one reward, "
-          f"memory {held['memory_depression']:.5f}")
+        held = lone.step(circ.Senses(time_of_day=0.45), sub_steps=40)["valence"]
+    explained = valence_with(lone.kc_mbon_gain, np.zeros(40, dtype=np.float32))
+    check("nothing outlives its cause: what a reward leaves is all in the synapses",
+          abs(held - explained) < 0.02,
+          f"{held:+.3f} two minutes after a reward, {explained:+.3f} from its synapses alone")
+    faded = 1.0 - (1.0 - rewarded) * (1.0 - 0.0005) ** 3600
+    later = valence_with(faded, a) - valence_with(naive, a)
+    check("and the memory fades over hours, not ticks or weeks",
+          0.0 < later < 0.3 * up,
+          f"{up:+.3f} when learned, {later:+.3f} two hours of 2 s ticks later")
 
     print("\n5b. It can tell familiar from unfamiliar, with nobody labelling anything")
     # The claim behind binary_sensor.housefly_unusual. The Kenyon layer is a
@@ -451,10 +494,10 @@ def main() -> int:
 
     # And the reason the old 0.5 was wrong, measured rather than asserted: watch
     # a brand-new brain come down and see where it crosses each line.
-    def settle_in(n_live, ticks=150):
+    def settle_in(n_live, ticks=150, seed=7):
         b = circ.FlyBrain()
         b.settle(time_of_day=evening)
-        pat = house_n(7, width, n_live)
+        pat = house_n(seed, width, n_live)
         cross_half = cross_alert = None
         for i in range(1, ticks + 1):
             nv = b.step(circ.Senses(odour=pat, time_of_day=evening))["novelty"]
@@ -466,13 +509,26 @@ def main() -> int:
         return cross_half, cross_alert
 
     small_half, small_alert = settle_in(8)
-    big_half, big_alert = settle_in(min(101, width))
     check("a new fly crosses the old 0.5 guard long before it knows the place",
           small_half is not None and small_alert is not None and small_half < small_alert / 2,
           f"0.5 at tick {small_half}, {unusual} at tick {small_alert}")
+    # Over several houses, not one. A single pattern made this pass or fail on
+    # luck: across six, the old code ran from 3% to 36% apart, and the one this
+    # used to test happened to be the 3%.
+    gaps, pairs = [], []
+    for seed in (1, 4, 5, 7):
+        small = settle_in(8, ticks=250, seed=seed)[1]
+        big = settle_in(min(101, width), ticks=250, seed=seed)[1]
+        if small is None or big is None:
+            gaps.append(9.9)
+            pairs.append(f"{small}/{big}")
+            continue
+        gaps.append(abs(big - small) / small)
+        pairs.append(f"{small}/{big}")
     check("and territory size barely changes how long settling in takes",
-          big_alert is not None and abs(big_alert - small_alert) < 0.25 * small_alert,
-          f"8 entities settle at tick {small_alert}, {min(101, width)} at tick {big_alert}")
+          float(np.mean(gaps)) < 0.25,
+          f"8 vs {min(101, width)} entities, ticks to settle: {', '.join(pairs)}; "
+          f"mean gap {np.mean(gaps):.0%}")
 
     print("\n6. Looming drives the escape pathway, then stops")
     brain = circ.FlyBrain()
@@ -1728,6 +1784,7 @@ def main() -> int:
         f._tick_interval = 2
         f._eating, f._meal_at, f._meal_ended_at = False, None, 0.0
         f._meals, f._last_meal_at, f._pending_reward = 0, None, 0.0
+        f._sugar, f._sugar_until = 0.0, 0.0
         f._under = None
         f._entity_under_fly = lambda: f._under
         return f
@@ -1735,7 +1792,7 @@ def main() -> int:
     def week(awake_share, rule):
         f = fresh_fly()
         old_fall = 1.3e-5                        # the rule being replaced, as the control
-        foraging_for, pinned, awake, forage, rewards = 0, 0, 0, 0, 0
+        foraging_for, pinned, awake, forage, rewards, eating = 0, 0, 0, 0, 0, 0
         for tick in range(7 * 43200):
             clock["t"] = tick * 2.0
             asleep = (tick % 43200) / 43200 >= awake_share
@@ -1748,6 +1805,7 @@ def main() -> int:
                 f._pending_reward = 0.0
                 f._eat_or_starve({"mode": mode})
                 rewards += f._pending_reward > 0
+                eating += f._eating
             else:
                 f.brain.hunger = min(1.0, max(0.0, f.brain.hunger + 2 * (
                     -old_fall if asleep else rise)))
@@ -1755,7 +1813,7 @@ def main() -> int:
                 awake += 1
                 forage += mode == "forage"
             pinned += f.brain.hunger >= 0.99
-        return pinned / (7 * 43200), forage / max(awake, 1), f._meals, rewards
+        return pinned / (7 * 43200), forage / max(awake, 1), f._meals, (rewards, eating)
 
     old_pin, old_forage, _, _ = week(0.65, "sleep")
     new_pin, new_forage, meals, rewards = week(0.65, "meals")
@@ -1769,8 +1827,10 @@ def main() -> int:
     check("and it does not depend on how much the house lets it sleep",
           q_pin == 0.0 and q_forage < 0.5,
           f"at three hours in eight awake: {q_pin:.0%} pinned, foraging {q_forage:.1%}")
-    check("one reward per meal, not per mouthful",
-          meals > 7 and rewards == meals, f"{meals} meals in a week, {rewards} rewards")
+    sugar_ticks, eating_ticks = rewards
+    check("sugar is a reward for as long as the fly is eating, and only then",
+          meals > 7 and sugar_ticks == eating_ticks > 0,
+          f"{meals} meals in a week; sugar on {sugar_ticks} ticks, eating on {eating_ticks}")
 
     f = fresh_fly()
     f.brain.hunger, f._under = 0.9, "light.a"

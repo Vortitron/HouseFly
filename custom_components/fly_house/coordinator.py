@@ -253,6 +253,13 @@ MEAL_RATE = 0.005          # per second while eating: a full meal is a few minut
 SATED = 0.1                # it eats down to here, not just under the forage line
 MEAL_RESUME_SECONDS = 120.0  # back on the same food this soon is the same meal
 
+# Sugar is a reward for as long as it is in the fly's mouth, not for an
+# instant. PAM dopaminergic neurons respond to sugar throughout ingestion, and
+# appetitive conditioning pairs an odour with sugar for a minute or two; a
+# single tick taught a twentieth of that and left meals teaching nothing.
+# The Feed service is a short burst of the same thing.
+FEED_SUGAR_SECONDS = 30.0
+
 # The most places a watch-only fly's notional room is laid out with.
 NOTIONAL_PLACES = 9
 
@@ -447,6 +454,8 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._meal_ended_at = 0.0
         self._meals = 0
         self._last_meal_at: float | None = None
+        self._sugar = 0.0
+        self._sugar_until = 0.0
         self._dwell_ticks = 0
         self._dwell_spent = False
         self._layout_at = 0.0
@@ -546,7 +555,11 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     def feed(self, amount: float = 1.0) -> None:
         """Sugar. Drives the PAM dopaminergic neurons, which is what makes a
-        memory positive rather than merely strong."""
+        memory positive rather than merely strong. Lasts FEED_SUGAR_SECONDS."""
+        now = dt_util.utcnow().timestamp()
+        still = now < self._sugar_until
+        self._sugar = max(self._sugar, float(amount)) if still else float(amount)
+        self._sugar_until = now + FEED_SUGAR_SECONDS
         self._pending_reward = max(self._pending_reward, float(amount))
         self.brain.hunger = max(0.0, self.brain.hunger - float(amount) * 0.6)
 
@@ -1443,12 +1456,16 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if not resuming:
                 self._meals += 1
                 self._last_meal_at = now
-                # Sugar to a hungry fly is a reward, and only to a hungry one:
-                # it is why appetitive conditioning starts by starving the
-                # flies. Scaled by how hungry it was, delivered once per meal
-                # rather than per mouthful, so the memory it leaves recovers
-                # within the hour instead of being driven to a rail.
-                self._pending_reward = max(self._pending_reward, self.brain.hunger)
+
+        # Sugar to a hungry fly is a reward, and only to a hungry one: it is
+        # why appetitive conditioning starts by starving the flies. So it is
+        # scaled by hunger, which falls as the meal goes on -- the first
+        # mouthfuls teach most. It lands on the next tick, which is when the
+        # brain next steps. See FEED_SUGAR_SECONDS.
+        if self._eating:
+            self._pending_reward = max(self._pending_reward, self.brain.hunger)
+        if now < self._sugar_until:
+            self._pending_reward = max(self._pending_reward, self._sugar)
 
         if self._eating:
             rate = -MEAL_RATE
