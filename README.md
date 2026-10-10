@@ -482,10 +482,9 @@ minute, walking 4% of the time, grooming never. A starving fly also parks on its
 favourite light for ever, and since a landing earns one decision, the demo fly
 stopped acting entirely. A hungry fly's meal is also delivered as a sugar
 reward to its PAM neurons — which is why appetitive conditioning starts by
-starving the flies. This was meant to give the memory something to learn
-from, and a week of live flies showed it does not yet reach behaviour: see
-the mushroom-body entry under *Honest limits*. Checks 14b and 14c run a week
-of both the old and new hunger rules.
+starving the flies — and since 2.16 it lasts the whole meal, so the fly
+learns what the house is like when it eats (see *It has a memory*). Checks
+14b and 14c run a week of both the old and new hunger rules.
 
 **How they interact:** through the house, and nothing else. One fly turns a
 light on and the others smell it. Point one fly's `binary_sensor.*_escaping` at
@@ -581,6 +580,48 @@ MBON's compartment valence is derived from which dopaminergic class dominates
 its input rather than hard-coded. Those gains are what gets persisted across
 restarts — the fly does not forget your house when Home Assistant updates.
 
+And it reaches behaviour, which until 2.16 it did not ([#4](https://github.com/Vortitron/HouseFly/issues/4)).
+Measured on the synapses alone — learned gains handed to a brain that has
+never been rewarded, against an identical naive one:
+
+```
+ smell paired with sugar                                        +0.10 valence
+ smell paired with punishment                                   -0.15
+ at another hour, beyond the general shift: the paired smell    +0.038
+                                            an unpaired one     +0.014
+ half-life with nothing more to learn                           about 50 minutes
+ what a reward leaves that is not in the synapses               nothing (0.000)
+```
+
+Getting there took four things, each a fault rather than a tuning choice:
+
+- **Dopamine is not a fast synapse.** The build discarded "dopamine" as a
+  transmitter label, so all 317 PAM and PPL1 neurons fell through to the
+  cholinergic default and drove their targets directly — the opposite of the
+  build's own comment. That made the output network a flip-flop: one reward set
+  valence to +0.39 and held it, with no synapse changed, for up to fifteen hours
+  on the live Swarm. They now act only through the learning rule.
+- **MBONs and APL read a dense code, and are normalised as such.** Each cell's
+  excitatory and inhibitory input are scaled to separate budgets, which the
+  compass needs. But a Kenyon-cell-fed MBON gets 4.7% of its synapses from
+  inhibitory cells, and APL 0.9%, and the split budget weighted that sliver at
+  five times everything else: the MBONs became winner-take-all, and a silent
+  MBON cannot express anything learned. They share one budget now, inhibition
+  still five times stronger per synapse.
+- **Only MBONs with Kenyon input are read.** The hemibrain reconstructs the right
+  mushroom body; 18 of 65 MBONs have their dendrites outside it, receive no
+  Kenyon input, and were half the readout. The 47 that remain split 22
+  approach, 25 avoid.
+- **The sign.** MBONs in reward (PAM) compartments drive *avoidance* and those
+  in punishment (PPL1) compartments drive attraction (Aso et al. 2014b) — which
+  is why depressing the former is how a reward makes something more attractive.
+  The readout had it backwards.
+
+Sugar now counts for as long as it is in the fly's mouth — the whole meal, or
+thirty seconds of `fly_house.feed` — because a single instant taught a
+twentieth of what a real conditioning trial does. Section 5d of the checks
+measures every line of the table above.
+
 ### What the connectome does not contain
 
 Two things were expected to fall out of the wiring and did not. Both are worth
@@ -646,20 +687,21 @@ This is a real model of real circuits, and it is still a model.
   FlyWire's classifier returns acetylcholine for most ring neurons, which is
   wrong — they are GABAergic. Where the literature is settled it overrides the
   prediction, and every such override is listed in `tools/build_connectome.py`.
-- **The valence memory does not reach behaviour yet** ([#4](https://github.com/Vortitron/HouseFly/issues/4)).
-  The learning rule runs on the real KC→MBON synapses and depresses them as
-  described, but MBON firing here is set by tonic drive and MBON–MBON
-  inhibition; Kenyon-cell input is about 1% of it. Twenty pairings of an odour
-  with reward move that odour's valence by under 0.01. What visibly moved
-  valence after Feed, or after a meal, was something else: a build bug let
-  every PAM and PPL1 dopaminergic neuron drive its targets as fast excitation,
-  which made the MBON/DAN loop a flip-flop. One reward set valence to about
-  +0.39 and held it, with no synapse changed, until a punishment reset it; on
-  the live Swarm that lasted one to fifteen hours per meal. The build fix is on
-  the `mb-valence` branch. It is not merged, because with the dopamine neurons
-  muted the MBONs fall nearly silent and valence becomes noise. The proper fix
-  is a retune of the mushroom-body output, and check 5d is written to fail
-  when that lands.
+- **What the valence memory learns is partly the hour.** Kenyon cells that fire
+  whatever the smell are in every code, so a reward also shifts everything a
+  little, and the hour it happened at most. That is real information ("good
+  things happen around now"), but it means an unpaired smell at the same hour
+  moves about two-thirds as much as the paired one; only at another hour does
+  the smell itself clearly dominate.
+- **Half the MBONs are only half there.** The 18 whose dendrites lie outside the
+  hemibrain still fire, driven by other MBONs, and still send their outputs on;
+  they just cannot learn, and are left out of the valence readout.
+- **The compass needs to have moved once.** Its bump holds indefinitely, but
+  from absolute stillness it used to ignite only because one ring neuron (ExR7)
+  sat a hair above threshold. With the MBONs firing as they should, MBON11
+  holds it a hair below. `settle()` ends with a few seconds of turning, which
+  any animal has had before anyone asks it which way it faces; check 4 pins the
+  rest as a known limitation.
 - **Roughly six free parameters** — global gains, time constants, an
   excitation/inhibition ratio — tuned so the network sits in a regime where the
   bump is stable. The *connectivity* is untouched; the operating point is not

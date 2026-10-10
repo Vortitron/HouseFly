@@ -39,8 +39,8 @@ RAW_BASE = "https://raw.githubusercontent.com/Vortitron/HouseFly"
 # sha256 of each shipped file. Regenerate with:
 #   sha256sum custom_components/fly_house/connectome/*
 EXPECTED = {
-    "core.npz": "689f651ebcc1887205b5097684d0a2d6eb445ed26b76fed45d2a6476ad310ba9",
-    "meta.json.gz": "3bff307f39e8ed996ce6b61904a832e06a63327f5fb4fe0e7663fbada6510239",
+    "core.npz": "b5e746f9028a0e5c7b308060ff46ef40161123cc7fb753bd654b0c5cfc6e584f",
+    "meta.json.gz": "6d614addfa7e0b97ed60c7f52a2590444b9c94d731792b1fd48fc228c9236966",
 }
 
 DOWNLOAD_TIMEOUT = 120

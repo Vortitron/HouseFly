@@ -89,6 +89,12 @@ NORMALISATION_GAIN = 0.5      # global gain control standing in for widefield in
 # nicotinic ACh currents, so inhibition-dominance is the expected regime.
 INHIBITORY_GAIN = 5.0
 
+# Cells whose input is the Kenyon-cell population code get one joint input
+# budget instead of the split one: inhibition is 1-5% of their synapses and the
+# split budget weighted it at five times everything else. See the load step.
+# The compass and ring, where inhibition is 40-100% of input, keep the split.
+JOINT_BUDGET_CIRCUITS = ("mb_out", "mb_inh")
+
 # Tonic background excitation. We model 4,724 neurons out of roughly 25,000 in
 # the central brain, so most of the input these cells actually receive comes
 # from neurons that are not in the subnetwork at all. Without a stand-in for
@@ -221,6 +227,39 @@ NOVELTY_RECOVERY = 1.2e-4     # per tick, back towards naive
 # The floor is the same one the sparse-code readout uses, which is the point --
 # it is the code, or it is not.
 KC_ACTIVE_FLOOR = 0.05
+
+# Seconds of turning, then of stillness, at the end of settling. See settle().
+SETTLE_TURN_SECONDS = 10.0
+
+# The valence memory, made to reach behaviour (issue #4).
+#
+# Kenyon-cell input to an MBON is sparse by construction: about 1.5% of its
+# Kenyon inputs are active at once, at modest rates, so with each cell's input
+# budget normalised to one, odour drive onto an MBON came to about 1% of the
+# tonic drive standing in for the rest of the brain. Whatever the synapses
+# learned could not show. This gain puts odour-evoked drive in the same range
+# as tonic, which is what a real MBON's odour response looks like, and keeps
+# the fed MBONs in their linear range (mean rate ~0.04, max ~0.2) rather than
+# saturated, where a depressed synapse changes nothing. Swept 1-30: below ~10
+# learning is weak, above ~30 no stronger, and nothing latches anywhere.
+KC_MBON_GAIN = 10.0
+
+# Valence is read only from MBONs whose Kenyon-cell input is actually in the
+# data. The hemibrain reconstructs the right mushroom body: 18 of 65 MBONs --
+# nearly all left-hemisphere -- have their axons in the volume and their
+# dendrites out of it, receive no Kenyon input at all, and were half the
+# readout. Kenyon cells are more than half of a fed MBON's excitatory input;
+# the split is bimodal (17 at 0%, 37 above 90%), so the line is not delicate.
+FED_MBON_KC_SHARE = 0.5
+
+# Valence = (approach - avoid) / (approach + avoid + VALENCE_SEMI). Approach
+# MBONs are those in PPL1 (punishment) compartments and avoidance MBONs those
+# in PAM (reward) compartments -- activating them drives attraction and
+# avoidance respectively (Aso et al. 2014b) -- which is why a reward, by
+# depressing synapses onto the avoidance MBONs, makes the fly like a thing
+# more. The readout had this the wrong way round. The constant stops the
+# ratio swinging to +-1 when both sides are nearly silent.
+VALENCE_SEMI = 0.5
 
 # How many projection-neuron channels carry the time of day rather than a smell.
 #
@@ -380,6 +419,37 @@ class ConnectomeData:
             raw / exc_in[post],
             np.where(is_inh, -INHIBITORY_GAIN * raw / inh_in[post], 0.0),
         )
+
+        # Except onto the cells that read the Kenyon-cell code -- the MBONs and
+        # APL -- which get one joint budget (JOINT_BUDGET_CIRCUITS).
+        #
+        # The split budget is right where inhibition is a real share of a
+        # cell's input, as in the compass above. It is badly wrong where it is a
+        # sliver. A Kenyon-cell-fed MBON receives a median 4,716 synapses from
+        # Kenyon cells and 263 from inhibitory cells -- 4.7% -- and the split
+        # budget weighted those 263 at five times all 4,716 together. That
+        # turned the MBON layer into winner-take-all: one or two cells near
+        # saturation, the rest at zero, and a silent MBON cannot express
+        # anything learned at its synapses. Counting every synapse against the
+        # one total, with inhibition still five times stronger per synapse,
+        # is the same physiology without the artefact. APL is the extreme case:
+        # 983 inhibitory synapses against 104,379 excitatory ones, 0.9%, and
+        # they were weighted at five times all of the rest. Once the MBONs were
+        # allowed to fire, those few synapses let them swing the one cell that
+        # keeps the Kenyon code sparse, and a large house took up to twice as
+        # long to become familiar.
+        mbon = np.zeros(n, dtype=bool)
+        for group in JOINT_BUDGET_CIRCUITS:
+            mbon[np.asarray(meta["group_index"].get(group, []), dtype=np.int64)] = True
+        onto_mbon = mbon[post]
+        both_in = np.bincount(post, weights=raw * (is_exc | is_inh), minlength=n).astype(np.float32)
+        both_in[both_in == 0.0] = 1.0
+        joint = np.where(
+            is_exc,
+            raw / both_in[post],
+            np.where(is_inh, -INHIBITORY_GAIN * raw / both_in[post], 0.0),
+        )
+        w = np.where(onto_mbon, joint, w)
 
         return cls(
             pre=pre,
@@ -631,6 +701,20 @@ class FlyBrain:
         self.tau[slow] = TAU_DEFAULT
         try:
             self.step(Senses(time_of_day=time_of_day), sub_steps=int(seconds / DT))
+            # And it ends having turned, because a fly always has a heading.
+            # The wiring holds a bump indefinitely once there is one, but from
+            # total stillness, with no self-motion at all, ignition hung on a
+            # single cell: ExR7, the cholinergic ring neuron with 159 synapses
+            # onto the EPGs, sitting a hair above threshold. Once the MBONs fire
+            # as they should (issue #4), MBON11's tonic inhibition holds it a
+            # hair below, and a brain settled in a vacuum never finds a heading
+            # -- while one that has moved at all holds the same bump, at the
+            # same strength, as before. A few seconds of turning is what any
+            # animal has had before anyone asks it which way it is facing.
+            self.step(Senses(time_of_day=time_of_day, angular_velocity=1.0),
+                      sub_steps=int(SETTLE_TURN_SECONDS / DT))
+            self.step(Senses(time_of_day=time_of_day),
+                      sub_steps=int(SETTLE_TURN_SECONDS / DT))
         finally:
             self.tau[slow] = original
         self.tick = 0
@@ -694,7 +778,7 @@ class FlyBrain:
         is_mbon[self.i_mbon] = True
         self.kc_mbon_edges = np.where(is_kc[d.pre] & is_mbon[d.post])[0].astype(np.int32)
         self.kc_mbon_gain = np.ones(len(self.kc_mbon_edges), dtype=np.float32)
-        self.kc_mbon_base = d.weight[self.kc_mbon_edges].copy()
+        self.kc_mbon_base = d.weight[self.kc_mbon_edges] * np.float32(KC_MBON_GAIN)
 
         # The alpha'3 compartment, and the subset of KC->MBON synapses landing
         # in it. Habituation acts on these and on nothing else.
@@ -748,6 +832,16 @@ class FlyBrain:
         self.mbon_valence = np.where(
             total > 0, (pam_w - ppl_w) / np.maximum(total, 1e-6), 0.0
         ).astype(np.float32)
+
+        # Which MBONs carry what the Kenyon cells learned. See FED_MBON_KC_SHARE.
+        is_kc = np.zeros(d.n, dtype=bool)
+        is_kc[self.i_kc] = True
+        excitatory = d.sign[d.pre] > 0
+        kc_in = np.bincount(d.post, weights=d.raw_weight * is_kc[d.pre], minlength=d.n)
+        exc_in = np.bincount(d.post, weights=d.raw_weight * excitatory, minlength=d.n)
+        fed = kc_in[self.i_mbon] > FED_MBON_KC_SHARE * np.maximum(exc_in[self.i_mbon], 1.0)
+        self.mbon_approach = fed & (self.mbon_valence < 0)
+        self.mbon_avoid = fed & (self.mbon_valence > 0)
 
         # Which DAN drives which MBON's compartment -- used as the teaching
         # signal gate for the plasticity rule.
@@ -1128,9 +1222,15 @@ class FlyBrain:
             self.kc_mbon_gain += 0.0005 * (1.0 - self.kc_mbon_gain)
             return
 
-        kc_act = self.rate[self.kc_mbon_pre]
+        # Which Kenyon cells count as "active" is the same question the
+        # habituation rule asks, so it gets the same answer. This used
+        # tanh(rate), and Kenyon rates here are ~0.1, so even a cell squarely in
+        # the code depressed its synapses by 0.2% a tick and twenty rewarded
+        # pairings changed almost nothing.
+        code = np.zeros(self.data.n, dtype=np.float32)
+        code[self.i_kc] = self._kc_code()
         gate = teaching[self.kc_mbon_mbon_slot]
-        depression = 0.05 * gate * np.tanh(kc_act)
+        depression = 0.05 * gate * code[self.kc_mbon_pre]
         self.kc_mbon_gain *= (1.0 - depression)
         np.clip(self.kc_mbon_gain, 0.05, 1.5, out=self.kc_mbon_gain)
 
@@ -1166,8 +1266,12 @@ class FlyBrain:
         self.escape_drive = escape
 
         mbon = r[self.i_mbon]
-        self.valence = float((mbon * self.mbon_valence).sum() / max(mbon.sum(), 1e-6)) \
-            if mbon.size else 0.0
+        if mbon.size:
+            approach = float(mbon[self.mbon_approach].sum())
+            avoid = float(mbon[self.mbon_avoid].sum())
+            self.valence = (approach - avoid) / (approach + avoid + VALENCE_SEMI)
+        else:
+            self.valence = 0.0
 
         # Arousal is read off the two oscillator populations directly. There is
         # no rule anywhere that says "be active at dawn"; the morning cells are
