@@ -20,6 +20,7 @@ import base64
 import hashlib
 import logging
 import math
+import re
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
@@ -405,6 +406,36 @@ def _numeric(state: State | None, adaptation: dict[str, SensoryAdaptation] | Non
     return Percept(entity_id, channel.observe(value), True)
 
 
+# A state made only of 0s and 1s, at least this long, is a row of separate
+# detectors (radar gates, zones, a keypad's LEDs) rather than a number.
+BITMASK = re.compile(r"[01]{8,64}")
+
+
+def _percepts(state: State | None, adaptation: dict[str, SensoryAdaptation] | None = None,
+              entity_id: str = "") -> list[Percept]:
+    """Every percept one entity delivers. Usually one; a bitmask gives one per set bit.
+
+    FrontPath publishes its eighteen radar gates as one string, street end to
+    door end: "000011000000000000". float() accepts that, so it used to arrive
+    as a single reading of eleven trillion, scaled by adaptation into a number
+    that meant nothing. Read as a word it would fare little better: every
+    pattern its own glomerulus, so gates 4+5 and gates 4+5+6 would be as
+    unrelated as two rooms, and nothing learned about one could carry to the
+    other. Each position is a detector, so each gets its own glomerulus and
+    drives it fully when set -- patterns that share gates share glomeruli, and
+    the Kenyon layer sees them as alike in proportion.
+
+    An all-zero mask is a live channel saying nothing is there, not a dead one.
+    """
+    if state is not None:
+        raw = str(state.state).strip()
+        if BITMASK.fullmatch(raw):
+            set_bits = [Percept(f"{entity_id}#{i}", 1.0, True)
+                        for i, bit in enumerate(raw) if bit == "1"]
+            return set_bits or [Percept(entity_id, 0.0, True)]
+    return [_numeric(state, adaptation, entity_id)]
+
+
 class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     """Runs the brain, feeds it the house, and lets it act -- carefully."""
 
@@ -670,11 +701,12 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if channels:
             odour = np.zeros(channels, dtype=np.float32)
             for eid, st in states.items():
-                percept = _numeric(st, self._adaptation, eid)
-                if not percept.live:
+                percepts = _percepts(st, self._adaptation, eid)
+                if not percepts[0].live:
                     dead.append(eid)
                     continue
-                odour[_stable_channel(percept.key, channels)] += percept.value
+                for percept in percepts:
+                    odour[_stable_channel(percept.key, channels)] += percept.value
             senses.odour = np.clip(odour, 0.0, 1.5)
         self._dead_inputs = dead
 
@@ -1378,6 +1410,13 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         by_channel: dict[int, list[str]] = {}
         for entity_id in self._watched_cache:
             by_channel.setdefault(_stable_channel(entity_id, channels), []).append(entity_id)
+            # A bitmask reaches one glomerulus per position (see _percepts), so
+            # its suspects are named down to the position: "sensor.gates#4".
+            st = self.hass.states.get(entity_id)
+            if st is not None and BITMASK.fullmatch(str(st.state).strip()):
+                for i in range(len(str(st.state).strip())):
+                    key = f"{entity_id}#{i}"
+                    by_channel.setdefault(_stable_channel(key, channels), []).append(key)
         out: list[dict[str, Any]] = []
         hour_share = 0.0
         for channel, share in self.brain.novel_channels():
@@ -1390,7 +1429,7 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 hour_share += share
                 continue
             for entity_id in by_channel.get(channel, []):
-                st = self.hass.states.get(entity_id)
+                st = self.hass.states.get(entity_id.split("#", 1)[0])
                 out.append({
                     "entity_id": entity_id,
                     "state": st.state if st else None,

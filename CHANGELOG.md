@@ -1,5 +1,23 @@
 # Changelog
 
+## 2.17.0 — a row of detectors is a row of detectors
+
+A state made only of 0s and 1s, eight to sixty-four long, is now read as that
+many separate detectors, one glomerulus per position. FrontPath publishes its
+eighteen radar gates this way, street end to door end, and a fly watching it
+was getting nonsense: `float("000011000000000000")` succeeds, so the pattern
+arrived as one reading of eleven trillion, squeezed by range adaptation into a
+number that meant nothing.
+
+Reading it as a word would not have been much better — every pattern its own
+glomerulus, so gates 4+5 and gates 4+5+6 as unrelated as two rooms. Per
+position, patterns that share gates share glomeruli, which is what lets the
+mushroom body habituate to the wind's few repeated patterns while a person
+walking the path still reads as new. An all-zero mask is a live channel saying
+nothing is there. Suspects name the position (`sensor.gates#4`).
+
+Four new checks in section 8 of `tools/validate.py`.
+
 ## 2.1.0 — what a real house exposed
 
 Run against a live installation's entities rather than a generated fake house,

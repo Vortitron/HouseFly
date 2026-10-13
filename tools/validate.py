@@ -664,10 +664,11 @@ def main() -> int:
     import hashlib as _h
     from dataclasses import dataclass as _dc
     src = (ROOT / "custom_components" / "fly_house" / "coordinator.py").read_text()
-    ns = {"np": np, "math": math, "hashlib": _h, "dataclass": _dc, "State": object}
+    import re as _re
+    ns = {"np": np, "math": math, "hashlib": _h, "dataclass": _dc, "State": object, "re": _re}
     exec(compile(src[src.index("def _stable_channel"):src.index("class FlyHouseCoordinator")],
                  "coordinator", "exec"), ns)
-    numeric, channel_of = ns["_numeric"], ns["_stable_channel"]
+    numeric, channel_of, percepts = ns["_numeric"], ns["_stable_channel"], ns["_percepts"]
 
     class _State:
         def __init__(self, state):
@@ -710,6 +711,30 @@ def main() -> int:
           not numeric(_State("unknown"), adaptation, "x").live
           and not numeric(_State("unavailable"), adaptation, "x").live,
           "so a misconfigured sensor does not look like a quiet one")
+
+    # A row of detectors published as one 0/1 string (FrontPath's radar gates,
+    # street end to door end) is a row of detectors, not a number.
+    gates = "sensor.frontpath_gate_pattern"
+    def glomeruli_of(mask):
+        return {channel_of(p.key, 131) for p in percepts(_State(mask), adaptation, gates)}
+    two = percepts(_State("000011000000000000"), adaptation, gates)
+    check("a radar gate pattern is read as gates, not as eleven trillion",
+          len(two) == 2 and all(p.value == 1.0 and "#" in p.key for p in two),
+          ", ".join(p.key.split(".", 1)[1] for p in two))
+    near, wider, elsewhere = (glomeruli_of("000011000000000000"),
+                              glomeruli_of("000111000000000000"),
+                              glomeruli_of("000000000000011000"))
+    check("patterns that share gates share glomeruli, and others do not",
+          near < wider and not (near & elsewhere),
+          f"{len(near)} of {len(wider)} shared; {len(near & elsewhere)} with the far end")
+    empty = percepts(_State("000000000000000000"), adaptation, gates)
+    check("an empty path is a live channel saying nothing is there",
+          len(empty) == 1 and empty[0].live and empty[0].value == 0.0,
+          "not a dead input")
+    check("and ordinary numbers are still numbers",
+          len(percepts(_State("1500"), adaptation, "sensor.power")) == 1
+          and len(percepts(_State("1010"), adaptation, "sensor.power")) == 1,
+          "short 0/1 strings stay numeric; a mask needs at least eight positions")
 
     # Two inputs that land on the SAME glomerulus must still be distinguishable
     # by the time they reach the mushroom body, or the fly could never learn
