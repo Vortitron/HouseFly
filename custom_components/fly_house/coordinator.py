@@ -410,6 +410,36 @@ def _numeric(state: State | None, adaptation: dict[str, SensoryAdaptation] | Non
 # detectors (radar gates, zones, a keypad's LEDs) rather than a number.
 BITMASK = re.compile(r"[01]{8,64}")
 
+# Named rows of numbers, "m1:21,18,13;s1:0,0,80": several readings published
+# as one state because Home Assistant has no array type. A row name has to
+# start with a letter, so a clock time like "07:45" stays a word.
+_ROW = r"[A-Za-z_][A-Za-z0-9_]*:-?\d+(?:\.\d+)?(?:,-?\d+(?:\.\d+)?)*"
+VECTOR = re.compile(rf"{_ROW}(?:;{_ROW})*")
+# More channels than this from one entity would crowd out the rest of the
+# house: the antennal lobe only has 131 glomeruli to share.
+MAX_VECTOR_CHANNELS = 64
+
+
+def _vector(raw: str) -> list[tuple[str, float]] | None:
+    """("m1#0", 21.0), ... for a named-row state, or None if it is not one."""
+    if not VECTOR.fullmatch(raw):
+        return None
+    out: list[tuple[str, float]] = []
+    for row in raw.split(";"):
+        name, values = row.split(":", 1)
+        out.extend((f"{name}#{i}", float(v)) for i, v in enumerate(values.split(",")))
+    return out if 2 <= len(out) <= MAX_VECTOR_CHANNELS else None
+
+
+def _channel_keys(entity_id: str, raw: str) -> list[str]:
+    """Every glomerulus key an entity can drive, for naming suspects."""
+    if BITMASK.fullmatch(raw):
+        return [entity_id] + [f"{entity_id}#{i}" for i in range(len(raw))]
+    rows = _vector(raw)
+    if rows is not None:
+        return [f"{entity_id}#{name}" for name, _ in rows]
+    return [entity_id]
+
 
 def _percepts(state: State | None, adaptation: dict[str, SensoryAdaptation] | None = None,
               entity_id: str = "") -> list[Percept]:
@@ -426,6 +456,13 @@ def _percepts(state: State | None, adaptation: dict[str, SensoryAdaptation] | No
     the Kenyon layer sees them as alike in proportion.
 
     An all-zero mask is a live channel saying nothing is there, not a dead one.
+
+    Named rows of numbers ("m1:21,18,13;s1:0,0,80") get one glomerulus per
+    value, and each adapts to its own range like any numeric channel. FrontPath
+    publishes both radars' per-gate energies this way: thirty-six readings a
+    second, each with a different normal level -- a radar gate that sees swaying
+    plants sits near 100 all day, one over open path near 20 -- so one shared
+    scale would drown the quiet gates, and that is where a person shows up.
     """
     if state is not None:
         raw = str(state.state).strip()
@@ -433,6 +470,19 @@ def _percepts(state: State | None, adaptation: dict[str, SensoryAdaptation] | No
             set_bits = [Percept(f"{entity_id}#{i}", 1.0, True)
                         for i, bit in enumerate(raw) if bit == "1"]
             return set_bits or [Percept(entity_id, 0.0, True)]
+        rows = _vector(raw)
+        if rows is not None:
+            out = []
+            for name, value in rows:
+                key = f"{entity_id}#{name}"
+                if adaptation is None:
+                    out.append(Percept(key, float(np.clip(value, 0.0, 1.0)), True))
+                    continue
+                channel = adaptation.get(key)
+                if channel is None:
+                    channel = adaptation[key] = SensoryAdaptation()
+                out.append(Percept(key, channel.observe(value), True))
+            return out
     return [_numeric(state, adaptation, entity_id)]
 
 
@@ -1410,13 +1460,14 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         by_channel: dict[int, list[str]] = {}
         for entity_id in self._watched_cache:
             by_channel.setdefault(_stable_channel(entity_id, channels), []).append(entity_id)
-            # A bitmask reaches one glomerulus per position (see _percepts), so
-            # its suspects are named down to the position: "sensor.gates#4".
+            # A bitmask or a row of numbers reaches one glomerulus per value
+            # (see _percepts), so its suspects are named down to the position:
+            # "sensor.gates#4", "sensor.gate_energies#s2#6".
             st = self.hass.states.get(entity_id)
-            if st is not None and BITMASK.fullmatch(str(st.state).strip()):
-                for i in range(len(str(st.state).strip())):
-                    key = f"{entity_id}#{i}"
-                    by_channel.setdefault(_stable_channel(key, channels), []).append(key)
+            if st is not None:
+                for key in _channel_keys(entity_id, str(st.state).strip()):
+                    if key != entity_id:
+                        by_channel.setdefault(_stable_channel(key, channels), []).append(key)
         out: list[dict[str, Any]] = []
         hour_share = 0.0
         for channel, share in self.brain.novel_channels():

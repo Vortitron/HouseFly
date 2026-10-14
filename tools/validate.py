@@ -736,6 +736,44 @@ def main() -> int:
           and len(percepts(_State("1010"), adaptation, "sensor.power")) == 1,
           "short 0/1 strings stay numeric; a mask needs at least eight positions")
 
+    # Named rows of numbers (FrontPath's per-gate radar energies, published as
+    # "m1:<9>;s1:<9>;m2:<9>;s2:<9>") are one channel per value, each adapting
+    # to its own range: a gate over swaying plants sits near 100, one over open
+    # path near 20, and on a shared scale the quiet one would never register.
+    energies = "sensor.frontpath_gate_energies"
+    def row(m1, s1, m2, s2):
+        return ";".join(f"{t}:" + ",".join(str(v) for v in vals)
+                        for t, vals in (("m1", m1), ("s1", s1), ("m2", m2), ("s2", s2)))
+    calm = row([20] * 9, [30] * 4 + [95] * 5, [15] * 9, [35] * 9)
+    first = percepts(_State(calm), adaptation, energies)
+    check("a gate energies row is read as 36 channels",
+          len(first) == 36 and all(p.live and "#" in p.key for p in first),
+          f"{len(first)} percepts, e.g. {first[13].key.split('.', 1)[1]}")
+    rng = np.random.default_rng(3)
+    for _ in range(200):
+        noisy = row(rng.integers(10, 30, 9), list(rng.integers(20, 40, 4)) + list(rng.integers(85, 100, 5)),
+                    rng.integers(5, 25, 9), rng.integers(25, 45, 9))
+        percepts(_State(noisy), adaptation, energies)
+    person = percepts(_State(row([20] * 9, [30] * 4 + [95] * 5, [15] * 9, [35] * 7 + [90, 35])),
+                      adaptation, energies)
+    by_key = {p.key: p.value for p in person}
+    far_door = by_key[f"{energies}#s2#7"]
+    plants = by_key[f"{energies}#s1#6"]
+    check("each gate adapts to its own range, so a person at a quiet gate stands out",
+          far_door > 0.9 and plants < 0.9,
+          f"door gate 7 at 90 (normally 25-45) -> {far_door:.2f}; "
+          f"plant gate at 95 (normally 85-100) -> {plants:.2f}")
+    places = [{channel_of(p.key, 131) for p in percepts(_State(calm), adaptation, energies)
+               if p.key.endswith("#s2#7")} for _ in range(3)]
+    check("and the same gate always reaches the same glomerulus",
+          all(len(g) == 1 for g in places) and len(set.union(*places)) == 1,
+          "otherwise nothing about it could ever be learned")
+    check("clock times and plain numbers are not rows",
+          len(percepts(_State("07:45"), adaptation, "sensor.next_bus")) == 1
+          and len(percepts(_State("1500"), adaptation, "sensor.power")) == 1
+          and len(percepts(_State("m1:5"), adaptation, "sensor.one")) == 1,
+          "a row needs a name starting with a letter and at least two values")
+
     # Two inputs that land on the SAME glomerulus must still be distinguishable
     # by the time they reach the mushroom body, or the fly could never learn
     # anything about one without learning it about the other. In the animal that

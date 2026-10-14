@@ -1,5 +1,25 @@
 # Changelog
 
+## 2.18.0 — rows of numbers, one channel each
+
+A state made of named rows of numbers, `m1:21,18,13;s1:0,0,80`, is now read as
+one channel per value, and each channel adapts to its own range like any
+numeric sensor. Home Assistant has no array type, so this is how a device
+publishes several readings at once; FrontPath sends both radars' per-gate
+energies this way, thirty-six numbers a second.
+
+Read as one string it was a word, a new odour every second. And one shared
+scale would not do either: a gate over swaying plants sits near 100 all day
+while one over open path sits near 20, so a person at the quiet gate would
+vanish into the noisy gate's range. Per channel, the fly learns what the wind
+does to each gate and a person at an unusually quiet one is new.
+
+A row name has to start with a letter, so a clock time such as `07:45` is
+still a word. Two to sixty-four values per entity, so one sensor cannot crowd
+out the house. Suspects name the row and position
+(`sensor.gate_energies#s2#7`). Four new checks in section 8 of
+`tools/validate.py`.
+
 ## 2.17.0 — a row of detectors is a row of detectors
 
 A state made only of 0s and 1s, eight to sixty-four long, is now read as that
