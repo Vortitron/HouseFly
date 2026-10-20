@@ -74,6 +74,10 @@ DANGEROUS_HINTS = (
 class SafetyVerdict:
     allowed: bool
     reason: str = ""
+    # Not a refusal: the thing is already how the fly wants it, so there is
+    # nothing to do. Kept apart from real refusals so the count of those means
+    # something. See ActuationGovernor.check.
+    satisfied: bool = False
 
 
 @dataclass
@@ -92,6 +96,7 @@ class ActuationGovernor:
     _last_value: dict[str, float] = field(default_factory=dict, init=False)
     _blocked_count: int = field(default=0, init=False)
     _allowed_count: int = field(default=0, init=False)
+    _satisfied_count: int = field(default=0, init=False)
 
     # ------------------------------------------------------------------ vet
     @staticmethod
@@ -121,8 +126,18 @@ class ActuationGovernor:
         cutoff = now - 3600.0
         self._recent = [t for t in self._recent if t >= cutoff]
 
-    def check(self, entity_id: str, value: float, local_hour: int) -> SafetyVerdict:
-        """Runtime check for one proposed actuation."""
+    def check(self, entity_id: str, value: float, local_hour: int,
+              current: float | None = None) -> SafetyVerdict:
+        """Runtime check for one proposed actuation.
+
+        `current` is the entity's level as it actually is now, on the same 0..1
+        scale as `value`, when it can be read. The deadband is measured against
+        that. It used to be measured against this fly's own last command, which
+        is blind to everyone else: on a four-fly house, once a fly had set a
+        light, every later wish within 0.15 of that command was refused -- even
+        after another fly or a person had changed the light completely -- and
+        those refusals ran to six hundred a day per fly.
+        """
         if not self.enabled:
             return SafetyVerdict(False, "actuation disabled (observe-only mode)")
         if entity_id not in self.allowlist:
@@ -131,6 +146,15 @@ class ActuationGovernor:
         verdict = self.vet_entity(entity_id)
         if not verdict.allowed:
             return verdict
+
+        # Deadband: do not issue a call that barely changes anything. This is
+        # what stops a jittering brain state from producing a call storm even
+        # when every other limit still has headroom. Asked first, because a
+        # thing already as the fly wants it is not an attempt that anything
+        # needs to refuse.
+        reference = current if current is not None else self._last_value.get(entity_id)
+        if reference is not None and abs(value - reference) < self.deadband:
+            return SafetyVerdict(False, "already as it wants it", satisfied=True)
 
         if self.quiet_hours:
             start, end = self.quiet_hours
@@ -158,13 +182,6 @@ class ActuationGovernor:
             wait = self.min_seconds_between_calls_per_entity - (now - last)
             return SafetyVerdict(False, f"cooling down for another {wait:.0f}s")
 
-        # Deadband: do not issue a call that barely changes anything. This is
-        # what stops a jittering brain state from producing a call storm even
-        # when every other limit still has headroom.
-        prev = self._last_value.get(entity_id)
-        if prev is not None and abs(value - prev) < self.deadband:
-            return SafetyVerdict(False, f"change of {abs(value - prev):.2f} is inside the deadband")
-
         return SafetyVerdict(True)
 
     def record(self, entity_id: str, value: float) -> None:
@@ -178,6 +195,9 @@ class ActuationGovernor:
     def record_block(self) -> None:
         self._blocked_count += 1
 
+    def record_satisfied(self) -> None:
+        self._satisfied_count += 1
+
     # ------------------------------------------------------------ reporting
     @property
     def stats(self) -> dict[str, Any]:
@@ -189,6 +209,7 @@ class ActuationGovernor:
             "hourly_budget": self.max_calls_per_hour,
             "total_actuations": self._allowed_count,
             "total_blocked": self._blocked_count,
+            "total_already_as_wanted": self._satisfied_count,
         }
 
 

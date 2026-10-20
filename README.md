@@ -790,7 +790,13 @@ allowlist. See [`safety.py`](custom_components/fly_house/safety.py).
 - **It has to land on something to touch it.** Actuation is triggered by the
   fly settling on a card, not by a timer — a few interactions an hour.
 - **Hourly budget**, per-entity cooldown, a deadband so a jittering brain
-  cannot produce a call storm, and optional quiet hours.
+  cannot produce a call storm, and optional quiet hours. The deadband is
+  measured against the thing *as it is* — a fly that lands on a lamp someone
+  else has just switched off sees it off — and a lamp already as the fly wants
+  it counts as contentment (`total_already_as_wanted`), not as a refusal
+  (`total_blocked`). Until 2.19 the two were one number, measured against the
+  fly's own last command, and on the sandboxes it ran to six hundred
+  "refusals" a day per fly against two actions.
 - Bad choices are refused in the config flow, while you are still looking at it.
 
 Start it on a spare lamp.

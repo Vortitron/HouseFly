@@ -842,6 +842,64 @@ def main() -> int:
           quiet_at((4, 4), [0, 4, 5, 12, 23]) == [False] * 5,
           "start == end used to read 'hour >= 4 or hour < 4', which is every hour")
 
+    print("\n10b. It judges a light as it is, and says when it is content")
+    # On the live sandboxes every fly was refused about six hundred times a
+    # day and acted about twice. Two things did it. The deadband compared a
+    # wish with the fly's own last command, so it never noticed anyone else
+    # changing a light; and a wish that matched the light was counted as a
+    # safety refusal, though there was nothing to refuse.
+    gov = safety.ActuationGovernor(allowlist={"light.a"}, enabled=True)
+    gov.record("light.a", 0.5)
+    gov._last_per_entity.clear()                 # long enough ago to be off cooldown
+    blind = gov.check("light.a", 0.5, local_hour=12)
+    seeing = gov.check("light.a", 0.5, local_hour=12, current=0.0)
+    check("a light someone else switched off is put back, not refused as unchanged",
+          seeing.allowed and not blind.allowed,
+          f"judged by its own last command: {blind.reason or 'allowed'}; by the light as it is: "
+          f"{'allowed' if seeing.allowed else seeing.reason}")
+    same = gov.check("light.a", 0.52, local_hour=12, current=0.5)
+    check("and a light already as it wants it is contentment, not a refusal",
+          same.satisfied and not same.allowed,
+          f"verdict: {same.reason}")
+    coord_src = (ROOT / "custom_components" / "fly_house" / "coordinator.py").read_text()
+    act_src = coord_src[coord_src.index("    async def _maybe_act"):
+                        coord_src.index("    def _current_level")]
+    check("which the coordinator counts apart from the safety layer's refusals",
+          act_src.index("record_satisfied") < act_src.index("record_block"),
+          "total_already_as_wanted and total_blocked are different numbers now")
+
+    # Reading the level back, on the motor scale.
+    level_src = coord_src[coord_src.index("    def _current_level"):
+                          coord_src.index("    def _entity_under_fly")]
+    from types import SimpleNamespace as _NS
+    lns = {"Any": object}
+    exec(compile("class _C:\n" + level_src, "coordinator", "exec"), lns)
+    house = {
+        "light.half": _NS(state="on", attributes={"brightness": 128}),
+        "light.off": _NS(state="off", attributes={}),
+        "switch.on": _NS(state="on", attributes={}),
+        "light.gone": _NS(state="unavailable", attributes={}),
+    }
+    reader = lns["_C"].__new__(lns["_C"])
+    reader.hass = _NS(states=_NS(get=house.get))
+    levels = {e: lns["_C"]._current_level(reader, e) for e in house}
+    check("it reads a light, a switch and a missing entity on the motor scale",
+          abs(levels["light.half"] - 0.502) < 0.01 and levels["light.off"] == 0.0
+          and levels["switch.on"] == 1.0 and levels["light.gone"] is None,
+          ", ".join(f"{e} {v if v is None else round(v, 3)}" for e, v in levels.items()))
+
+    # And what it feels has to be able to clear the deadband at all.
+    vgain, again = coord_const("MOTOR_VALENCE_GAIN"), coord_const("MOTOR_AROUSAL_GAIN")
+    day_swing = again * (max(arousal.values()) - min(arousal.values()))
+    check("a learned change in valence moves what it asks for past the deadband",
+          vgain * 0.1 > gov.deadband,
+          f"0.1 of valence -> {vgain * 0.1:.2f} against a {gov.deadband} deadband "
+          f"(at the old gain of 0.5: {0.5 * 0.1:.2f})")
+    check("and so does its own day, lively against drowsy",
+          day_swing > gov.deadband,
+          f"arousal across the sampled hours moves the wish by {day_swing:.2f} "
+          f"(at the old gain of 0.2: {0.2 * (max(arousal.values()) - min(arousal.values())):.2f})")
+
     print("\n11. The eye")
     # The visual front end is JavaScript, because it runs where the frames are.
     # Its checks live in tools/test_vision.mjs and are run here so that one

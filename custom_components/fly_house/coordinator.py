@@ -261,6 +261,19 @@ MEAL_RESUME_SECONDS = 120.0  # back on the same food this soon is the same meal
 # The Feed service is a short burst of the same thing.
 FEED_SUGAR_SECONDS = 30.0
 
+# How strongly the fly's state moves what it asks for when it lands.
+#
+# The safety layer ignores any change smaller than its 0.15 deadband. The old
+# gains, 0.5 on valence and 0.2 on arousal, kept every wish within about 0.45
+# to 0.6 once valence sat near zero, as it does now that it carries only what
+# was learned: a learned shift of 0.1 moved the wish by 0.05, which the
+# deadband swallowed, and on the live sandboxes nothing a fly had learned or
+# felt could ever show up in a light. At these gains a learned shift of 0.1 is
+# a 0.2 change, and the fly's daily arousal spans about 0.4 -- bright when it
+# is lively, dim when it is drowsy -- both clear of the deadband.
+MOTOR_VALENCE_GAIN = 2.0
+MOTOR_AROUSAL_GAIN = 0.4
+
 # The most places a watch-only fly's notional room is laid out with.
 NOTIONAL_PLACES = 9
 
@@ -1614,11 +1627,21 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._dwell_spent = True
 
         # What it does is set by how it feels about the place: a positive
-        # mushroom-body valence turns things up, a negative one turns them down.
-        value = float(np.clip(0.5 + 0.5 * result["valence"] + 0.2 * (result["arousal"] - 0.5), 0.05, 1.0))
+        # mushroom-body valence turns things up, a negative one turns them down,
+        # and a lively fly wants more than a drowsy one. See MOTOR_VALENCE_GAIN.
+        value = float(np.clip(
+            0.5 + MOTOR_VALENCE_GAIN * result["valence"]
+            + MOTOR_AROUSAL_GAIN * (result["arousal"] - 0.5),
+            0.05, 1.0))
+        if entity.split(".", 1)[0] == "switch":
+            value = 1.0 if value >= 0.5 else 0.0     # a switch is on or off
 
         local_hour = dt_util.now().hour
-        verdict = self.governor.check(entity, value, local_hour)
+        verdict = self.governor.check(entity, value, local_hour,
+                                      current=self._current_level(entity))
+        if verdict.satisfied:
+            self.governor.record_satisfied()
+            return
         if not verdict.allowed:
             self.governor.record_block()
             _LOGGER.debug("HouseFly wanted %s -> %.2f but: %s", entity, value, verdict.reason)
@@ -1645,6 +1668,40 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         })
         self._actions = self._actions[-30:]
         _LOGGER.info("HouseFly landed on %s and set it to %.0f%%", entity, value * 100)
+
+    def _current_level(self, entity_id: str) -> float | None:
+        """The entity's level as it is now, on the 0..1 scale of a motor value.
+
+        What the fly lands on is the thing as it is, not as the fly last left
+        it -- another fly, a person or an automation may have changed it since.
+        None when it cannot be read, and the safety layer then falls back to
+        the fly's own last command.
+        """
+        st = self.hass.states.get(entity_id)
+        if st is None or st.state in ("unavailable", "unknown"):
+            return None
+        domain = entity_id.split(".", 1)[0]
+        try:
+            if domain == "light":
+                if st.state != "on":
+                    return 0.0
+                brightness = st.attributes.get("brightness")
+                return 1.0 if brightness is None else float(brightness) / 255.0
+            if domain == "switch":
+                return 1.0 if st.state == "on" else 0.0
+            if domain == "fan":
+                if st.state != "on":
+                    return 0.0
+                pct = st.attributes.get("percentage")
+                return 1.0 if pct is None else float(pct) / 100.0
+            if domain in ("number", "input_number"):
+                return float(st.state) / 100.0
+            if domain == "media_player":
+                vol = st.attributes.get("volume_level")
+                return None if vol is None else float(vol)
+        except (TypeError, ValueError):
+            return None
+        return None
 
     def _entity_under_fly(self) -> str | None:
         vw, vh = self._viewport

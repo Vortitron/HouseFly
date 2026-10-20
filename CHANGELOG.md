@@ -1,5 +1,28 @@
 # Changelog
 
+## 2.19.0 — it sees the lamp it lands on
+
+On the sandboxes, a week after 2.16.0, each fly was "refused" about six
+hundred times a day and acted about twice. None of those were the safety layer
+protecting anything. Three things, all fixed:
+
+- The deadband compared a wish with the fly's own last command, so it never
+  noticed anyone else changing a light. It now compares with the light as it
+  actually is: a fly that lands on a lamp another fly or a person has switched
+  off sees it off.
+- A wish that matched the lamp was counted as a safety refusal. It is now
+  counted apart, as `total_already_as_wanted`; `total_blocked` means the
+  safety layer said no.
+- The fly's state barely moved what it asked for. At gains of 0.5 on valence
+  and 0.2 on arousal every wish sat between about 0.45 and 0.6 — inside the
+  0.15 deadband — so nothing it learned or felt could reach a light. At 2.0
+  and 0.4, a learned valence shift of 0.1 is a change of 0.2, and its day is
+  bright when it is lively and dim when it is drowsy.
+
+A switch is now asked for as on or off rather than as a level, so "already as
+it wants it" means the same thing for a switch as for a lamp. Six new checks
+in section 10b of `tools/validate.py`.
+
 ## 2.18.0 — rows of numbers, one channel each
 
 A state made of named rows of numbers, `m1:21,18,13;s1:0,0,80`, is now read as
