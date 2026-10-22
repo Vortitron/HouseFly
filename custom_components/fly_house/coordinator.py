@@ -1715,9 +1715,13 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         ctx = st.context
         if ctx is not None and ctx.id == self._my_context.get(entity_id):
             return None, False
-        # Stamped before this fly started is Home Assistant restoring its own
-        # state at startup, not a decision anyone made.
-        if st.last_updated.timestamp() < self._started_at:
+        # Stamped before this fly started, or while Home Assistant was still
+        # starting, is the house settling, not a decision anyone made. Only
+        # "before" was not enough: on the Swarm the template lights rendered
+        # two seconds after the flies started, with no user and no parent, and
+        # every fly took that for a person and left every light alone for an
+        # hour after each restart. Same window as the alert's startup grace.
+        if st.last_updated.timestamp() < self._started_at + STARTUP_GRACE_SECONDS:
             return None, False
         ago = max(0.0, dt_util.utcnow().timestamp() - st.last_updated.timestamp())
         if ctx is None:

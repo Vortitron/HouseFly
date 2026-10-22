@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.20.1 — a restart is nobody's decision
+
+2.20.0 counted only states stamped *before* a fly started as the house
+restoring itself. On the Swarm the template lights rendered two seconds
+*after*, with no user and no parent, so every fly took that for a person and
+left every light alone for an hour after each restart. Anything stamped during
+the first ten minutes — the same startup grace the unusual alert already uses —
+is now nobody's decision. Check 10c covers it.
+
 ## 2.20.0 — someone else's decision stands
 
 2.19.0 let a fly see a lamp as it is, and the first thing that showed on the

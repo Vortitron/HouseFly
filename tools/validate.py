@@ -936,6 +936,7 @@ def main() -> int:
     from datetime import datetime as _dt2, timezone as _tz2, timedelta as _td2
     clock_now = _dt2(2026, 10, 22, 12, 0, tzinfo=_tz2.utc)
     wns = {"Any": object, "DOMAIN": "fly_house", "FLY_CONTEXT_MEMORY": 2000,
+           "STARTUP_GRACE_SECONDS": coord_const("STARTUP_GRACE_SECONDS"),
            "HomeAssistant": object,
            "dt_util": _NS(utcnow=lambda: clock_now)}
     exec(compile(reg_src, "coordinator", "exec"), wns)
@@ -954,6 +955,7 @@ def main() -> int:
         "light.user": state("ctx-u", user="user-1"),
         "light.wall": state("ctx-device"),
         "light.boot": state("ctx-boot", when=clock_now - _td2(hours=2)),
+        "light.render": state("ctx-render", when=clock_now - _td2(minutes=58)),
     }
     fly = wns["_C"].__new__(wns["_C"])
     fly.hass = _NS(states=_NS(get=world.get), data=hass_data)
@@ -964,10 +966,11 @@ def main() -> int:
           seen["light.mine"] == (None, False) and seen["light.fly"][1] is False
           and seen["light.auto"][1] is False and seen["light.user"][1] is True
           and seen["light.wall"][1] is True and seen["light.boot"] == (None, False)
+          and seen["light.render"] == (None, False)
           and abs(seen["light.user"][0] - 300) < 1,
           ", ".join(f"{e.split('.')[1]}={'self' if v[0] is None else ('person' if v[1] else 'other')}"
                     for e, v in seen.items())
-          + " (a wall switch is a person; a restart's restored state is nobody's)")
+          + " (a wall switch is a person; what the house does while starting is nobody's)")
 
     print("\n11. The eye")
     # The visual front end is JavaScript, because it runs where the frames are.
