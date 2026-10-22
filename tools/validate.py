@@ -900,6 +900,75 @@ def main() -> int:
           f"arousal across the sampled hours moves the wish by {day_swing:.2f} "
           f"(at the old gain of 0.2: {0.2 * (max(arousal.values()) - min(arousal.values())):.2f})")
 
+    print("\n10c. Someone else's decision stands")
+    # Once a fly could see a lamp as it is, the first thing it did on the demo
+    # box was switch a light back on two to fourteen seconds after the house's
+    # automation had switched it off. A person turning off a lamp would have
+    # met the same. Run the safety layer and the coordinator's own reading of
+    # who made the last change.
+    gov = safety.ActuationGovernor(allowlist={"light.a"}, enabled=True)
+    person_win, other_win = safety.LEAVE_ALONE_AFTER_PERSON, safety.LEAVE_ALONE_AFTER_OTHER
+
+    def verdict(ago, person):
+        gov._last_per_entity.clear()
+        gov._recent.clear()
+        return gov.check("light.a", 0.6, local_hour=12, current=0.0,
+                         changed_by_other_ago=ago, by_person=person)
+
+    check("a lamp a person just switched off stays off",
+          verdict(300, True).deferred and verdict(person_win - 60, True).deferred,
+          f"left alone 5 min and {(person_win - 60) / 60:.0f} min after a person's change")
+    check("an automation's or another fly's change is respected for less long",
+          verdict(300, False).deferred and verdict(other_win + 60, False).allowed,
+          f"left alone for {other_win / 60:.0f} min, then fair game")
+    check("and its own last change does not hold it back",
+          verdict(None, False).allowed, "changed_by_other_ago=None: this fly made the last change")
+    check("being left alone is counted apart from refusals and contentment",
+          "total_left_to_others" in gov.stats and verdict(300, True).allowed is False
+          and not verdict(300, True).satisfied,
+          "deferred, not blocked and not satisfied")
+
+    coord_src = (ROOT / "custom_components" / "fly_house" / "coordinator.py").read_text()
+    who_src = coord_src[coord_src.index("    def _changed_by_other"):
+                        coord_src.index("    def _current_level")]
+    reg_src = coord_src[coord_src.index("def _fly_contexts"):
+                        coord_src.index("class FlyHouseCoordinator")]
+    from datetime import datetime as _dt2, timezone as _tz2, timedelta as _td2
+    clock_now = _dt2(2026, 10, 22, 12, 0, tzinfo=_tz2.utc)
+    wns = {"Any": object, "DOMAIN": "fly_house", "FLY_CONTEXT_MEMORY": 2000,
+           "HomeAssistant": object,
+           "dt_util": _NS(utcnow=lambda: clock_now)}
+    exec(compile(reg_src, "coordinator", "exec"), wns)
+    exec(compile("class _C:\n" + who_src, "coordinator", "exec"), wns)
+    hass_data: dict = {}
+    wns["_fly_contexts"](_NS(data=hass_data))["ctx-other-fly"] = 0.0   # another fly's change
+    ago5 = clock_now - _td2(minutes=5)
+
+    def state(ctx_id, user=None, parent=None, when=ago5):
+        return _NS(context=_NS(id=ctx_id, user_id=user, parent_id=parent), last_updated=when)
+
+    world = {
+        "light.mine": state("ctx-mine"),
+        "light.fly": state("ctx-other-fly"),
+        "light.auto": state("ctx-a", parent="ctx-automation"),
+        "light.user": state("ctx-u", user="user-1"),
+        "light.wall": state("ctx-device"),
+        "light.boot": state("ctx-boot", when=clock_now - _td2(hours=2)),
+    }
+    fly = wns["_C"].__new__(wns["_C"])
+    fly.hass = _NS(states=_NS(get=world.get), data=hass_data)
+    fly._my_context = {"light.mine": "ctx-mine"}
+    fly._started_at = (clock_now - _td2(hours=1)).timestamp()
+    seen = {e: wns["_C"]._changed_by_other(fly, e) for e in world}
+    check("it knows its own change, another fly's, an automation's and a person's",
+          seen["light.mine"] == (None, False) and seen["light.fly"][1] is False
+          and seen["light.auto"][1] is False and seen["light.user"][1] is True
+          and seen["light.wall"][1] is True and seen["light.boot"] == (None, False)
+          and abs(seen["light.user"][0] - 300) < 1,
+          ", ".join(f"{e.split('.')[1]}={'self' if v[0] is None else ('person' if v[1] else 'other')}"
+                    for e, v in seen.items())
+          + " (a wall switch is a person; a restart's restored state is nobody's)")
+
     print("\n11. The eye")
     # The visual front end is JavaScript, because it runs where the frames are.
     # Its checks live in tools/test_vision.mjs and are run here so that one

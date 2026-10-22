@@ -26,7 +26,7 @@ from datetime import timedelta
 from typing import Any
 
 import numpy as np
-from homeassistant.core import HomeAssistant, State
+from homeassistant.core import Context, HomeAssistant, State
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
@@ -499,6 +499,23 @@ def _percepts(state: State | None, adaptation: dict[str, SensoryAdaptation] | No
     return [_numeric(state, adaptation, entity_id)]
 
 
+FLY_CONTEXT_MEMORY = 2000   # contexts remembered; far more than an hour of actions
+
+
+def _fly_contexts(hass: HomeAssistant) -> dict[str, float]:
+    """Context ids of changes made by any fly on this Home Assistant.
+
+    Shared, so one fly can tell another fly's change from a person's. Bounded:
+    the oldest are dropped, and by then any window that cares about them is
+    long over.
+    """
+    seen = hass.data.setdefault(f"{DOMAIN}_contexts", {})
+    if len(seen) > FLY_CONTEXT_MEMORY:
+        for key in sorted(seen, key=seen.get)[: len(seen) - FLY_CONTEXT_MEMORY]:
+            del seen[key]
+    return seen
+
+
 class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     """Runs the brain, feeds it the house, and lets it act -- carefully."""
 
@@ -543,6 +560,7 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._position_from_card = False
         self._watched_cache: list[str] = list(self.input_entities)
         self._dwell_entity: str | None = None
+        self._my_context: dict[str, str] = {}
         self._eating = False
         self._meal_at: str | None = None
         self._meal_ended_at = 0.0
@@ -1637,10 +1655,15 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             value = 1.0 if value >= 0.5 else 0.0     # a switch is on or off
 
         local_hour = dt_util.now().hour
+        ago, by_person = self._changed_by_other(entity)
         verdict = self.governor.check(entity, value, local_hour,
-                                      current=self._current_level(entity))
+                                      current=self._current_level(entity),
+                                      changed_by_other_ago=ago, by_person=by_person)
         if verdict.satisfied:
             self.governor.record_satisfied()
+            return
+        if verdict.deferred:
+            self.governor.record_deferred()
             return
         if not verdict.allowed:
             self.governor.record_block()
@@ -1652,8 +1675,14 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
         domain, service = action["service"].split(".", 1)
         try:
+            # Its own context, so the change can be told apart from everyone
+            # else's afterwards -- by this fly and by every other one.
+            context = Context()
+            _fly_contexts(self.hass)[context.id] = dt_util.utcnow().timestamp()
+            self._my_context[entity] = context.id
             await self.hass.services.async_call(
-                domain, service, {"entity_id": entity, **action["data"]}, blocking=False
+                domain, service, {"entity_id": entity, **action["data"]},
+                blocking=False, context=context,
             )
         except Exception:  # noqa: BLE001
             _LOGGER.exception("HouseFly failed to act on %s", entity)
@@ -1668,6 +1697,34 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         })
         self._actions = self._actions[-30:]
         _LOGGER.info("HouseFly landed on %s and set it to %.0f%%", entity, value * 100)
+
+    def _changed_by_other(self, entity_id: str) -> tuple[float | None, bool]:
+        """How long ago something other than this fly last changed it, and
+        whether that something was a person. (None, False) if this fly did.
+
+        Home Assistant stamps every change with the context that caused it. A
+        change made under this fly's own last context is its own. One with a
+        parent was set off by an automation or script; one from another fly is
+        recognised by the contexts all flies here register; anything else is a
+        person -- a logged-in user, or a device reporting its own change, which
+        is what a wall switch or a lamp's own button looks like.
+        """
+        st = self.hass.states.get(entity_id)
+        if st is None:
+            return None, False
+        ctx = st.context
+        if ctx is not None and ctx.id == self._my_context.get(entity_id):
+            return None, False
+        # Stamped before this fly started is Home Assistant restoring its own
+        # state at startup, not a decision anyone made.
+        if st.last_updated.timestamp() < self._started_at:
+            return None, False
+        ago = max(0.0, dt_util.utcnow().timestamp() - st.last_updated.timestamp())
+        if ctx is None:
+            return ago, False
+        by_person = (ctx.user_id is not None
+                     or (ctx.parent_id is None and ctx.id not in _fly_contexts(self.hass)))
+        return ago, by_person
 
     def _current_level(self, entity_id: str) -> float | None:
         """The entity's level as it is now, on the 0..1 scale of a motor value.

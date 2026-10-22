@@ -797,6 +797,10 @@ allowlist. See [`safety.py`](custom_components/fly_house/safety.py).
   (`total_blocked`). Until 2.19 the two were one number, measured against the
   fly's own last command, and on the sandboxes it ran to six hundred
   "refusals" a day per fly against two actions.
+- **Someone else's decision stands.** Whatever a person changed in the last
+  hour, or an automation or another fly in the last ten minutes, the fly leaves
+  alone (`total_left_to_others`). It tells them apart by the context Home
+  Assistant stamps on every change; a wall switch counts as a person.
 - Bad choices are refused in the config flow, while you are still looking at it.
 
 Start it on a spare lamp.

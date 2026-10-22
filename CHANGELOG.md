@@ -1,5 +1,22 @@
 # Changelog
 
+## 2.20.0 — someone else's decision stands
+
+2.19.0 let a fly see a lamp as it is, and the first thing that showed on the
+demo box was a fly switching a light back on two to fourteen seconds after the
+house's own automation had switched it off — four times an hour on one light.
+A person turning off a lamp a fly may touch would have met the same.
+
+A fly now leaves alone anything someone else changed recently: for an hour
+after a person (a logged-in user, or a device reporting its own change, which
+is what a wall switch looks like), and for ten minutes after an automation, a
+script or another fly. It knows which is which from the context Home Assistant
+stamps on every change; every fly registers its own, so it can tell another
+fly from a person, and a restart's restored states count as nobody's.
+
+Counted as `total_left_to_others`, apart from `total_already_as_wanted` and
+from `total_blocked`. Five new checks in section 10c of `tools/validate.py`.
+
 ## 2.19.0 — it sees the lamp it lands on
 
 On the sandboxes, a week after 2.16.0, each fly was "refused" about six

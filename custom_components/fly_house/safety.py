@@ -70,6 +70,17 @@ DANGEROUS_HINTS = (
 )
 
 
+# How long a fly leaves alone something that someone else just changed.
+#
+# Since 2.19 a fly sees a lamp as it is, and the first thing that showed on the
+# demo box was a fly switching a light back on two to fourteen seconds after the
+# house's own automation had switched it off -- and the same would happen to a
+# person turning off a lamp at home. Someone else's decision is news, not an
+# invitation. A person's outranks an automation's or another fly's.
+LEAVE_ALONE_AFTER_PERSON = 3600.0   # seconds; a logged-in user or a device's own report
+LEAVE_ALONE_AFTER_OTHER = 600.0     # seconds; an automation, a script or another fly
+
+
 @dataclass
 class SafetyVerdict:
     allowed: bool
@@ -78,6 +89,9 @@ class SafetyVerdict:
     # nothing to do. Kept apart from real refusals so the count of those means
     # something. See ActuationGovernor.check.
     satisfied: bool = False
+    # Not a refusal either: someone else changed it recently and the fly is
+    # leaving their decision alone. See LEAVE_ALONE_AFTER_PERSON.
+    deferred: bool = False
 
 
 @dataclass
@@ -97,6 +111,7 @@ class ActuationGovernor:
     _blocked_count: int = field(default=0, init=False)
     _allowed_count: int = field(default=0, init=False)
     _satisfied_count: int = field(default=0, init=False)
+    _deferred_count: int = field(default=0, init=False)
 
     # ------------------------------------------------------------------ vet
     @staticmethod
@@ -127,7 +142,9 @@ class ActuationGovernor:
         self._recent = [t for t in self._recent if t >= cutoff]
 
     def check(self, entity_id: str, value: float, local_hour: int,
-              current: float | None = None) -> SafetyVerdict:
+              current: float | None = None,
+              changed_by_other_ago: float | None = None,
+              by_person: bool = False) -> SafetyVerdict:
         """Runtime check for one proposed actuation.
 
         `current` is the entity's level as it actually is now, on the same 0..1
@@ -155,6 +172,16 @@ class ActuationGovernor:
         reference = current if current is not None else self._last_value.get(entity_id)
         if reference is not None and abs(value - reference) < self.deadband:
             return SafetyVerdict(False, "already as it wants it", satisfied=True)
+
+        # Someone else's recent decision stands. `changed_by_other_ago` is how
+        # long ago the entity was last changed by anything other than this fly,
+        # or None if this fly made the last change.
+        if changed_by_other_ago is not None:
+            window = LEAVE_ALONE_AFTER_PERSON if by_person else LEAVE_ALONE_AFTER_OTHER
+            if changed_by_other_ago < window:
+                who = "a person" if by_person else "something else"
+                return SafetyVerdict(
+                    False, f"{who} changed it {changed_by_other_ago:.0f}s ago", deferred=True)
 
         if self.quiet_hours:
             start, end = self.quiet_hours
@@ -198,6 +225,9 @@ class ActuationGovernor:
     def record_satisfied(self) -> None:
         self._satisfied_count += 1
 
+    def record_deferred(self) -> None:
+        self._deferred_count += 1
+
     # ------------------------------------------------------------ reporting
     @property
     def stats(self) -> dict[str, Any]:
@@ -210,6 +240,7 @@ class ActuationGovernor:
             "total_actuations": self._allowed_count,
             "total_blocked": self._blocked_count,
             "total_already_as_wanted": self._satisfied_count,
+            "total_left_to_others": self._deferred_count,
         }
 
 
