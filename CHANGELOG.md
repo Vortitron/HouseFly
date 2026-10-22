@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.20.2 — but a person just after a restart is still a person
+
+2.20.1 treated every change in a fly's first ten minutes as nobody's,
+including a person's or an automation's. Only what nobody caused — the states
+Home Assistant restores while starting, with no user and no parent context —
+is ignored now; a lamp a person switches off just after a restart stays off,
+and an automation's change is respected as usual. Check 10c covers both.
+
 ## 2.20.1 — a restart is nobody's decision
 
 2.20.0 counted only states stamped *before* a fly started as the house

@@ -956,6 +956,8 @@ def main() -> int:
         "light.wall": state("ctx-device"),
         "light.boot": state("ctx-boot", when=clock_now - _td2(hours=2)),
         "light.render": state("ctx-render", when=clock_now - _td2(minutes=58)),
+        "light.early_user": state("ctx-eu", user="user-1", when=clock_now - _td2(minutes=58)),
+        "light.early_auto": state("ctx-ea", parent="ctx-automation", when=clock_now - _td2(minutes=58)),
     }
     fly = wns["_C"].__new__(wns["_C"])
     fly.hass = _NS(states=_NS(get=world.get), data=hass_data)
@@ -967,10 +969,12 @@ def main() -> int:
           and seen["light.auto"][1] is False and seen["light.user"][1] is True
           and seen["light.wall"][1] is True and seen["light.boot"] == (None, False)
           and seen["light.render"] == (None, False)
+          and seen["light.early_user"][1] is True and seen["light.early_auto"][0] is not None
           and abs(seen["light.user"][0] - 300) < 1,
           ", ".join(f"{e.split('.')[1]}={'self' if v[0] is None else ('person' if v[1] else 'other')}"
                     for e, v in seen.items())
-          + " (a wall switch is a person; what the house does while starting is nobody's)")
+          + " (a wall switch is a person; what the house restores while starting is nobody's,"
+            " but a person or an automation acting then is still somebody)")
 
     print("\n11. The eye")
     # The visual front end is JavaScript, because it runs where the frames are.

@@ -1721,7 +1721,13 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # two seconds after the flies started, with no user and no parent, and
         # every fly took that for a person and left every light alone for an
         # hour after each restart. Same window as the alert's startup grace.
-        if st.last_updated.timestamp() < self._started_at + STARTUP_GRACE_SECONDS:
+        #
+        # Only what nobody caused, though: a change with a user behind it, or
+        # set off by an automation, is still somebody's decision in those first
+        # ten minutes, and a lamp a person switches off just after a restart
+        # should stay off like any other.
+        settling = st.last_updated.timestamp() < self._started_at + STARTUP_GRACE_SECONDS
+        if settling and (ctx is None or (ctx.user_id is None and ctx.parent_id is None)):
             return None, False
         ago = max(0.0, dt_util.utcnow().timestamp() - st.last_updated.timestamp())
         if ctx is None:
