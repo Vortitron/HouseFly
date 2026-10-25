@@ -12,12 +12,13 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from homeassistant.components.sensor import (
+    SensorDeviceClass,
     SensorEntity,
     SensorEntityDescription,
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import DEGREE, PERCENTAGE
+from homeassistant.const import DEGREE, PERCENTAGE, EntityCategory, UnitOfTime
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -222,6 +223,22 @@ SENSORS: tuple[FlySensorDescription, ...] = (
             "recent_actions": d.get("recent_actions", []),
         },
     ),
+    FlySensorDescription(
+        key="tick_cost",
+        name="Tick cost",
+        icon="mdi:timer-cog-outline",
+        device_class=SensorDeviceClass.DURATION,
+        native_unit_of_measurement=UnitOfTime.MILLISECONDS,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        # Milliseconds of brain per tick on *this* machine, averaged over the
+        # last minute. The README's figure is a desktop i7; a Raspberry Pi or a
+        # Home Assistant Green is the more usual host, and this is where it
+        # says what it actually costs there. Whole milliseconds, because it
+        # changes every tick and the recorder keeps every change.
+        value=lambda d, c: round(d.get("cost", {}).get("brain_ms", 0.0)),
+        attrs=lambda d, c: d.get("cost", {}),
+    ),
 )
 
 
@@ -256,7 +273,7 @@ class FlySensor(CoordinatorEntity[FlyHouseCoordinator], SensorEntity):
             "name": entry.title or "HouseFly",
             "manufacturer": "Drosophila melanogaster",
             "model": f"hemibrain v1.2 · {coordinator.brain.data.n} neurons",
-            "sw_version": "2.0.0",
+            "sw_version": coordinator.version,
         }
 
     @property

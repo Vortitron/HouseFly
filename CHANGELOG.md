@@ -1,5 +1,45 @@
 # Changelog
 
+## 2.21.0 — something to install, not only something to watch
+
+Groundwork for the Home Assistant Marketplace, which replaces HACS in 2026.11.
+
+**A blueprint for the unusual alert.** The notification that turned "something
+unusual" into something a person reads lived only on the Swarm, built by hand.
+It is now `blueprints/automation/housefly/unusual_notify.yaml`, importable with
+one button from the README: pick the flies, choose whether alerts where only
+the hour is strange are worth hearing about, and add your own actions (`title`,
+`message`, `fly` and `report` are passed to them). Three things went wrong on
+the way, all found by running it on the Swarm against a probe sensor rather
+than by reading it: `device_attr` raises for an entity with no device; a dict
+of the sensor's attributes cannot be passed on, because Home Assistant's own
+keys are enum members and the text does not read back, so `report` arrived as
+a string and every alert was dropped as "not yet learned"; and a folded YAML
+block ran the list of changes into one line. Check 15 pins every attribute and
+field the blueprint reads to the dicts the coordinator builds, and fails when
+either side is renamed (tried both ways).
+
+**A fly says what it costs.** A new diagnostic sensor, **Tick cost**, reports
+the milliseconds of brain per tick on the machine it runs on, averaged over a
+minute, with the event-loop time, the share of one core and the CPU
+architecture as attributes. `tools/bench.py` measures the same with nothing
+but numpy, before installing: 61 ms per two-second tick here, 3.0% of one core,
+in line with the README's 59 ms. Nobody has measured a Raspberry Pi or a Home
+Assistant Green yet; the README says so, expects a small board to need several
+times as much, and explains what the tick interval does and does not buy (up
+to three seconds, nothing per second; beyond that, a tick still simulates only
+three, so the brain runs slower and costs less).
+
+**Smaller things.** The device page reported firmware "2.0.0" for twenty
+releases; it now reads the manifest. `hacs.json` asks for Home Assistant
+2026.9 or later, the oldest version this has actually been run on, instead of
+2024.7, which nobody had tried.
+
+**The README starts with what you get.** The Marketplace shows the README, so
+its first screen now lists the entities, the event, the blueprint, the cards
+and the safety default before the neuroscience, and installation covers the
+Marketplace as well as HACS.
+
 ## 2.20.2 — but a person just after a restart is still a person
 
 2.20.1 treated every change in a fly's first ten minutes as nobody's,

@@ -20,7 +20,10 @@ import base64
 import hashlib
 import logging
 import math
+import platform
 import re
+import time
+from collections import deque
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
@@ -57,6 +60,23 @@ _LOGGER = logging.getLogger(__name__)
 
 STORAGE_VERSION = 2
 STORAGE_KEY = f"{DOMAIN}_state"
+
+# How many ticks the published cost is averaged over: a minute at the default
+# interval, long enough that one garbage collection does not read as the price.
+COST_WINDOW_TICKS = 30
+
+
+def _timed_step(brain: FlyBrain, senses: Senses, sub_steps: int):
+    """brain.step, and how long it took, measured in the thread that ran it.
+
+    Wall time rather than thread CPU time: numpy may hand work to threads of its
+    own, and on a busy single-board computer the time spent waiting for a core
+    is part of what a tick costs.
+    """
+    started = time.perf_counter()
+    result = brain.step(senses, sub_steps)
+    return result, time.perf_counter() - started
+
 
 # Numeric state domains we can read a "brightness" from for phototaxis.
 LIGHT_DOMAINS = ("light",)
@@ -588,6 +608,12 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "rate": 0.0, "entity": None, "range_m": None, "closing_ms": None,
         }
         self._dead_inputs: list[str] = []
+        # What a tick costs on this machine, as (brain seconds, event-loop
+        # seconds). The README quotes a desktop i7; most houses run on something
+        # much smaller, and this is how they find out rather than take our word.
+        self._cost: deque[tuple[float, float]] = deque(maxlen=COST_WINDOW_TICKS)
+        # The integration's version, from its manifest; set at setup.
+        self.version: str | None = None
 
         self._store = Store(hass, STORAGE_VERSION, f"{STORAGE_KEY}_{entry_id}")
 
@@ -1273,18 +1299,27 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def _async_update_data(self) -> dict[str, Any]:
         try:
+            # Event-loop time is counted in the stretches that run on it, not
+            # across the awaits: the brain runs in an executor and is timed
+            # there, and actuation waits on other integrations' service calls,
+            # which are their cost rather than this one's.
+            started = time.perf_counter()
             senses = self._build_senses()
             sub_steps = int(np.clip(self._tick_interval * 20, 10, 60))
-            result = await self.hass.async_add_executor_job(
-                self.brain.step, senses, sub_steps
+            loop_s = time.perf_counter() - started
+            result, brain_s = await self.hass.async_add_executor_job(
+                _timed_step, self.brain, senses, sub_steps
             )
 
+            started = time.perf_counter()
             self._last_turn = float(result["turn"])
             self._advance_position(result)
 
             self._eat_or_starve(result)
+            loop_s += time.perf_counter() - started
 
             await self._maybe_act(result)
+            started = time.perf_counter()
 
             if self.brain.tick % 40 == 0:
                 await self.async_save_state()
@@ -1335,6 +1370,9 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             result["watching"] = len(self._watched_cache)
             result["recent_actions"] = self._actions[-5:]
             result["age_seconds"] = int((dt_util.utcnow() - self._birth).total_seconds())
+            loop_s += time.perf_counter() - started
+            self._cost.append((brain_s, loop_s))
+            result["cost"] = self._cost_report()
             return result
         except Exception as err:  # noqa: BLE001
             raise UpdateFailed(f"HouseFly tick failed: {err}") from err
@@ -1447,6 +1485,27 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "HouseFly: something unusual (novelty %.2f for %ds); suspect channels %s",
                 novelty, int(held), ", ".join(x["entity_id"] for x in report["suspects"]) or "none")
         return report
+
+    def _cost_report(self) -> dict[str, Any]:
+        """What the last minute or so of ticks cost on this machine."""
+        brain = [b for b, _ in self._cost]
+        loop = [l for _, l in self._cost]
+        mean_brain = sum(brain) / len(brain)
+        mean_loop = sum(loop) / len(loop)
+        return {
+            "brain_ms": round(1000 * mean_brain, 1),
+            "brain_ms_max": round(1000 * max(brain), 1),
+            "event_loop_ms": round(1000 * mean_loop, 2),
+            # Of one core, against the interval the tick has to fit inside. If
+            # this ever approaches 100% the fly is no longer running in real
+            # time, and the honest thing is to see that rather than infer it.
+            "share_of_one_core": round(
+                100 * (mean_brain + mean_loop) / max(1, self._tick_interval), 1),
+            "tick_interval_s": self._tick_interval,
+            "ticks_averaged": len(brain),
+            "machine": platform.machine(),
+            "watching": len(self._watched_cache),
+        }
 
     def _recently_changed(self) -> list[dict[str, Any]]:
         """What among the watched entities changed state in the last few minutes.

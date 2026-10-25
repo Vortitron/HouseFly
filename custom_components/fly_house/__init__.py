@@ -16,6 +16,7 @@ from homeassistant.core import HomeAssistant, ServiceCall, callback
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import service as service_helper
+from homeassistant.loader import async_get_integration
 
 from .const import (
     ATTR_AMOUNT,
@@ -178,6 +179,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await hass.async_add_executor_job(shared_connectome)
 
     coordinator = FlyHouseCoordinator(hass, _merged(entry), entry.entry_id)
+    # The device page's firmware line. It was a literal "2.0.0" for twenty
+    # releases; the manifest is the one place the version is kept.
+    coordinator.version = str((await async_get_integration(hass, DOMAIN)).version)
     await coordinator.async_restore_state()
     await coordinator.async_settle()
     await coordinator.async_config_entry_first_refresh()

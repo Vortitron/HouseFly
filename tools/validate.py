@@ -2150,6 +2150,71 @@ def main() -> int:
           and loom_src.index("_quiet_for") < loom_src.index("_pending_loom ="),
           "the loom service wakes it, then the looming arrives")
 
+    print("\n15. The notification blueprint reads what the fly actually reports")
+    # The blueprint is where most people will meet the alert, and it reads the
+    # sensor's attributes by name inside templates, where a renamed key is not
+    # an error, only an empty line in a notification nobody can explain. So
+    # the names it reads are compared with the dicts the coordinator builds,
+    # found by parsing the code rather than searching its text.
+    import ast as _ast
+
+    class _BlueprintLoader(_yaml.SafeLoader):
+        pass
+    _BlueprintLoader.add_constructor(
+        "!input", lambda loader, node: {"!input": loader.construct_scalar(node)})
+    bp_path = ROOT / "blueprints" / "automation" / "housefly" / "unusual_notify.yaml"
+    bp_src = bp_path.read_text()
+    bp = _yaml.load(bp_src, Loader=_BlueprintLoader)
+
+    tree = _ast.parse(coord_src)
+
+    def dict_keys(node):
+        return {k.value for k in node.keys if isinstance(k, _ast.Constant)}
+
+    report_keys, item_keys = set(), {}
+    for node in _ast.walk(tree):
+        if (isinstance(node, _ast.Assign) and isinstance(node.value, _ast.Dict)
+                and any(isinstance(t, _ast.Name) and t.id == "report"
+                        for t in node.targets)):
+            report_keys |= dict_keys(node.value)
+        if isinstance(node, _ast.FunctionDef) and node.name in ("_suspects",
+                                                                 "_recently_changed"):
+            for call in _ast.walk(node):
+                if (isinstance(call, _ast.Call) and getattr(call.func, "attr", "") == "append"
+                        and call.args and isinstance(call.args[0], _ast.Dict)):
+                    item_keys[node.name] = dict_keys(call.args[0])
+    bs_src = (ROOT / "custom_components" / "fly_house" / "binary_sensor.py").read_text()
+    bs_tree = _ast.parse(bs_src)
+    for node in _ast.walk(bs_tree):
+        if isinstance(node, _ast.FunctionDef) and node.name == "extra_state_attributes":
+            for d in _ast.walk(node):
+                if isinstance(d, _ast.Dict):
+                    report_keys |= dict_keys(d)
+
+    import re as _re
+    read = (set(_re.findall(r"\b(?:report|a)\.(\w+)", bp_src)) - {"get"}) | set(
+        _re.findall(r"\ba\.get\('(\w+)'", bp_src))
+    lists = {"recently_changed": "_recently_changed", "suspects": "_suspects"}
+    item_read = {
+        name: set(_re.findall(r"\bs\.(\w+)", body))
+        for name, body in _re.findall(
+            r"for s in a\.(\w+)\[:\d+\] -?%}(.*?){%-? endfor", bp_src, _re.S)}
+    check("the blueprint parses, and listens only to this integration's alert",
+          bp["blueprint"]["domain"] == "automation"
+          and bp["blueprint"]["input"]["flies"]["selector"]["entity"]["filter"][0]
+          == {"integration": "fly_house", "domain": "binary_sensor",
+              "device_class": "problem"}
+          and "BinarySensorDeviceClass.PROBLEM" in bs_src,
+          f"{len(bp['blueprint']['input'])} inputs")
+    check("every attribute it reads is one the sensor reports",
+          bool(read) and read <= report_keys,
+          f"reads {sorted(read)}; missing {sorted(read - report_keys) or 'none'}")
+    check("and so is every field of the suspects and the recent changes",
+          set(item_read) == set(lists)
+          and all(item_read[k] and item_read[k] <= item_keys.get(fn, set())
+                  for k, fn in lists.items()),
+          ", ".join(f"{k}: {sorted(v)}" for k, v in item_read.items()))
+
     ok = all(_results)
     print(f"\n{sum(_results)}/{len(_results)} checks passed\n")
     return 0 if ok else 1

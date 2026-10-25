@@ -1,0 +1,157 @@
+blueprint:
+  name: "HouseFly: tell me when the house looks unusual"
+  description: >
+    A fly's mushroom body has decided the house does not look like itself, or
+    not at this hour. This turns that into a notification which says what
+    changed just before (Home Assistant's record of it) and where the fly's
+    wiring traces the surprise (its own inference, which can name things that
+    appeared but never things that went away). The notification is dismissed
+    once the fly has settled again.
+
+
+    It is the cheap signal that says something is worth looking at. It cannot
+    tell you what is wrong, and nothing in it pretends to.
+  domain: automation
+  source_url: https://github.com/Vortitron/HouseFly/blob/main/blueprints/automation/housefly/unusual_notify.yaml
+  homeassistant:
+    min_version: "2024.10.0"
+  input:
+    flies:
+      name: Flies
+      description: The "Something unusual" sensor of each fly to listen to.
+      selector:
+        entity:
+          multiple: true
+          filter:
+            - integration: fly_house
+              domain: binary_sensor
+              device_class: problem
+    include_hour:
+      name: Tell me when only the hour is strange
+      description: >
+        Some alerts say "the house looks like itself, but not at this hour":
+        most of the surprise is the time of day, not anything in the house.
+        That is useful early on, while a fly is still learning your week, and
+        noise later. Turn this off to hear only about the house itself.
+      default: true
+      selector:
+        boolean: {}
+    show_in_home_assistant:
+      name: Show it in Home Assistant
+      description: A persistent notification, dismissed when the fly settles.
+      default: true
+      selector:
+        boolean: {}
+    also_do:
+      name: Also do this
+      description: >
+        Anything else when an alert is raised, such as a phone notification.
+        These variables are available: `title`, `message`, `fly`, and
+        `report` (the sensor's attributes: novelty, suspects,
+        recently_changed, hour_share and the rest).
+      default: []
+      selector:
+        action: {}
+
+mode: queued
+max: 10
+
+triggers:
+  - trigger: state
+    entity_id: !input flies
+    from: "off"
+    to: "on"
+    id: raised
+  - trigger: state
+    entity_id: !input flies
+    from: "on"
+    to: "off"
+    id: cleared
+
+variables:
+  include_hour: !input include_hour
+  show_in_home_assistant: !input show_in_home_assistant
+  # The device's name rather than the entity's, so a fly called "Night Fly" is
+  # "Night Fly" here whatever its sensor has been renamed to. device_attr
+  # raises, rather than returning nothing, for an entity with no device, so
+  # the device is looked up first.
+  fly: >-
+    {% set device = device_id(trigger.entity_id) %}
+    {{ (device_attr(device, 'name_by_user') or device_attr(device, 'name')) if device
+       else trigger.to_state.name | replace(' Something unusual', '') }}
+  notification_id: "housefly_{{ trigger.entity_id | replace('binary_sensor.', '') }}"
+  # A plain dict of the fields that mean something, so it reaches the actions
+  # in also_do as a dict. Not dict(attributes): Home Assistant's own keys
+  # (friendly_name, device_class) are enum members there, the text of the dict
+  # cannot be read back, and report arrives as a string.
+  report: >-
+    {% set a = trigger.to_state.attributes %}
+    {{ {'novelty': a.get('novelty'), 'settled': a.get('settled'),
+        'for_seconds': a.get('for_seconds'),
+        'learned_the_place': a.get('learned_the_place', false),
+        'hour_share': a.get('hour_share', 0), 'reason': a.get('reason'),
+        'suspects': a.get('suspects', []),
+        'recently_changed': a.get('recently_changed', []),
+        'caveat': a.get('caveat')} }}
+  only_the_hour: "{{ (report.hour_share | default(0)) >= 0.5 }}"
+  title: "{{ fly }}: {{ report.reason | default('something unusual', true) }}"
+  # A literal block, with the line breaks managed by Jinja: a folded one runs
+  # the list of changes together into one line.
+  message: |-
+    {% set a = report -%}
+    Novelty {{ a.novelty }}, held for {{ a.for_seconds }} s.
+    {%- if only_the_hour %}
+
+    {{ ((a.hour_share | default(0)) * 100) | round | int }}% of the surprise is the hour. The house looks as it usually does; this fly has not often seen it like this at this time of day.
+    {%- endif %}
+    {%- if a.recently_changed %}
+
+    What changed just before (a record, not an inference):
+    {%- for s in a.recently_changed[:5] %}
+    - {{ s.entity_id }} became {{ s.state }}, {{ s.seconds_ago }} s ago
+    {%- endfor %}
+    {%- endif %}
+    {%- if a.suspects %}
+
+    Where its wiring traces the surprise (it can trace what appeared, never what went away):
+    {%- for s in a.suspects[:5] %}
+    - {{ s.entity_id }} is {{ s.state }} ({{ (s.share * 100) | round(1) }}%)
+    {%- endfor %}
+    {%- endif %}
+
+    {{ a.caveat | default('it can tell you something changed, never what', true) | capitalize }}.
+
+actions:
+  - choose:
+      - conditions:
+          - condition: trigger
+            id: raised
+          # The sensor only turns on once the fly has learned the place, so
+          # this is belt and braces against an older version that did not.
+          - condition: template
+            value_template: "{{ report.learned_the_place | default(false) }}"
+          - condition: template
+            value_template: "{{ include_hour or not only_the_hour }}"
+        sequence:
+          - if:
+              - condition: template
+                value_template: "{{ show_in_home_assistant }}"
+            then:
+              - action: persistent_notification.create
+                data:
+                  notification_id: "{{ notification_id }}"
+                  title: "{{ title }}"
+                  message: "{{ message }}"
+          # The usual way to run optional actions a blueprint user supplied: an
+          # empty choose whose default is their list, which may also be empty.
+          - choose: []
+            default: !input also_do
+      - conditions:
+          - condition: trigger
+            id: cleared
+          - condition: template
+            value_template: "{{ show_in_home_assistant }}"
+        sequence:
+          - action: persistent_notification.dismiss
+            data:
+              notification_id: "{{ notification_id }}"

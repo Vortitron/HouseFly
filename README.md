@@ -23,6 +23,49 @@ part that runs elsewhere is the eye, which runs in the browser tab because that
 is where the frames are, and sends back two numbers.
 [The project page has a diagram of the whole arrangement.](https://housefly.vome.io/#where)
 
+That figure is from one desktop. It has not yet been measured on a Raspberry
+Pi or a Home Assistant Green, which is where most houses run, and a small ARM
+board is likely to need several times as much: plan on it costing noticeably
+more than 3% per fly there until someone measures it. Every fly reports what it
+costs on its own host as a **Tick cost** diagnostic sensor, whose
+`share_of_one_core` attribute is the number to watch. Up to three seconds, a
+longer tick interval does not make it cheaper, only less often: each tick
+simulates its whole interval, so the cost per second stays the same. Beyond
+three seconds a tick simulates at most three, so a six-second interval roughly
+halves the cost and the brain runs at half speed (its day still follows the
+house's clock). `python3 tools/bench.py`
+measures the cost with nothing but numpy, before you install anything, and
+prints what it would be at each interval. Numbers from small boards are very
+welcome as issues.
+
+## What you get
+
+- **`binary_sensor.<fly>_something_unusual`** — the useful part. It learns
+  what your house normally looks like, hour by hour, with no rules and no
+  training, and turns on when the house stops looking like that. It stays
+  quiet for its first day, and for the first ten minutes after Home Assistant
+  starts. Its attributes say what changed just before and where the surprise
+  is arriving from. It cannot say what is wrong; see
+  [What it is *for*](#what-it-is-for).
+- **A blueprint that turns that into a notification**, dismissed when the
+  house settles, with room for your own actions (a phone notification, say):
+
+  [![Import the blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2FVortitron%2FHouseFly%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fhousefly%2Funusual_notify.yaml)
+
+- **A `fly_house_unusual` event** on the same rising edge, for anything that
+  should run only when something has changed, such as asking a language model
+  to go and look.
+- **A fly that walks over your dashboard** and lands on your cards, and a card
+  showing the connectome with live activity in it.
+- **Sensors** for what the fly is doing (mode, arousal, hunger, familiarity),
+  and **Approach**: the rate at which something is closing in on a ranging
+  sensor, which is useful in its own right for a path light.
+- **It touches nothing** until you turn actuation on, and even then only what
+  you list, with locks, alarms, covers and climate refused outright. See
+  [Safety](#safety).
+
+Several flies can share a house, each with its own name, clock and senses.
+
 ---
 
 ## The one rule
@@ -738,9 +781,12 @@ your sensors plugged into it.
 
 ## Installation
 
-HACS → ⋮ → Custom repositories → `https://github.com/Vortitron/HouseFly`, category
-**Integration**. Install, restart, then **Settings → Devices & Services → Add
-Integration → HouseFly**.
+HouseFly is not in the default catalogue yet, so add it as a custom repository:
+`https://github.com/Vortitron/HouseFly`, category **Integration**. From Home
+Assistant 2026.11 that is under **Settings → Marketplace**, which replaces HACS
+and needs a GitHub sign-in for custom repositories; before 2026.11 it is
+**HACS → ⋮ → Custom repositories**. Install, restart, then **Settings → Devices
+& Services → Add Integration → HouseFly**.
 
 Every push runs HACS's own validation action and Home Assistant's hassfest, so
 whether this is installable is upstream's verdict rather than ours — currently
@@ -762,6 +808,16 @@ Both register themselves, so no resource setup is needed.
 # The connectome, with live activity in it.
 - type: custom:housefly-brain-card
 ```
+
+### Blueprint
+
+[`blueprints/automation/housefly/unusual_notify.yaml`](blueprints/automation/housefly/unusual_notify.yaml)
+turns the unusual alert into a notification. Import it with the button under
+[What you get](#what-you-get), or paste its URL into **Settings → Automations &
+Scenes → Blueprints → Import**. Pick the flies to listen to; choose whether to
+hear about alerts where only the hour is strange; add your own actions if you
+want it on your phone. `tools/validate.py` checks that every attribute it reads
+is one the sensor actually reports.
 
 ### Services
 
