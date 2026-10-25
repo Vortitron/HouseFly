@@ -23,10 +23,14 @@ part that runs elsewhere is the eye, which runs in the browser tab because that
 is where the frames are, and sends back two numbers.
 [The project page has a diagram of the whole arrangement.](https://housefly.vome.io/#where)
 
-That figure is from one desktop. It has not yet been measured on a Raspberry
-Pi or a Home Assistant Green, which is where most houses run, and a small ARM
-board is likely to need several times as much: plan on it costing noticeably
-more than 3% per fly there until someone measures it. Every fly reports what it
+That figure is from one desktop, with one fly. The second measurement came
+from the Swarm, a hosted virtual machine running four flies at once: 136–153 ms
+per fly per tick, about 7% of a core each and nearly 30% for the house — more
+than twice the desktop's figure, some of it perhaps the four competing for the
+same cores. Nothing has yet been measured on a Raspberry Pi or a Home Assistant
+Green, which is where most houses run, and a small ARM board is likely to need
+several times as much again: plan on more than one fly being a real load there
+until someone measures it. Every fly reports what it
 costs on its own host as a **Tick cost** diagnostic sensor, whose
 `share_of_one_core` attribute is the number to watch. Up to three seconds, a
 longer tick interval does not make it cheaper, only less often: each tick

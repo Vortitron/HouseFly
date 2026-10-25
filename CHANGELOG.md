@@ -24,7 +24,9 @@ the milliseconds of brain per tick on the machine it runs on, averaged over a
 minute, with the event-loop time, the share of one core and the CPU
 architecture as attributes. `tools/bench.py` measures the same with nothing
 but numpy, before installing: 61 ms per two-second tick here, 3.0% of one core,
-in line with the README's 59 ms. Nobody has measured a Raspberry Pi or a Home
+in line with the README's 59 ms. On the Swarm, a hosted virtual machine with
+four flies, it read 136–153 ms per fly within minutes of going in: more than
+twice the desktop, and now in the README beside it. Nobody has measured a Raspberry Pi or a Home
 Assistant Green yet; the README says so, expects a small board to need several
 times as much, and explains what the tick interval does and does not buy (up
 to three seconds, nothing per second; beyond that, a tick still simulates only
