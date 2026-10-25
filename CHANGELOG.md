@@ -33,7 +33,18 @@ three, so the brain runs slower and costs less).
 **Smaller things.** The device page reported firmware "2.0.0" for twenty
 releases; it now reads the manifest. `hacs.json` asks for Home Assistant
 2026.9 or later, the oldest version this has actually been run on, instead of
-2024.7, which nobody had tried.
+2024.7, which nobody had tried. The manifest lists a Marketplace category,
+`helpers.calculate_value` — it derives readings from entities a house already
+has — and deliberately not a security one.
+
+**Scoring the alert, starting now.** One alert in about 28 fly-days on the
+Swarm reads well, but nothing on a simulated house is ever unusual, so a
+detector that hears nothing would read the same. `testbed/demo/demo_pranks.yaml`
+plants one thing a day at no set hour — the garage door motor running, every
+light on at once, or somebody walking round a house nobody walks round — holds
+it twenty minutes, puts it back and logs it, so the next fortnight's alerts can
+be scored for hits and false alarms per fly. Nothing in the README claims the
+alert catches anything until that is in.
 
 **The README starts with what you get.** The Marketplace shows the README, so
 its first screen now lists the entities, the event, the blueprint, the cards

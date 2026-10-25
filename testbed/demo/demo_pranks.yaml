@@ -1,0 +1,131 @@
+# Planted anomalies: the ground truth for "does the unusual alert catch anything?"
+#
+# Hand-written, not generated, and meant for the Swarm only.
+#
+# A quiet alert proves nothing on its own: on a simulated house nothing is ever
+# really unusual, so a detector that hears everything and one that hears nothing
+# look the same. About once a day, at no particular hour, this does one thing
+# the house does not otherwise do, holds it for twenty minutes, and puts it
+# back. Each one goes into the logbook as "HouseFly prank", so the alerts can be
+# scored against it afterwards: a hit is an alert that rises during a prank or
+# within ten minutes of its end, and anything else a fly raises is a false
+# alarm. A fly can only be scored on what it can smell.
+#
+# Three kinds, because they are different questions:
+#   garage  - something that never happens: the garage door motor runs. Only a
+#             whole-house fly watches switches like that one.
+#   lights  - every light on at once, at whatever hour it happens to be:
+#             familiar things in an unfamiliar arrangement.
+#   visitor - somebody walking round the house, which nobody normally does
+#             here (the people simulation is off): the occupancy sensors the
+#             day and night flies watch come alive.
+#
+# The recorder keeps ten days, so score it weekly.
+
+counter:
+  housefly_pranks:
+    name: HouseFly pranks
+    icon: mdi:drama-masks
+    step: 1
+
+input_boolean:
+  housefly_pranks_enabled:
+    name: HouseFly pranks enabled
+    icon: mdi:drama-masks
+
+automation:
+  - id: housefly_prank
+    alias: "HouseFly: plant something unusual"
+    description: Ground truth for scoring the unusual alert. See packages/demo_pranks.yaml.
+    mode: single
+    triggers:
+      - trigger: time_pattern
+        minutes: "/30"
+    conditions:
+      - condition: state
+        entity_id: input_boolean.housefly_pranks_enabled
+        state: "on"
+      # One chance in 48 every half hour: about once a day, at no set hour.
+      - condition: template
+        value_template: "{{ range(48) | random == 0 }}"
+    actions:
+      - variables:
+          kind: "{{ ['garage', 'lights', 'visitor'] | random }}"
+          lights: [light.kitchen, light.living_room, light.hallway, light.bedroom]
+      - action: counter.increment
+        target:
+          entity_id: counter.housefly_pranks
+      - action: logbook.log
+        data:
+          name: HouseFly prank
+          message: "{{ kind }} started"
+          entity_id: counter.housefly_pranks
+      - choose:
+          - conditions: "{{ kind == 'garage' }}"
+            sequence:
+              - action: switch.turn_on
+                target:
+                  entity_id: switch.garage_door_motor
+              - delay: "00:20:00"
+              - action: switch.turn_off
+                target:
+                  entity_id: switch.garage_door_motor
+          - conditions: "{{ kind == 'lights' }}"
+            sequence:
+              # Put back exactly what was there, not "off": the flies move
+              # these lights about themselves.
+              - action: scene.create
+                data:
+                  scene_id: housefly_prank_before
+                  snapshot_entities: "{{ lights }}"
+              - action: light.turn_on
+                target:
+                  entity_id: "{{ lights }}"
+              - delay: "00:20:00"
+              - action: scene.turn_on
+                target:
+                  entity_id: scene.housefly_prank_before
+          - conditions: "{{ kind == 'visitor' }}"
+            sequence:
+              - action: input_boolean.turn_on
+                target:
+                  entity_id: input_boolean.simulate_people
+              - delay: "00:20:00"
+              - action: input_boolean.turn_off
+                target:
+                  entity_id: input_boolean.simulate_people
+      - action: logbook.log
+        data:
+          name: HouseFly prank
+          message: "{{ kind }} ended"
+          entity_id: counter.housefly_pranks
+
+  # A restart abandons the delay above with the prank still in place. Undo it,
+  # and say so, so the scoring knows that prank ran short.
+  - id: housefly_prank_reset
+    alias: "HouseFly: undo a prank a restart interrupted"
+    mode: single
+    triggers:
+      - trigger: homeassistant
+        event: start
+    conditions:
+      - condition: or
+        conditions:
+          - condition: state
+            entity_id: switch.garage_door_motor
+            state: "on"
+          - condition: state
+            entity_id: input_boolean.simulate_people
+            state: "on"
+    actions:
+      - action: switch.turn_off
+        target:
+          entity_id: switch.garage_door_motor
+      - action: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.simulate_people
+      - action: logbook.log
+        data:
+          name: HouseFly prank
+          message: interrupted by a restart, undone
+          entity_id: counter.housefly_pranks
