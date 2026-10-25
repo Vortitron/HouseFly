@@ -1,9 +1,6 @@
 {
   "domain": "fly_house",
   "name": "HouseFly",
-  "categories": [
-    "helpers.calculate_value"
-  ],
   "codeowners": [
     "@Vortitron"
   ],

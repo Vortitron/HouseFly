@@ -33,9 +33,9 @@ three, so the brain runs slower and costs less).
 **Smaller things.** The device page reported firmware "2.0.0" for twenty
 releases; it now reads the manifest. `hacs.json` asks for Home Assistant
 2026.9 or later, the oldest version this has actually been run on, instead of
-2024.7, which nobody had tried. The manifest lists a Marketplace category,
-`helpers.calculate_value` — it derives readings from entities a house already
-has — and deliberately not a security one.
+2024.7, which nobody had tried. (A Marketplace category, `categories` in the
+manifest, waits for 2026.11: the HACS action asks for one and the released
+hassfest still rejects the key.)
 
 **Scoring the alert, starting now.** One alert in about 28 fly-days on the
 Swarm reads well, but nothing on a simulated house is ever unusual, so a
