@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Keep housefly.vome.io's public guest sign-ins alive.
 
-/demo, /swarm and /housewad are 302s to one-click guest logins on the hosted
+/demo, /swarm, /housewad and /mosaic are 302s to one-click guest logins on the hosted
 demo homes. A guest link lasts at most 30 days, so this runs daily (systemd
 timer, see housefly-guest-links.timer) and reissues any link with less than a
 week left: in practice, once a month per link.
@@ -41,6 +41,7 @@ LINKS = [
     ("/demo", "748d339f-ae52-4cc3-81d7-f7c93f1a8852", "lovelace/fly"),
     ("/swarm", "b13509eb-dba0-45e0-8034-5ba03794639d", "fly-swarm"),
     ("/housewad", "748d339f-ae52-4cc3-81d7-f7c93f1a8852", "house-wad/clip"),
+    ("/mosaic", "748d339f-ae52-4cc3-81d7-f7c93f1a8852", "mosaic-start/start"),
 ]
 
 log = logging.getLogger("housefly-guest-links")
