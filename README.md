@@ -26,8 +26,8 @@ is where the frames are, and sends back two numbers.
 That figure is from one desktop, with one fly. The second measurement came
 from the Swarm, a hosted virtual machine running four flies at once: 136–153 ms
 per fly per tick, about 7% of a core each and nearly 30% for the house — more
-than twice the desktop's figure, some of it perhaps the four competing for the
-same cores. Nothing has yet been measured on a Raspberry Pi or a Home Assistant
+than twice the desktop's figure. It is the machine, not the company: the demo
+box, the same kind of virtual machine with two flies, reads 135–137 ms each. Nothing has yet been measured on a Raspberry Pi or a Home Assistant
 Green, which is where most houses run, and a small ARM board is likely to need
 several times as much again: plan on more than one fly being a real load there
 until someone measures it. Every fly reports what it
