@@ -1,5 +1,63 @@
 # Changelog
 
+## 2.22.0 — it smells the house it is in
+
+The planted anomalies on the Swarm (2.21.0) did their job inside four days:
+six of the first seven went unheard by every fly that could have smelled them,
+and the whole-house fly's familiarity moved from 97.95% to 97.6% when a garage
+motor ran for the first time in its life. The quiet weeks before had been
+partly deafness. Three faults, found in order:
+
+**The antennal lobe latched.** Its measured PN→PN synapses, at the recurrent
+gain everything runs at, made it bistable: once a smell had lit it, about 40 of
+123 projection neurons held themselves above 0.5 with nothing arriving. A live
+house is never smell-free, so a running fly's Kenyon code hashed whatever the
+lobe had first fallen into — one smell and another 36% alike, the same smell a
+minute later 36% alike too, a middling smell 85–95% alike with no smell at all.
+The PNs now carry a static circuit gain of 3.0, as the Kenyon cells and the
+fan-shaped body already did (swept: the latch ends near 2.4, the code is
+repeatable from 2.75). Adaptation, the looming pathway's fix, was tried first
+and rang. Check 16 runs the old gain as a control, so it can fail.
+
+**One entity in five was invisible.** 22 of the 123 odour channels reach no
+Kenyon cell — real PNs that go only to the lateral horn — and the hash put
+entities on them anyway, the visitor prank's own `input_boolean` among them.
+Entities and suspects now hash onto the 101 that reach the mushroom body.
+
+**The alert threw away what it heard.** It wanted two unbroken minutes above
+0.10, and novelty fades with exposure by design: a never-seen event peaked at
+0.27 and was at 0.05 two minutes later. It now judges the two-minute average
+(reported as `averaged`), which still ignores a twitch: one tick at 1.0 among
+fifty-nine at 0.03 averages 0.046.
+
+**What moved with it.** The Kenyon cells' gain (3.0) had been set against a
+latched lobe's input; with the lobe letting go it starved the code to about
+nine cells and the valence memory to a third (+0.04 for sugar). Swept 1.5–3.0,
+it trades the memory against hearing, and 1.75 is the only value that keeps
+both: sugar +0.13, punishment −0.09. The clock's channels are PNs, so the 3.0
+turned the hour down too — the same house at 03:00 fell to 0.053, under the
+line — and its gain goes from 0.55 to three times that, 1.65 (wrong hour 0.245,
+strange house 0.521). A restored fly's first tick back is an onset transient
+(0.20) that the latched lobe used to hide; it knows the house by the third, so
+check 12e reads the third. And a big territory now settles a little sooner than
+a small one (about 90 ticks against 125), one point past the 25% the old check
+allowed; the check now asks for the safe direction — no slower — rather than
+having its line moved.
+
+What a fly hears now, three houses each: four things at once, 3/3 at 6 and 12
+watched and 1/3 at 113; one device, 1/3, 1/3 and 0/3. A whole-house fly hears
+only big changes, some of the time, and never one switch — a locality-sensitive
+hash is meant not to — and one device in a small fly is heard when its
+channel's projection neuron answers strongly, which a quarter of them do not. Both stay written down
+as known limitations, each with a check. The README's "watch more and it hears
+more" was wrong and is gone; a first explanation for the single-device misses
+(Kenyon fan-out) was wrong too, and the check measures the PN instead.
+
+Every fly relearns once. The smell code is now part of the nose fingerprint, so
+an upgraded fly treats its old familiarity as describing codes that no longer
+occur and spends a day re-earning the alert, instead of calling the whole house
+strange the moment it starts.
+
 ## 2.21.0 — something to install, not only something to watch
 
 Groundwork for the Home Assistant Marketplace, which replaces HACS in 2026.11.

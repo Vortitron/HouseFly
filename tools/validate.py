@@ -433,10 +433,15 @@ def main() -> int:
     # the morning perfectly ordinary. Measured before the fix: 400 evenings of a
     # pattern gave novelty 0.025, and the same pattern at 03:00 gave 0.025 --
     # the same number, because the code was identical.
+    # Smells go only where the coordinator puts them: on channels that reach a
+    # Kenyon cell. A house built on the rest would be partly invisible here and
+    # not in Home Assistant, which is the wrong way round for a check.
+    usable_channels = np.asarray(circ.FlyBrain().odour_channels)
+
     def house_n(seed, width, n=8):
         rng = np.random.default_rng(seed)
         v = np.zeros(width, dtype=np.float32)
-        v[rng.choice(width, n, replace=False)] = rng.uniform(0.5, 1.2, n)
+        v[rng.choice(usable_channels, n, replace=False)] = rng.uniform(0.5, 1.2, n)
         return v
 
     def house(seed, width):
@@ -515,20 +520,24 @@ def main() -> int:
     # Over several houses, not one. A single pattern made this pass or fail on
     # luck: across six, the old code ran from 3% to 36% apart, and the one this
     # used to test happened to be the 3%.
-    gaps, pairs = [], []
+    #
+    # Since the antennal lobe stopped latching (2.22.0) a big territory settles
+    # a little *faster* than a small one -- 83-103 ticks against 98-168 -- and
+    # the mean gap came out at 26% against the 25% this used to allow. What the
+    # guard needs is that a big territory is not slower to settle, which would
+    # leave its alert armed into a house it does not know yet; so that is what
+    # is checked now, rather than the old line being moved to fit.
+    smalls, bigs, pairs = [], [], []
     for seed in (1, 4, 5, 7):
         small = settle_in(8, ticks=250, seed=seed)[1]
         big = settle_in(min(101, width), ticks=250, seed=seed)[1]
-        if small is None or big is None:
-            gaps.append(9.9)
-            pairs.append(f"{small}/{big}")
-            continue
-        gaps.append(abs(big - small) / small)
         pairs.append(f"{small}/{big}")
-    check("and territory size barely changes how long settling in takes",
-          float(np.mean(gaps)) < 0.25,
+        smalls.append(small if small is not None else 999)
+        bigs.append(big if big is not None else 999)
+    check("and a big territory takes no longer to settle in than a small one",
+          max(smalls + bigs) < 250 and np.mean(bigs) <= 1.25 * np.mean(smalls),
           f"8 vs {min(101, width)} entities, ticks to settle: {', '.join(pairs)}; "
-          f"mean gap {np.mean(gaps):.0%}")
+          f"means {np.mean(smalls):.0f} and {np.mean(bigs):.0f}")
 
     print("\n6. Looming drives the escape pathway, then stops")
     brain = circ.FlyBrain()
@@ -1591,6 +1600,7 @@ def main() -> int:
         f = ans["_A"].__new__(ans["_A"])
         f._ever_familiar, f._unusual = True, False
         f._unusual_since = f._settled_since = None
+        f._novelty_window, f._tick_interval = [], 2
         f.entry_id = "test"
         f.hass = type("H", (), {"bus": type("B", (), {
             "async_fire": staticmethod(lambda name, data: fired.append(data))})()})()
@@ -1708,7 +1718,7 @@ def main() -> int:
     def trace_trial(seed, appear):
         tb = circ.FlyBrain(); w = tb.n_odour_channels
         r = np.random.default_rng(seed)
-        pool = r.choice(w, 16, replace=False)
+        pool = r.choice(np.asarray(tb.odour_channels), 16, replace=False)
         fed, extra = pool[:12], pool[12:]
         base = np.zeros(w, dtype=np.float32); base[fed] = r.uniform(0.5, 1.2, 12)
         tb.settle(time_of_day=0.45)
@@ -1755,7 +1765,7 @@ def main() -> int:
     import base64 as _b64
     rng12e = np.random.default_rng(3)
     home12e = np.zeros(width, dtype=np.float32)
-    home12e[rng12e.choice(width, 12, replace=False)] = rng12e.uniform(0.5, 1.2, 12)
+    home12e[rng12e.choice(usable_channels, 12, replace=False)] = rng12e.uniform(0.5, 1.2, 12)
     lived = circ.FlyBrain(); lived.settle(time_of_day=0.45)
     for _ in range(300):
         lived.step(circ.Senses(odour=home12e, time_of_day=0.45))
@@ -1764,11 +1774,17 @@ def main() -> int:
     forgot = amnesic.step(circ.Senses(odour=home12e, time_of_day=0.45))["novelty"]
     back = circ.FlyBrain(); back.settle(time_of_day=0.45)
     back.kc_habituation = np.frombuffer(_b64.b64decode(written), dtype=np.float32).copy()
-    kept = back.step(circ.Senses(odour=home12e, time_of_day=0.45))["novelty"]
+    # Judged on the third tick, not the first. Coming back from settle() the
+    # smell has an onset -- 0.20-0.25 on the first tick, the house's own level
+    # by the third -- which a latched antennal lobe used to hide by never
+    # having switched off. The alert ignores the first ten minutes after a
+    # start in any case; what matters is that the memory is the house's.
+    for _ in range(3):
+        kept = back.step(circ.Senses(odour=home12e, time_of_day=0.45))["novelty"]
     unusual_line = coord_const("NOVELTY_UNUSUAL")
     check("a fly that comes back with its familiarity still knows the house",
           kept < unusual_line,
-          f"first tick after restart: novelty {kept:.3f}, against {forgot:.3f} without it "
+          f"third tick after restart: novelty {kept:.3f}, against {forgot:.3f} without it "
           f"and an alert line at {unusual_line}")
     check("so the familiarity memory is written with everything else",
           '"kc_habituation": base64.b64encode(' in coord_src,
@@ -1854,7 +1870,7 @@ def main() -> int:
     # watching on took novelty from 0.06 to 0.98 and fired inside a minute.
     f_start = coord_src.index("    def _nose_fingerprint")
     f_end = coord_src.index("    def _own_entities")
-    fns = {"hashlib": hashlib}
+    fns = {"hashlib": hashlib, "SMELL_CODE": coord_const("SMELL_CODE")}
     exec(compile("class _N:\n" + coord_src[f_start:f_end] + "\n",
                  "coordinator", "exec"), fns)
 
@@ -1874,6 +1890,16 @@ def main() -> int:
     check("and so does switching whole-house watching on",
           base != fingerprint(["sensor.a", "sensor.b"], True),
           "which is the change that actually fired the false alarm")
+    # A new smell code is a new nose with the same entities: 2.22.0 stopped the
+    # antennal lobe latching, so every saved familiarity describes codes that no
+    # longer occur, and an upgraded fly armed on it would call the whole house
+    # strange the moment its startup grace ran out.
+    fns["SMELL_CODE"] = coord_const("SMELL_CODE") - 1
+    older = fingerprint(["sensor.a", "sensor.b"], False)
+    fns["SMELL_CODE"] = coord_const("SMELL_CODE")
+    check("and so does a change to how smells become a code",
+          base != older,
+          f"smell code {coord_const('SMELL_CODE'):.0f}: an upgraded fly relearns rather than alarming")
     check("and the restore path compares it before trusting the guard",
           'saved.get("nose")' in coord_src and "_ever_familiar = False" in coord_src,
           "a fingerprint nothing compares is a comment")
@@ -2214,6 +2240,116 @@ def main() -> int:
           and all(item_read[k] and item_read[k] <= item_keys.get(fn, set())
                   for k, fn in lists.items()),
           ", ".join(f"{k}: {sorted(v)}" for k, v in item_read.items()))
+
+    print("\n16. The smell reaches the code, and the alert hears the house")
+    # Planted anomalies on the Swarm were missed six times in seven. Traced
+    # back, the antennal lobe was bistable: its measured PN->PN synapses held
+    # about 40 PNs up with nothing arriving, so a running fly's Kenyon code
+    # hashed the first smell it ever had rather than the house it was in.
+    def lobe(gain):
+        saved = dict(circ.CIRCUIT_GAIN)
+        circ.CIRCUIT_GAIN["olfactory"] = gain
+        try:
+            b = circ.FlyBrain()
+        finally:
+            circ.CIRCUIT_GAIN.clear(); circ.CIRCUIT_GAIN.update(saved)
+        b.settle(time_of_day=0.5)
+        return b
+
+    lr = np.random.default_rng(5)
+    nch = circ.FlyBrain().n_odour_channels
+    smell_a = np.clip(lr.random(nch) * (lr.random(nch) < 0.4), 0, 1.5).astype(np.float32)
+    smell_b = np.clip(lr.random(nch) * (lr.random(nch) < 0.4), 0, 1.5).astype(np.float32)
+    nothing = np.zeros(nch, np.float32)
+
+    def expose(b, od, ticks):
+        for _ in range(ticks):
+            b.step(circ.Senses(time_of_day=0.5, light=0.5, odour=od), 40)
+        return b._kc_code() > 0
+
+    def latched(b):
+        expose(b, nothing, 5); expose(b, smell_a, 12); expose(b, nothing, 12)
+        return int((b.rate[b.i_pn][:nch] > 0.5).sum())
+
+    old_lobe, new_lobe = latched(lobe(1.0)), latched(lobe(circ.CIRCUIT_GAIN["olfactory"]))
+    check("the antennal lobe lets go when the smell does",
+          new_lobe == 0 and old_lobe > 20,
+          f"PNs still above 0.5 a minute after: {new_lobe} (at the old gain, {old_lobe})")
+    jac = lambda x, y: float((x & y).sum()) / max(1, int((x | y).sum()))
+    fly16 = circ.FlyBrain(); fly16.settle(time_of_day=0.5)
+    code_a = expose(fly16, smell_a, 12); code_b = expose(fly16, smell_b, 12)
+    code_a2 = expose(fly16, smell_a, 12)
+    check("so the same smell makes the same code a minute later, and another smell another",
+          jac(code_a, code_a2) >= 0.8 and jac(code_a, code_b) <= 0.2,
+          f"same {jac(code_a, code_a2):.2f}, different {jac(code_a, code_b):.2f}")
+
+    kc_targets = np.zeros(len(fly16.i_pn), int)
+    to_kc = np.isin(fly16.data.post, fly16.i_kc)
+    for pre in fly16.data.pre[to_kc & np.isin(fly16.data.pre, fly16.i_pn)]:
+        kc_targets[np.searchsorted(fly16.i_pn, pre)] += 1
+    usable16 = fly16.odour_channels
+    check("every channel an entity can land on reaches a Kenyon cell",
+          all(kc_targets[i] > 0 for i in usable16)
+          and len(usable16) == int((kc_targets[:nch] > 0).sum()),
+          f"{len(usable16)} of {nch}; the {nch - len(usable16)} that reach none are left out")
+
+    # A house of n entities, encoded the way the coordinator does it, learned
+    # for ten minutes; then something that has never happened happens. The
+    # alert averages novelty over two minutes, so that is what is measured.
+    def planted(n_entities, event, seed):
+        r = np.random.default_rng(seed)
+        b = circ.FlyBrain(); b.settle(time_of_day=0.5)
+        ents = [("b", f"switch.s{seed}e{i}", float(r.random() < 0.25)) if i % 3 == 0
+                else ("n", f"sensor.s{seed}e{i}", float(r.uniform(0.2, 0.8)))
+                for i in range(n_entities)]
+
+        def smell(extra):
+            v = np.zeros(b.n_odour_channels, np.float32)
+            for kind, eid, base in ents:
+                jitter = r.normal(0, 0.03) if kind == "n" else 0.0
+                v[channel_of(eid, b.odour_channels)] += float(np.clip(base + jitter, 0, 1))
+            for eid in extra:
+                v[channel_of(eid, b.odour_channels)] += 1.0
+            return np.clip(v, 0, 1.5)
+
+        for _ in range(300):
+            b.step(circ.Senses(time_of_day=0.5, light=0.5, odour=smell([])), 40)
+        trace = []
+        for _ in range(60):
+            b.step(circ.Senses(time_of_day=0.5, light=0.5, odour=smell(event)), 40)
+            trace.append(b.novelty)
+        return float(np.mean(trace))
+
+    line = coord_const("NOVELTY_UNUSUAL")
+    four = [f"light.l1{k}" for k in range(4)]
+    small_four, house_four = planted(6, four, 1), planted(113, four, 1)
+    check("four things changing at once are heard by a small fly and a whole-house one",
+          small_four >= line and house_four >= line,
+          f"two-minute average {small_four:.3f} with 6 watched, {house_four:.3f} with 113")
+    house_one = planted(113, ["switch.garage1"], 1)
+    check("known limitation: a whole-house fly does not hear one switch",
+          house_one < line,
+          f"{house_one:.3f} against a line of {line}: a locality-sensitive hash calls "
+          f"one change among a hundred the same house, which is what it is for")
+    # Which one depends on the projection neuron its channel lands on, not on
+    # how many Kenyon cells that reaches: driven at full strength, the PNs of
+    # the usable channels answer anywhere from 0.02 to about 0.5 (median 0.34,
+    # a quarter under 0.2), because some are held down by inhibition. The first
+    # guess here was Kenyon fan-out, and it was wrong: a channel reaching 255
+    # cells was missed while one reaching 93 was heard.
+    def own_response(ch):
+        b = circ.FlyBrain(); b.settle(time_of_day=0.5)
+        drive = np.zeros(b.n_odour_channels, np.float32); drive[ch] = 1.0
+        for _ in range(3):
+            b.step(circ.Senses(time_of_day=0.5, light=0.5, odour=drive), 20)
+        return float(b.rate[b.i_pn][ch])
+
+    loud, quiet = planted(6, ["switch.garage1"], 1), planted(6, ["switch.garage3"], 3)
+    pn_loud = own_response(channel_of("switch.garage1", usable16))
+    pn_quiet = own_response(channel_of("switch.garage3", usable16))
+    check("known limitation: in a small fly one device is heard or not by its PN",
+          loud >= line > quiet and pn_loud > 2 * pn_quiet,
+          f"{loud:.3f} where its PN answers {pn_loud:.2f}, {quiet:.3f} where it answers {pn_quiet:.2f}")
 
     ok = all(_results)
     print(f"\n{sum(_results)}/{len(_results)} checks passed\n")

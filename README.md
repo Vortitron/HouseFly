@@ -49,8 +49,9 @@ welcome as issues.
   training, and turns on when the house stops looking like that. It stays
   quiet for its first day, and for the first ten minutes after Home Assistant
   starts. Its attributes say what changed just before and where the surprise
-  is arriving from. It cannot say what is wrong; see
-  [What it is *for*](#what-it-is-for).
+  is arriving from. It cannot say what is wrong, and what it can hear depends
+  on how much it watches: a whole-house fly hears the house changing shape,
+  not one switch; see [What it hears](#what-it-hears).
 - **A blueprint that turns that into a notification**, dismissed when the
   house settles, with room for your own actions (a phone notification, say):
 
@@ -333,10 +334,10 @@ Both are in the pack: α′3 is MBON16, MBON17 and MBON28, and none of them is o
 of the approach/avoid cells, so familiarity cannot be confused with valence.
 
 ```
- first sight of a pattern       novelty 0.989
- after 400 ticks of it          novelty 0.025
- a pattern never met before     novelty 0.558
- the familiar one, for contrast novelty 0.123
+ first sight of a pattern       novelty 0.976
+ after 400 ticks of it          novelty 0.027
+ a pattern never met before     novelty 0.186
+ the familiar one, for contrast novelty 0.033
 ```
 
 **The useful shape of this is as a trigger, not an answer.** A sparse hash
@@ -386,10 +387,67 @@ reported as changes.
 
 `binary_sensor.housefly_unusual` is that, made slow enough to be worth saying:
 it stays silent until it has actually learned something, then wants two minutes
-of sustained strangeness before it speaks. **No training set, no labels, no
+of strangeness, on average, before it speaks. **No training set, no labels, no
 cloud** — it learns what your house is like by living in it. And it will never
 tell you *what* changed, only that something has, which is precisely the thing
 a rule cannot do, because you would have had to write the rule first.
+
+### What it hears
+
+For most of its life it heard almost nothing, and the way that was found is
+worth more than the fix. A quiet alert proves nothing on a simulated house,
+where nothing is ever unusual, so the Swarm had things planted in it — once a
+day at no set hour, the garage door motor running, every light on at once, or
+somebody walking round a house nobody walks round — and the alerts were scored
+against them. Six of the first seven went unheard. When the garage motor ran
+for the first time in its life, the whole-house fly's familiarity went from
+97.95% to 97.6%.
+
+Traced back, the antennal lobe was latching. Its measured PN→PN synapses held
+about 40 projection neurons up with nothing arriving, so once a smell had lit
+it, it stayed lit, and the Kenyon cells hashed whatever it had first fallen
+into rather than the house. One smell and another came out 36% alike; the same
+smell a minute later, 36% alike too. Real antennal lobes are kept out of that
+state by local interneurons this data pack does not have, so the PNs now carry
+a static gain, the same kind the Kenyon cells and the fan-shaped body already
+needed: past it the lobe lets go when the smell does, the same smell makes the
+same code (100% alike) and another smell another (5%). Two things had been
+tuned against the latched lobe and moved with it: the Kenyon cells' own gain,
+which now starved the code and the valence memory below, and the clock, whose
+channels are PNs and had been turned down by the same gain (the numbers for
+both are in `circuits.py`). And 22 of the 123
+odour channels turned out to reach no Kenyon cell at all — real PNs that go
+only to the lateral horn — so about one entity in five had been invisible to
+familiarity however it behaved. Entities are now hashed only onto channels that
+reach the mushroom body.
+
+The alert also changed what it waits for. It used to want two unbroken minutes
+above the line, and novelty is *meant* to fade with exposure — that is the
+habituation the whole thing rests on — so a never-seen event that peaked at
+0.27 had faded to 0.05 by the end of its second minute and was thrown away. It
+now judges the average over those two minutes, which still ignores a twitch.
+
+What a fly hears after that, measured over three houses each, with the change
+held until it either speaks or doesn't (`tools/validate.py` section 16 pins one
+of each):
+
+```
+                         6 watched    12 watched    113 watched
+ four things at once       3 of 3        3 of 3        1 of 3
+ one device                1 of 3        1 of 3        0 of 3
+```
+
+**A small fly hears a lot; a whole-house fly hears only big changes, and only
+some of them** — four things switching at once, one house in three (a second
+came to 0.095 against a line of 0.10), and one switch never. The last is not a
+fault: a locality-sensitive hash is built to call one change among a hundred
+the same house. The Kenyon gain that would let it hear more (3.0 heard all
+three) is the one that starves the valence memory, and this keeps the memory. One device in a small fly is heard when the
+projection neuron its channel lands on answers strongly, and those vary —
+driven at full strength they reach anywhere from 0.02 to 0.5, a quarter of them
+under 0.2. So a device you care about belongs in a small fly, and even there it
+is a matter of luck which channel it gets. Whether this holds up on a house that
+is lived in is what the Swarm is now being scored for again.
 
 One implementation note, because it is a limit of the data rather than a
 choice. Habituation is held per Kenyon cell, not per synapse: the pack
@@ -548,9 +606,11 @@ These are two different questions and the setup asks them separately.
 **What it can sense** is read-only and cannot break anything, so there is a
 *Watch the whole house* switch that hands it everything — sensors, binary
 sensors, lights, switches, climate, covers, presence — up to 250 entities. That
-matters now that familiarity is the point: a novelty detector fed six sensors
-can only notice six kinds of strange. Turn it on and "something unusual"
-actually has a house to be unusual about.
+buys breadth and costs resolution: a fly watching the whole house notices the
+house as a whole looking different, and stops noticing any one thing in it
+(see [What it hears](#what-it-hears)). A fly that watches six things notices
+those six far better. Several flies can share a house, so it does not have to
+be one or the other.
 
 Automations, scripts, scenes, updates and notifications are excluded on
 purpose. They change when *you* change the system rather than when the house
@@ -632,11 +692,11 @@ Measured on the synapses alone — learned gains handed to a brain that has
 never been rewarded, against an identical naive one:
 
 ```
- smell paired with sugar                                        +0.10 valence
- smell paired with punishment                                   -0.15
- at another hour, beyond the general shift: the paired smell    +0.038
-                                            an unpaired one     +0.014
- half-life with nothing more to learn                           about 50 minutes
+ smell paired with sugar                                        +0.13 valence
+ smell paired with punishment                                   -0.09
+ at another hour, beyond the general shift: the paired smell    +0.092
+                                            an unpaired one     +0.001
+ half-life with nothing more to learn                           about 45 minutes
  what a reward leaves that is not in the synapses               nothing (0.000)
 ```
 
@@ -761,10 +821,12 @@ This is a real model of real circuits, and it is still a model.
   roughly ±2 rad/s; the response to a *sustained* one is a fixed offset rather
   than continuous rotation. Measured and checked both ways, so the failure is
   visible rather than implied.
-- **Two circuits needed a static gain constant** (`CIRCUIT_GAIN` in
+- **Three circuits needed a static gain constant** (`CIRCUIT_GAIN` in
   `circuits.py`). The fan-shaped body and the Kenyon cells are large and almost
   entirely excitatory with no matching inhibitory population inside the modelled
-  subnetwork, so without it they flood. An attempt to have every circuit
+  subnetwork, so without it they flood; the projection neurons, without the
+  antennal lobe's local interneurons, latched (see
+  [What it hears](#what-it-hears)). An attempt to have every circuit
   regulate its own gain homeostatically fixed that but destabilised the compass,
   and is written up in the changelog rather than quietly dropped.
 - **Adaptation is applied to two circuits, not the network.** Without it the

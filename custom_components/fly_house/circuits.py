@@ -67,7 +67,40 @@ ACTIVATION_THRESHOLD = 0.10   # below this a unit is silent, which is what lets 
 # as a gain signal made the bump wander 429 degrees with no self-motion at all.
 # Two static constants on the two circuits that actually need them cost less and
 # break nothing.
-CIRCUIT_GAIN = {"steer": 7.0, "mb_kc": 3.0}
+#
+# The projection neurons became the third, and the reason is a latch. Their
+# measured PN->PN synapses, at the recurrent gain everything else runs at, made
+# the antennal lobe bistable: once a smell had lit it, about 40 of the 123 odour
+# PNs held themselves above 0.5 with nothing arriving -- for as long as anyone
+# watched. A live house is never smell-free, so a running fly's PNs sat in
+# whatever pattern they first fell into, and the Kenyon code hashed that rather
+# than the house: one smell and another came out 36% alike, the same smell a
+# minute later 36% alike too, and a middling smell 85-95% alike with no smell
+# at all. Planted anomalies on the Swarm (testbed/demo/demo_pranks.yaml) were
+# missed six times in seven, and that is what they were measuring.
+#
+# Real antennal lobes are kept out of that state by their local interneurons,
+# which this data pack does not have. Swept, the latch ends at a gain of about
+# 2.4 and the code becomes repeatable from 2.75 (the same smell later, 100%
+# alike; another smell, 0-9%); 3.0 leaves margin on both sides. Adaptation, the fix the looming pathway got,
+# was tried first and is wrong here: on top of the PNs' mutual excitation it
+# rings, and the code changed by 93% from one tick to the next.
+#
+# Which changed what the Kenyon cells need. Their 3.0 was set against the input
+# a latched lobe delivered; with the lobe letting go, the same gain starved the
+# code to about nine active cells and the valence memory to a third of its
+# measured size (+0.04 for sugar against +0.10). Lower gives the learning back
+# and takes hearing away -- a denser code habituates more of itself, so a change
+# stands out less. Swept, sugar / punishment, and four things changing at once
+# in a 113-entity house (heard of 3):
+#
+#   1.5   +0.15 / -0.11   1     2.0   +0.10 / -0.06   2     3.0   +0.04 / -0.02   3
+#   1.75  +0.12 / -0.09   2     2.5   +0.06 / -0.04   2
+#
+# 1.75 is the only value that keeps both. The code there is about 24 cells,
+# repeatable, and another smell is 9% alike. Raising the KC->MBON gain instead,
+# the other way to get the learning back, made the code itself less repeatable.
+CIRCUIT_GAIN = {"steer": 7.0, "mb_kc": 1.75, "olfactory": 3.0}
 
 # Circuits whose activity is phasic -- a burst, not a mood -- and which get
 # spike-frequency adaptation so they cannot latch.
@@ -288,7 +321,15 @@ CLOCK_CHANNELS = 8
 
 # How hard the clock drives its channels, relative to a smell at full strength.
 # Enough to change the code, not so much that the hour drowns out the house.
-CLOCK_CONTEXT_GAIN = 0.55
+#
+# 0.55 was set when the PNs ran at a circuit gain of 1. The clock channels are
+# PNs, so the 3.0 that stopped the antennal lobe latching (see CIRCUIT_GAIN)
+# divided the clock by three as well, and the same house at three in the
+# morning fell from clearly strange to 0.053 -- under the alert line. Three
+# times 0.55 puts back what the gain took and nothing else: measured, the wrong
+# hour reads 0.245 and a strange house 0.521, so the hour is heard and does not
+# drown the house (at 2.2 the two were level).
+CLOCK_CONTEXT_GAIN = 1.65
 
 # How hard ambient light drives l-LNv. Small on purpose: this should be able to
 # rouse a sleeping fly when someone turns a light on, and should not be able to
@@ -541,6 +582,15 @@ class FlyBrain:
         self.i_clock_ctx = (self.i_pn[-CLOCK_CHANNELS:] if len(self.i_pn) > CLOCK_CHANNELS
                             else np.empty(0, np.int32))
         self.n_odour_channels = max(0, len(self.i_pn) - len(self.i_clock_ctx))
+        # The odour channels that reach the mushroom body at all. 22 of the 123
+        # odour PNs make no synapse onto a Kenyon cell in the hemibrain -- real
+        # PNs that project to the lateral horn alone -- and an entity hashed onto
+        # one of those could change however it liked without the familiarity
+        # memory ever knowing. The coordinator hashes onto these instead.
+        reaches_kc = np.isin(self.i_pn[: self.n_odour_channels],
+                             d.pre[np.isin(d.post, self.i_kc)])
+        self.odour_channels = tuple(int(i) for i in np.flatnonzero(reaches_kc)) or tuple(
+            range(self.n_odour_channels))
         self.i_loom = _typed(d, "LPLC2", "LC4", "LC6")
         self.i_dnp = _typed(d, "DNp")
         self.i_dna = _typed(d, "DNa")

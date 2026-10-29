@@ -26,7 +26,7 @@ import time
 from collections import deque
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Any
+from typing import Any, Sequence
 
 import numpy as np
 from homeassistant.core import Context, HomeAssistant, State
@@ -113,12 +113,19 @@ DISTANCE_UNITS = {"cm": 0.01, "mm": 0.001, "m": 1.0, "km": 1000.0}
 #                   0.10 is the geometric middle of the narrower gap, so the
 #                   margin either side is as wide as it can be.
 #
+#                   Re-measured on one pattern after the antennal lobe stopped
+#                   latching (2.22.0): familiar 0.022, wrong hour 0.245, wrong
+#                   house 0.521. The middle is now nearer 0.07; 0.10 stays,
+#                   4.5x above familiar and 2.4x under the wrong hour.
+#
 #                   It used to be 0.35, from before the clock was in the code,
 #                   and that number would now catch a strange house and miss a
 #                   familiar one at three in the morning -- which is the case
 #                   the context was added for.
-# UNUSUAL_SECONDS   it has to stay there. A single odd tick is a sensor
-#                   twitching; two minutes of it is the house being different.
+# UNUSUAL_SECONDS   and it is the average over this long that has to be there.
+#                   A single odd tick is a sensor twitching; two minutes of it
+#                   is the house being different. (An average, not every tick:
+#                   see _assess_novelty for why.)
 # And the fly must have learned something first, or a fresh install cries wolf
 # about a house it has never seen.
 #
@@ -146,7 +153,10 @@ DISTANCE_UNITS = {"cm": 0.01, "mm": 0.001, "m": 1.0, "km": 1000.0}
 #
 #                   Territory size barely moves this: 8 live entities crossed at
 #                   41/119 and 101 crossed at 44/116, because sparse coding puts
-#                   roughly the same number of Kenyon cells up either way.
+#                   roughly the same number of Kenyon cells up either way. Since
+#                   the antennal lobe stopped latching a big territory settles a
+#                   little sooner than a small one (about 90 ticks against 125),
+#                   which is the safe direction for this guard.
 #
 #                   Seen live on a three-fly house, the whole-house fly called
 #                   the place unusual four minutes after install and named
@@ -318,16 +328,29 @@ def _drag_phase(current: float, observed: float, rate: float) -> float:
     return (current + rate * delta) % 1.0
 
 
-def _stable_channel(entity_id: str, channels: int) -> int:
+def _stable_channel(entity_id: str, channels: "int | Sequence[int]") -> int:
     """Assign an entity to a projection-neuron channel, stably.
 
     Which odour lands in which glomerulus is arbitrary in a real fly too -- it
     is set by which receptor a neuron happens to express. What matters is that
     it never changes, so the mushroom body can learn about it.
-    """
-    digest = hashlib.blake2b(entity_id.encode(), digest_size=4).digest()
-    return int.from_bytes(digest, "big") % max(channels, 1)
 
+    `channels` is a count, or the channels to choose among: the brain's
+    `odour_channels`, which leaves out the PNs that never reach a Kenyon cell.
+    """
+    digest = int.from_bytes(hashlib.blake2b(entity_id.encode(), digest_size=4).digest(), "big")
+    if isinstance(channels, int):
+        return digest % max(channels, 1)
+    return channels[digest % len(channels)]
+
+
+# Which version of the smell -> Kenyon-code path a fly's memory was learned
+# with. It is part of the nose fingerprint, so changing the path is the same as
+# changing what the fly can smell: its saved familiarity describes codes that no
+# longer occur, and it must spend a day re-earning the alert rather than calling
+# the whole house strange the moment it starts. 2: the antennal lobe stopped
+# latching and entities stopped landing on channels that reach no Kenyon cell.
+SMELL_CODE = 2
 
 # Values that mean "this channel is telling you nothing".
 DEAD_STATES = frozenset({"unknown", "unavailable", "none", ""})
@@ -564,6 +587,9 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._unusual_since: float | None = None
         self._unusual = False
         self._settled_since: float | None = None
+        # (time, novelty) over the last UNUSUAL_SECONDS: the alert judges the
+        # average of this, not every tick in it. See _assess_novelty.
+        self._novelty_window: list[tuple[float, float]] = []
         self._learning_since: float = dt_util.utcnow().timestamp()
         self._started_at: float = dt_util.utcnow().timestamp()
         self._ever_familiar = False
@@ -730,7 +756,7 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """
         listed = ",".join(sorted(self.input_entities))
         return hashlib.sha256(
-            f"{int(self._watch_whole_house)}|{listed}".encode()
+            f"{SMELL_CODE}|{int(self._watch_whole_house)}|{listed}".encode()
         ).hexdigest()[:16]
 
     def _own_entities(self) -> frozenset[str]:
@@ -813,7 +839,7 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     dead.append(eid)
                     continue
                 for percept in percepts:
-                    odour[_stable_channel(percept.key, channels)] += percept.value
+                    odour[_stable_channel(percept.key, self.brain.odour_channels)] += percept.value
             senses.odour = np.clip(odour, 0.0, 1.5)
         self._dead_inputs = dead
 
@@ -1397,6 +1423,7 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not self._ever_familiar:
             self._unusual_since = None
             self._unusual = False
+            self._novelty_window = []
             return {"unusual": False, "reason": "still learning what normal looks like",
                     "novelty": round(novelty, 4), "settled": round(settled, 4),
                     "learned_the_place": False, "for_seconds": 0}
@@ -1404,6 +1431,7 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._unusual_since = None
             self._unusual = False
             self._settled_since = None
+            self._novelty_window = []
             return {"unusual": False,
                     "reason": "waiting for the house to finish starting up",
                     "novelty": round(novelty, 4), "settled": round(settled, 4),
@@ -1413,19 +1441,35 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._unusual_since = None
             self._unusual = False
             self._settled_since = None
+            self._novelty_window = []
             return {"unusual": False,
                     "reason": "still learning what a whole day here looks like",
                     "novelty": round(novelty, 4), "settled": round(settled, 4),
                     "learned_the_place": False, "for_seconds": 0,
                     "learning_hours_left": round(learning_left / 3600.0, 1)}
 
-        if novelty >= NOVELTY_UNUSUAL:
+        # Judged on the average over the last two minutes, not on every tick
+        # in them. Novelty is *supposed* to fade with exposure -- that is the
+        # habituation the whole thing rests on -- and demanding two unbroken
+        # minutes above the line asked it not to: a garage door that had never
+        # run peaked at 0.27 and was down to 0.05 by the end of its second
+        # minute, and four lights switching on at once in a 113-entity house
+        # habituated under the line in about a minute. An average still ignores
+        # a twitch -- one tick at 1.0 among fifty-nine at 0.03 comes to 0.046 --
+        # and still needs two minutes of history before it can say anything.
+        window = [(t, v) for t, v in self._novelty_window if now - t < UNUSUAL_SECONDS]
+        window.append((now, novelty))
+        self._novelty_window = window
+        averaged = sum(v for _, v in window) / len(window)
+        full = now - window[0][0] >= UNUSUAL_SECONDS - self._tick_interval
+
+        if full and averaged >= NOVELTY_UNUSUAL:
             self._settled_since = None
             if self._unusual_since is None:
-                self._unusual_since = now
+                # The average covers the two minutes before now.
+                self._unusual_since = now - UNUSUAL_SECONDS
             held = now - self._unusual_since
-            if held >= UNUSUAL_SECONDS:
-                self._unusual = True
+            self._unusual = True
         else:
             self._unusual_since = None
             held = 0.0
@@ -1457,6 +1501,8 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         report = {
             "unusual": self._unusual,
             "novelty": round(novelty, 4),
+            # What the alert is actually judged on: the last two minutes.
+            "averaged": round(averaged, 4),
             "settled": round(settled, 4),
             "learned_the_place": True,
             "for_seconds": int(held),
@@ -1548,8 +1594,9 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not channels:
             return [], 0.0
         by_channel: dict[int, list[str]] = {}
+        usable = self.brain.odour_channels
         for entity_id in self._watched_cache:
-            by_channel.setdefault(_stable_channel(entity_id, channels), []).append(entity_id)
+            by_channel.setdefault(_stable_channel(entity_id, usable), []).append(entity_id)
             # A bitmask or a row of numbers reaches one glomerulus per value
             # (see _percepts), so its suspects are named down to the position:
             # "sensor.gates#4", "sensor.gate_energies#s2#6".
@@ -1557,7 +1604,7 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if st is not None:
                 for key in _channel_keys(entity_id, str(st.state).strip()):
                     if key != entity_id:
-                        by_channel.setdefault(_stable_channel(key, channels), []).append(key)
+                        by_channel.setdefault(_stable_channel(key, usable), []).append(key)
         out: list[dict[str, Any]] = []
         hour_share = 0.0
         for channel, share in self.brain.novel_channels():
