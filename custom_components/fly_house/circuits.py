@@ -247,11 +247,34 @@ KC_SPARSENESS_TARGET = 0.05   # ~5% of Kenyon cells active, as measured in vivo
 # and none of them is one of the approach/avoid cells.
 #
 # Timescales are set for a house rather than for an odour-delivery rig. A
-# pattern that persists for a few minutes stops being news; six hours of not
+# pattern that persists for a few minutes stops being news; three days of not
 # seeing it makes it news again.
+#
+# It was about four and a half hours (1.2e-4 a tick), and that made anything
+# that happens once a day news again every day -- including the fly's own clock.
+# Once the antennal lobe stopped latching (2.22.0) the Swarm's day and night
+# flies raised the alert at the same two hours of their own subjective day,
+# every day, about nothing in the house. Measured offline on a house where
+# nothing happens at all: alerts at fixed hours on every day after the first
+# with the old memory, none with a memory of a day or longer. On a lived-in
+# house over five days (a routine with jitter, motion, temperatures), four
+# false alarms a day became none, and both planted events were still heard:
+#
+#   memory    false alarms   never seen, four at once   evening lights at 3am
+#   4.6 h     4 a day        0.197                      0.254
+#   1 day     0              0.150                      0.148
+#   3 days    0              0.137                      0.129
+#   7 days    0              0.132                      0.122
+#
+# A day would remember only what happens daily, so a bin day or a laundry day
+# would be news every time; three days remembers those and still clears the
+# alert line with room. Capacity is not what limits it: after five days at
+# seven, 112 of 1,927 Kenyon cells were habituated below half.
+# (tools/novelty_days.py runs that table.)
 NOVELTY_COMPARTMENT = ("MBON16", "MBON17", "MBON28")
 NOVELTY_DEPRESSION = 0.02     # per tick, at full presynaptic activity
-NOVELTY_RECOVERY = 1.2e-4     # per tick, back towards naive
+NOVELTY_MEMORY_HOURS = 72.0
+NOVELTY_RECOVERY = 2.0 / (NOVELTY_MEMORY_HOURS * 3600.0)   # per 2 s tick, back towards naive
 # A Kenyon cell counts as part of the code only above this rate. Without a
 # floor, the whole population habituates: every cell carries a little activity,
 # and over a few hundred ticks that is enough to make nothing novel ever again.

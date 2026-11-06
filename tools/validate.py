@@ -2351,6 +2351,55 @@ def main() -> int:
           loud >= line > quiet and pn_loud > 2 * pn_quiet,
           f"{loud:.3f} where its PN answers {pn_loud:.2f}, {quiet:.3f} where it answers {pn_quiet:.2f}")
 
+    print("\n16b. Yesterday is not news today")
+    # With the lobe hearing the house again (2.22.0), the Swarm's day and night
+    # flies raised the alert at the same two hours of their own day, every day,
+    # about nothing: a memory of about four and a half hours made anything that
+    # happens once a day news again -- the fly's own clock included. Two days of
+    # a house where nothing happens, thirty times fast (a tick is a minute) with
+    # habituation scaled to match, run with the old memory as the control.
+    def two_days(memory_hours, plant):
+        speed = 30
+        saved = (circ.NOVELTY_RECOVERY, circ.NOVELTY_DEPRESSION)
+        circ.NOVELTY_RECOVERY = 1 - (1 - 2.0 / (memory_hours * 3600.0)) ** speed
+        circ.NOVELTY_DEPRESSION = 1 - (1 - saved[1]) ** speed
+        try:
+            r = np.random.default_rng(11)
+            b = circ.FlyBrain(); b.settle(time_of_day=0.0)
+            home = np.zeros(b.n_odour_channels, np.float32)
+            home[r.choice(np.asarray(b.odour_channels), 12, replace=False)] = r.uniform(0.3, 1.0, 12)
+            never = [channel_of(f"switch.never{k}", b.odour_channels) for k in range(4)]
+            per_day, window = int(86400 / (2.0 * speed)), max(1, int(120 / (2.0 * speed)))
+            trace = []
+            for t in range(2 * per_day):
+                hour = (t % per_day) / per_day * 24
+                smell = home + r.normal(0, 0.02, home.shape).astype(np.float32) * (home > 0)
+                if plant and t >= per_day and 14.0 <= hour < 14.33:
+                    smell[never] += 1.0
+                trace.append(b.step(circ.Senses(time_of_day=hour / 24, light=0.5,
+                                                odour=np.clip(smell, 0, 1.5)), 20)["novelty"])
+        finally:
+            circ.NOVELTY_RECOVERY, circ.NOVELTY_DEPRESSION = saved
+        trace = np.asarray(trace)
+        avg = np.array([trace[max(0, i - window + 1):i + 1].mean() for i in range(len(trace))])
+        hours = (np.arange(len(trace)) % per_day) / per_day * 24
+        above = avg >= coord_const("NOVELTY_UNUSUAL")
+        rising = above & ~np.r_[False, above[:-1]]
+        day2 = np.arange(len(trace)) >= per_day
+        planted = day2 & (hours >= 14.0) & (hours < 14.5)
+        false_at = sorted({round(float(h), 1) for h in hours[rising & day2 & ~planted]})
+        return false_at, float(avg[planted].max()) if planted.any() else 0.0
+
+    old_false, _ = two_days(4.6, plant=False)
+    new_false, heard = two_days(circ.NOVELTY_MEMORY_HOURS, plant=True)
+    check("a house where nothing happens is not news at the same hours every day",
+          old_false and not new_false,
+          f"day 2 alerts with the old 4.6 h memory at {old_false} h; with "
+          f"{circ.NOVELTY_MEMORY_HOURS:g} h, {new_false or 'none'}")
+    check("and something that has never happened is still heard the day after",
+          heard >= coord_const("NOVELTY_UNUSUAL"),
+          f"four new switches at 14:00 on day 2: two-minute average {heard:.3f}")
+
     ok = all(_results)
     print(f"\n{sum(_results)}/{len(_results)} checks passed\n")
     return 0 if ok else 1

@@ -1,6 +1,9 @@
 {
   "domain": "fly_house",
   "name": "HouseFly",
+  "categories": [
+    "helpers.calculate_value"
+  ],
   "codeowners": [
     "@Vortitron"
   ],
@@ -16,5 +19,5 @@
   "requirements": [
     "numpy>=1.24"
   ],
-  "version": "2.22.0"
+  "version": "2.23.0"
 }

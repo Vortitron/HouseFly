@@ -1,5 +1,34 @@
 # Changelog
 
+## 2.23.0 — yesterday is not news
+
+Scored on the Swarm for a week, 2.22.0 heard none of five planted events and
+raised the alert every day at the same two hours of each fly's own day: the day
+fly at 08:10 and 09:50, the night fly — six hours ahead — at 02:45 and 03:52.
+Nothing in the house was happening then; the day fly was awake and walking
+throughout. Familiarity faded with a time constant of about four and a half
+hours, so anything that happens once a day was news again every day, and the
+first thing that happens once a day is the fly's own clock. The latched lobe of
+2.21.0 had been too deaf to show it.
+
+Reproduced offline on a house where nothing happens: the old memory alerts at
+fixed hours on every day after the first; a memory of a day or longer, never.
+On a lived-in house over five days (`tools/novelty_days.py`), four false alarms
+a day became none at one, three and seven days, and two planted events — four
+never-seen switches at 14:00, the evening lights at 03:00 — were heard at all
+of them, with less margin the longer the memory (0.197 → 0.132 and 0.254 →
+0.122). The memory is now three days: one would forget a bin day between bin
+days. Only a few per cent of the Kenyon cells are habituated after five days
+even at seven, so capacity is not what limits it. Check 16b runs two days of a
+quiet house thirty times fast with the old memory as the control, and plants a
+never-seen event on the second day.
+
+The README's "different timescales" reason for several flies is gone: there is
+one recovery rate, shared by every fly, and there never was an option for it.
+
+The manifest now carries a Marketplace category, `helpers.calculate_value`,
+which the released hassfest refused until 2026.11.
+
 ## 2.22.0 — it smells the house it is in
 
 The planted anomalies on the Swarm (2.21.0) did their job inside four days:

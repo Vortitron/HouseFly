@@ -446,8 +446,31 @@ three) is the one that starves the valence memory, and this keeps the memory. On
 projection neuron its channel lands on answers strongly, and those vary —
 driven at full strength they reach anywhere from 0.02 to 0.5, a quarter of them
 under 0.2. So a device you care about belongs in a small fly, and even there it
-is a matter of luck which channel it gets. Whether this holds up on a house that
-is lived in is what the Swarm is now being scored for again.
+is a matter of luck which channel it gets. It did not hold up, for a reason none of this measured. Scored on the Swarm
+for a week, 2.22.0 heard none of five planted events and raised the alert every
+day at the same two hours of each fly's own day — the day fly at 08:10 and
+09:50, the night fly, six hours ahead, at 02:45 and 03:52 — about nothing in
+the house at all. Familiarity used to fade in about four and a half hours, so
+anything that happens once a day was news again every day, and the first thing
+that happens once a day is the fly's own morning. A deaf lobe had hidden it.
+
+The memory now lasts three days. Measured on a house where nothing happens, the
+old memory raises the alert at fixed hours on every day after the first and a
+memory of a day or more raises none; on a lived-in house over five days (a
+routine with jitter, motion, temperatures; `tools/novelty_days.py`):
+
+```
+ memory    false alarms   never seen, four at once   evening lights at 3am
+ 4.6 h     4 a day        0.197                      0.254
+ 1 day     0              0.150                      0.148
+ 3 days    0              0.137                      0.129
+ 7 days    0              0.132                      0.122
+```
+
+A day would remember only what happens daily, so a bin day would be news every
+week; three remembers that and still clears the line. Section 16b runs two days
+of each, with the old memory as the control. Whether *that* holds up on a house
+that is lived in is what the Swarm is being scored for next.
 
 One implementation note, because it is a limit of the data rather than a
 choice. Habituation is held per Kenyon cell, not per synapse: the pack
@@ -506,16 +529,14 @@ A house can hold several. Each is its own config entry with its own name, its
 own brain, its own memory on disk, and its own view of the house, so they are
 genuinely separate animals rather than one animal drawn three times.
 
-Three reasons to bother, in rough order of how much they buy you:
+Two reasons to bother, in rough order of how much they buy you:
 
-**Separate territories.** The antennal lobe has 131 glomeruli. Sixty-two
-entities hashed into 123 odour channels collide; thirty-one collide far less,
-so two flies watching half the house each have sharper noses for their own half
-than one fly has for all of it.
-
-**Different timescales.** Habituation has one recovery rate. A fly that forgets
-quickly notices the brief and the odd; one that forgets slowly notices drift.
-Running both gives you an ensemble that sees either.
+**Separate territories.** The antennal lobe has 131 glomeruli, of which 101
+odour channels reach the mushroom body. Sixty-two entities hashed into 101
+channels collide; thirty-one collide far less, so two flies watching half the
+house each have sharper noses for their own half than one fly has for all of it
+— and, more to the point, a smaller territory is the one that hears a single
+thing change (see [What it hears](#what-it-hears)).
 
 **Shifts** — and the number here is not the obvious one.
 
