@@ -469,8 +469,24 @@ routine with jitter, motion, temperatures; `tools/novelty_days.py`):
 
 A day would remember only what happens daily, so a bin day would be news every
 week; three remembers that and still clears the line. Section 16b runs two days
-of each, with the old memory as the control. Whether *that* holds up on a house
-that is lived in is what the Swarm is being scored for next.
+of each, with the old memory as the control.
+
+On the Swarm it held up. Scored over ten days (7–17 November 2026, as far back
+as the recorder goes), 2.23.0 raised no daily alarms. The visitor — occupancy
+sensors coming alive in a house nobody walks round — was planted three times
+and heard three times, one to six minutes in; the first time, the day fly put
+99% of its trace on the living-room occupancy sensor the visitor had switched
+on, and the night fly said "not at this hour". The garage motor ran four times
+and the whole-house fly heard none of them, as the table above says it would.
+Every light on at 3am, planted once, went unheard by all four flies, although
+the lived-in test above hears its offline twin; one event is too few to say
+why, and it stays counted as a miss. Three of eight in all.
+
+There was one false alarm in about forty fly-days: the whole-house fly, which
+blamed the other flies' Kenyon-cell counts, network activity and memory —
+their insides, which drift to values it had never met. Those are no longer
+swept up (see [below](#watching-is-free-touching-is-not)). Whether that was
+the whole cause is what the Swarm is being scored for next.
 
 One implementation note, because it is a limit of the data rather than a
 choice. Habituation is held per Kenyon cell, not per synapse: the pack
@@ -637,7 +653,15 @@ Automations, scripts, scenes, updates and notifications are excluded on
 purpose. They change when *you* change the system rather than when the house
 changes, so including them would make every upgrade look like an intruder. So
 are HouseFly's own entities, which would otherwise have it smelling itself
-thinking.
+thinking. So is anything Home Assistant files as *diagnostic* or *config*,
+from any integration — a plug's signal strength, a device's uptime, the sun's
+next-dawn timestamp, another fly's Kenyon-cell count. Those describe the
+machinery rather than the house, and machinery drifts to values a fly has never
+met: the one false alarm in the Swarm's 2.23.0 soak came from the other flies'
+insides. Another fly's *behaviour* — its mode, heading and arousal, whether it
+finds the house unusual — is still swept, because that is how flies sharing a
+house affect each other. Anything you list by hand is watched whatever its
+category.
 
 **Sweeping the house does not make it startle at everything.** A motion or
 occupancy flag arrives as a flat startle, which is over the escape threshold on

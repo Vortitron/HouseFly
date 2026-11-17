@@ -1,5 +1,28 @@
 # Changelog
 
+## 2.24.0 — it does not smell the machinery
+
+Scored on the Swarm over ten days, 2.23.0 kept the daily alarms away and heard
+the planted visitor three times out of three, once naming the very occupancy
+sensor the visitor had switched on. The garage motor went unheard four times,
+as the detection table says a whole-house fly would. Every light at 3am went
+unheard once, which the offline test does hear; one event is too few to say
+why. It raised one false alarm in about forty fly-days, from
+the whole-house fly, and the suspects it named were the other flies' insides:
+Kenyon-cell counts, network activity, memory.
+
+A whole-house fly now sweeps nothing that Home Assistant files as diagnostic or
+config, from any integration, unless it has been listed by hand. A fly's own
+Kenyon cells active, Network activity and Memory sensors are now diagnostic, as
+Tick cost already was. They are the simulation's insides, not its behaviour.
+They move to the device page's Diagnostic section and off auto-generated
+dashboards. Dashboards that name them keep working.
+
+What a whole-house fly smells has changed, so it relearns for a day after the
+upgrade rather than alarming about the difference. A fly that watches only
+its own list smells exactly what it did and keeps its memory. Checks 13b and
+13c cover both.
+
 ## 2.23.0 — yesterday is not news
 
 Scored on the Swarm for a week, 2.22.0 heard none of five planted events and

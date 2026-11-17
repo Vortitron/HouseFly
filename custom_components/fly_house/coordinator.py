@@ -352,6 +352,14 @@ def _stable_channel(entity_id: str, channels: "int | Sequence[int]") -> int:
 # latching and entities stopped landing on channels that reach no Kenyon cell.
 SMELL_CODE = 2
 
+# The same, for what a whole-house fly sweeps up rather than how it smells it.
+# It is only part of a whole-house fly's fingerprint: a fly watching a list of
+# its own has the same nose whatever the sweep does. 1: entities Home Assistant
+# files as diagnostic or config stopped being swept, so the Watcher on the
+# Swarm lost the other flies' Kenyon-cell counts, network activity and memory,
+# and the sun's next-dawn timestamps, and must relearn a house without them.
+SWEEP_CODE = 1
+
 # Values that mean "this channel is telling you nothing".
 DEAD_STATES = frozenset({"unknown", "unavailable", "none", ""})
 
@@ -755,8 +763,11 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         decides them, which only changes when somebody changes it.
         """
         listed = ",".join(sorted(self.input_entities))
+        # Appended, not mixed in, so a fly that only watches its own list keeps
+        # the fingerprint it had and does not relearn for a change it cannot see.
+        sweep = f"|sweep{SWEEP_CODE}" if self._watch_whole_house else ""
         return hashlib.sha256(
-            f"{SMELL_CODE}|{int(self._watch_whole_house)}|{listed}".encode()
+            f"{SMELL_CODE}|{int(self._watch_whole_house)}|{listed}{sweep}".encode()
         ).hexdigest()[:16]
 
     def _own_entities(self) -> frozenset[str]:
@@ -787,6 +798,7 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         chosen = list(self.input_entities)
         seen = set(chosen)
         mine = self._own_entities()
+        registry = er.async_get(self.hass)
         for state in self.hass.states.async_all():
             if len(chosen) >= MAX_WATCHED_ENTITIES:
                 break
@@ -804,10 +816,21 @@ class FlyHouseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # a fly called The Watcher owns sensor.the_watcher_*, matched
             # nothing, and quietly spent its life smelling its own arousal.
             #
-            # Only its *own* entities are excluded. Another fly's are real news
-            # about the house -- that is how flies here affect each other, and
-            # the README says so.
+            # Only its *own* entities are excluded outright. Another fly's are
+            # real news about the house -- that is how flies here affect each
+            # other, and the README says so -- except its diagnostics, below.
             if entity_id in mine:
+                continue
+            # Nor is anything Home Assistant files as diagnostic or config: a
+            # device's signal strength, its uptime, the sun's next-dawn
+            # timestamp, another fly's Kenyon-cell count. The category means
+            # "about the machinery, not what it is for", and machinery drifts
+            # to values the fly has never met. On the Swarm the one false
+            # alarm in forty fly-days (the Watcher, 2026-11-07) was traced to
+            # the other flies' internals. Their behaviour -- mode, heading,
+            # arousal, whether they find the house unusual -- is still swept.
+            entry = registry.async_get(entity_id)
+            if entry is not None and entry.entity_category is not None:
                 continue
             chosen.append(entity_id)
             seen.add(entity_id)

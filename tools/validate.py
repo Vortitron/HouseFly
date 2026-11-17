@@ -1843,6 +1843,23 @@ def main() -> int:
     house = ["light.kitchen", "binary_sensor.hall_motion", "sensor.porch_temperature"]
     mine = ["sensor.the_watcher_arousal", "binary_sensor.the_watcher_awake"]
     theirs = ["sensor.day_fly_mode", "binary_sensor.day_fly_escaping"]
+    # What Home Assistant files as machinery rather than purpose: another fly's
+    # insides, a plug's signal strength, the sun's next-dawn timestamp, a
+    # device's config switch. The one false alarm in ~40 fly-days on the Swarm
+    # (the Watcher, 2026-11-07) blamed the other flies' internals.
+    machinery = {"sensor.day_fly_kenyon_cells_active": "diagnostic",
+                 "sensor.day_fly_tick_cost": "diagnostic",
+                 "sensor.plug_signal_strength": "diagnostic",
+                 "sensor.sun_next_dawn": "diagnostic",
+                 "switch.plug_child_lock": "config"}
+    categories = {e: None for e in house + mine + theirs} | machinery
+    # One entity with no registry entry at all (a YAML template without a
+    # unique_id): nothing says it is machinery, so it is watched.
+    house_unregistered = ["sensor.yaml_template_power"]
+    wns["er"] = type("ER", (), {"async_get": staticmethod(lambda hass: type("R", (), {
+        "async_get": staticmethod(lambda eid: (
+            None if eid not in categories
+            else type("E", (), {"entity_category": categories[eid]})()))})())})
 
     watcher = wns["_W"].__new__(wns["_W"])
     watcher.input_entities = []
@@ -1850,17 +1867,40 @@ def main() -> int:
     watcher._own_entities = lambda: frozenset(mine)
     watcher.hass = type("H", (), {"states": type("S", (), {
         "async_all": staticmethod(lambda: [_FakeState(e)
-                                           for e in house + mine + theirs])})()})()
+                                           for e in house + mine + theirs
+                                           + list(machinery) + house_unregistered])})()})()
     seen = wns["_W"]._watched(watcher)
 
     check("a whole-house fly watches the house",
-          set(house) <= set(seen), f"{len(seen)} entities watched")
+          set(house + house_unregistered) <= set(seen), f"{len(seen)} entities watched")
     check("but not one of its own entities, whatever it is called",
           not (set(mine) & set(seen)),
           f"own entities in the sweep: {sorted(set(mine) & set(seen)) or 'none'}")
     check("and another fly's entities are still news",
           set(theirs) <= set(seen),
           "one fly turning a light on is how the others find out")
+    check("but nothing filed as diagnostic or config, from any integration",
+          not (set(machinery) & set(seen)),
+          f"machinery in the sweep: {sorted(set(machinery) & set(seen)) or 'none'}")
+    watcher.input_entities = ["sensor.plug_signal_strength"]
+    check("unless somebody listed it by hand",
+          "sensor.plug_signal_strength" in wns["_W"]._watched(watcher),
+          "the category decides what the sweep picks up, not what a person may choose")
+    watcher.input_entities = []
+    sensor_src = (ROOT / "custom_components" / "fly_house" / "sensor.py").read_text()
+
+    def sensor_block(key):
+        start = sensor_src.index(f'key="{key}"')
+        return sensor_src[start:sensor_src.index("FlySensorDescription(", start)
+                          if "FlySensorDescription(" in sensor_src[start:] else None]
+
+    internals = ["kenyon_cells", "network_activity", "memory", "tick_cost"]
+    behaviour = ["mode", "heading", "valence", "arousal", "hunger",
+                 "familiarity", "approach", "actuations"]
+    check("and a fly files its own insides as diagnostic, its behaviour not",
+          all("EntityCategory.DIAGNOSTIC" in sensor_block(k) for k in internals)
+          and not any("EntityCategory" in sensor_block(k) for k in behaviour),
+          "so another fly sweeps up what it does, not how its simulation is running")
 
     print("\n13c. Changing what it can smell disarms the alert")
     # "It has looked familiar before" is a claim about one set of senses.
@@ -1870,7 +1910,8 @@ def main() -> int:
     # watching on took novelty from 0.06 to 0.98 and fired inside a minute.
     f_start = coord_src.index("    def _nose_fingerprint")
     f_end = coord_src.index("    def _own_entities")
-    fns = {"hashlib": hashlib, "SMELL_CODE": coord_const("SMELL_CODE")}
+    fns = {"hashlib": hashlib, "SMELL_CODE": coord_const("SMELL_CODE"),
+           "SWEEP_CODE": coord_const("SWEEP_CODE")}
     exec(compile("class _N:\n" + coord_src[f_start:f_end] + "\n",
                  "coordinator", "exec"), fns)
 
@@ -1900,6 +1941,19 @@ def main() -> int:
     check("and so does a change to how smells become a code",
           base != older,
           f"smell code {coord_const('SMELL_CODE'):.0f}: an upgraded fly relearns rather than alarming")
+    # A new sweep code changes what a whole-house fly picks up, so it relearns;
+    # a fly watching its own list smells exactly what it did and must not.
+    whole = fingerprint(["sensor.a"], True)
+    listed = fingerprint(["sensor.a"], False)
+    fns["SWEEP_CODE"] = coord_const("SWEEP_CODE") - 1
+    whole_older, listed_older = fingerprint(["sensor.a"], True), fingerprint(["sensor.a"], False)
+    fns["SWEEP_CODE"] = coord_const("SWEEP_CODE")
+    check("a change to what the sweep picks up makes a whole-house fly relearn",
+          whole != whole_older,
+          f"sweep code {coord_const('SWEEP_CODE'):.0f}")
+    check("but leaves a fly that watches its own list alone",
+          listed == listed_older,
+          "it smells exactly what it did, so a day of relearning would be for nothing")
     check("and the restore path compares it before trusting the guard",
           'saved.get("nose")' in coord_src and "_ever_familiar = False" in coord_src,
           "a fingerprint nothing compares is a comment")

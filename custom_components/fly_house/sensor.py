@@ -97,6 +97,9 @@ SENSORS: tuple[FlySensorDescription, ...] = (
         icon="mdi:brain",
         native_unit_of_measurement=PERCENTAGE,
         state_class=SensorStateClass.MEASUREMENT,
+        # The simulation's insides, not the house: kept out of other
+        # whole-house flies' sweeps, and off auto-generated dashboards.
+        entity_category=EntityCategory.DIAGNOSTIC,
         value=lambda d, c: round(d.get("memory_depression", 0.0) * 100, 2),
         attrs=lambda d, c: {
             "plastic_synapses": int(len(c.brain.kc_mbon_gain)),
@@ -140,6 +143,9 @@ SENSORS: tuple[FlySensorDescription, ...] = (
         name="Kenyon cells active",
         icon="mdi:scatter-plot-outline",
         state_class=SensorStateClass.MEASUREMENT,
+        # The simulation's insides, not the house: kept out of other
+        # whole-house flies' sweeps, and off auto-generated dashboards.
+        entity_category=EntityCategory.DIAGNOSTIC,
         value=lambda d, c: d.get("kc_active", 0),
         attrs=lambda d, c: {
             "kenyon_cells_total": d.get("kc_total", 0),
@@ -154,6 +160,9 @@ SENSORS: tuple[FlySensorDescription, ...] = (
         name="Network activity",
         icon="mdi:pulse",
         state_class=SensorStateClass.MEASUREMENT,
+        # The simulation's insides, not the house: kept out of other
+        # whole-house flies' sweeps, and off auto-generated dashboards.
+        entity_category=EntityCategory.DIAGNOSTIC,
         value=lambda d, c: round(d.get("network_activity", 0.0), 5),
         attrs=lambda d, c: {
             "active_neurons": d.get("active_neurons", 0),
