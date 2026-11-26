@@ -479,14 +479,26 @@ and heard three times, one to six minutes in; the first time, the day fly put
 on, and the night fly said "not at this hour". The garage motor ran four times
 and the whole-house fly heard none of them, as the table above says it would.
 Every light on at 3am, planted once, went unheard by all four flies, although
-the lived-in test above hears its offline twin; one event is too few to say
-why, and it stays counted as a miss. Three of eight in all.
+the lived-in test above hears its offline twin. Three of eight in all.
 
 There was one false alarm in about forty fly-days: the whole-house fly, which
 blamed the other flies' Kenyon-cell counts, network activity and memory —
 their insides, which drift to values it had never met. Those are no longer
-swept up (see [below](#watching-is-free-touching-is-not)). Whether that was
-the whole cause is what the Swarm is being scored for next.
+swept up (see [below](#watching-is-free-touching-is-not)).
+
+That was not the whole cause. Nine more days of 2.23.0 (17–26 November) heard
+the visitor four times out of four (the day fly three, the night fly three),
+the garage once more not at all, and every light on — at 2am and at 4pm —
+not at all either, so the lights are now three misses of three, a gap rather
+than bad luck. The whole-house fly raised two more false alarms and the small
+flies none. Both were marginal: a two-minute average of 0.1003 against a line
+of 0.10. Only one of the eleven suspects they named was the kind of entity
+2.24.0 stops sweeping; the rest were the house and the other flies'
+behaviour. The plainer pattern is that a whole-house fly rests closer to the
+line: its settled novelty sits near 0.08, the small flies' near 0.04. So
+across nineteen days: visitors 7 of 7, lights 0 of 3, garage 0 of 5; three
+false alarms, all from the one fly that watches everything, and none from the
+three that watch a list.
 
 One implementation note, because it is a limit of the data rather than a
 choice. Habituation is held per Kenyon cell, not per synapse: the pack
