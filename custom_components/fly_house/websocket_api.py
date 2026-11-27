@@ -24,7 +24,7 @@ from typing import Any
 
 import voluptuous as vol
 from homeassistant.components import websocket_api
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import HomeAssistant, callback, valid_entity_id
 
 from .const import DOMAIN
 
@@ -157,12 +157,26 @@ def ws_vision(hass: HomeAssistant, connection, msg: dict[str, Any]) -> None:
     connection.send_result(msg["id"], {"seen": round(msg["expansion"], 4)})
 
 
+def _entity_or_none(value: Any) -> str | None:
+    """A card's entity if it is an entity id, otherwise no entity at all.
+
+    Any logged-in browser can report a layout, and the entity it names becomes
+    the fly's goal, which is published as a state attribute and drawn on other
+    people's dashboards. So anything that is not an entity id -- markup, say --
+    is dropped here rather than trusted downstream. Dropped, not refused: one
+    odd card should not cost the fly the rest of the dashboard.
+    """
+    if isinstance(value, str) and valid_entity_id(value):
+        return value
+    return None
+
+
 @websocket_api.websocket_command(
     {
         vol.Required("type"): "fly_house/layout",
         vol.Required("cards"): [
             {
-                vol.Required("entity"): vol.Any(str, None),
+                vol.Required("entity"): _entity_or_none,
                 vol.Required("x"): vol.Coerce(float),
                 vol.Required("y"): vol.Coerce(float),
                 vol.Required("w"): vol.Coerce(float),

@@ -2454,6 +2454,57 @@ def main() -> int:
           heard >= coord_const("NOVELTY_UNUSUAL"),
           f"four new switches at 14:00 on day 2: two-minute average {heard:.3f}")
 
+    print("\n17. Nothing a browser or a dashboard says becomes markup")
+    # Found in review for the Marketplace (hacs/default#14979): the house card
+    # wrote its title and the fly's goal into innerHTML, and the goal is an
+    # entity named in a layout any logged-in browser can send, so markup in it
+    # ran in every browser showing the card. Two guards, each tested here: the
+    # server drops a layout entity that is not an entity id, and no card
+    # assigns innerHTML from anything but a literal of its own constants.
+    import re as _re
+    ws_src = (ROOT / "custom_components" / "fly_house" / "websocket_api.py").read_text()
+    e_start = ws_src.index("def _entity_or_none")
+    e_end = ws_src.index("@websocket_api.websocket_command", e_start)
+    # Home Assistant's own entity id pattern (homeassistant.core), so the stub
+    # agrees with what the real valid_entity_id accepts.
+    ha_entity = _re.compile(r"^(?!.+__)(?!_)[\da-z_]+(?<!_)\.(?!_)[\da-z_]+(?<!_)$")
+    ens = {"Any": object, "valid_entity_id": lambda v: bool(ha_entity.match(v))}
+    exec(compile("from __future__ import annotations\n" + ws_src[e_start:e_end],
+                 "websocket_api", "exec"), ens)
+    keep = ens["_entity_or_none"]
+    attack = 'light.x"><img src=x onerror=alert(1)>'
+    check("a layout entity carrying markup is dropped by the server",
+          keep(attack) is None and keep("<b>hi</b>") is None and keep(5) is None,
+          "it would otherwise become the fly's goal, published to every dashboard")
+    check("while a real entity, or none, comes through unchanged",
+          keep("light.kitchen") == "light.kitchen" and keep(None) is None,
+          "one odd card costs that card, not the layout")
+    check("and the layout command actually uses it",
+          'vol.Required("entity"): _entity_or_none' in ws_src,
+          "a validator nothing calls is a comment")
+
+    # Every innerHTML assignment in the cards: its right-hand side must be a
+    # template or string literal, and nothing interpolated into it may reach
+    # for the card's config, Home Assistant, or a state.
+    dynamic = _re.compile(r"\bthis\b|hass|config|state|attributes|goal|entity|name")
+    offenders = []
+    for js in sorted((ROOT / "custom_components" / "fly_house" / "www").glob("*.js")):
+        src = js.read_text()
+        for m in _re.finditer(r"innerHTML\s*=\s*", src):
+            rhs = src[m.end():]
+            line = src.count("\n", 0, m.start()) + 1
+            if rhs[:1] == "`":
+                body = rhs[1:rhs.index("`", 1)]
+                bad = [x for x in _re.findall(r"\$\{([^}]*)\}", body) if dynamic.search(x)]
+                if bad:
+                    offenders.append(f"{js.name}:{line} interpolates {bad}")
+            elif rhs[:1] in "'\"" or rhs.lstrip().startswith(("out.selfMotion",)):
+                continue      # a literal, or a choice between two literals
+            else:
+                offenders.append(f"{js.name}:{line} assigns {rhs.split(';')[0][:40]!r}")
+    check("and no card writes anything but its own literals into innerHTML",
+          not offenders, "; ".join(offenders) or "titles, goals and group names go in as text")
+
     ok = all(_results)
     print(f"\n{sum(_results)}/{len(_results)} checks passed\n")
     return 0 if ok else 1

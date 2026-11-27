@@ -217,10 +217,17 @@ class HouseFlyBrainCard extends HTMLElement {
   _buildLegend() {
     const el = this.shadowRoot.getElementById('legend');
     const present = [...new Set(this._geometry.groups)];
-    el.innerHTML = present.map((g) => {
-      const s = GROUP_STYLE[g] || { name: g, rgb: [140, 160, 180] };
-      return `<div><span class="dot" style="background:rgb(${s.rgb.join(',')})"></span>${s.name}</div>`;
-    }).join('');
+    // Built as nodes: an unknown group's name comes from the data pack, which
+    // is downloaded, so it is text and never markup.
+    el.replaceChildren(...present.map((g) => {
+      const s = GROUP_STYLE[g] || { name: String(g), rgb: [140, 160, 180] };
+      const row = document.createElement('div');
+      const dot = document.createElement('span');
+      dot.className = 'dot';
+      dot.style.background = `rgb(${s.rgb.map(Number).join(',')})`;
+      row.append(dot, s.name);
+      return row;
+    }));
   }
 
   // ------------------------------------------------------------------ frame

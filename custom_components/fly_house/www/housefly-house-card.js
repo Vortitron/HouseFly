@@ -94,7 +94,7 @@ class HouseFlyHouseCard extends HTMLElement {
     this.shadowRoot.innerHTML = `
       <style>${STYLE}</style>
       <ha-card>
-        <h2>${this._config.title}</h2>
+        <h2 id="title"></h2>
         <p class="sub">Every room here is fake and everything you can see is live state — the
           glow is that light's real brightness, the tint of the floor is its real temperature
           against the others. Tap a room to switch its light.</p>
@@ -121,6 +121,9 @@ class HouseFlyHouseCard extends HTMLElement {
         <p class="legend" id="legend"></p>
       </ha-card>`;
 
+    // Text, never markup: the title is whatever the dashboard says, and
+    // nothing a dashboard or a state carries is written into innerHTML here.
+    this.shadowRoot.getElementById('title').textContent = this._config.title;
     this.shadowRoot.querySelectorAll('.room').forEach((g) => {
       g.addEventListener('click', () => this._toggle(g.dataset.room));
     });
@@ -216,12 +219,22 @@ class HouseFlyHouseCard extends HTMLElement {
     const fly = this._state('sensor.housefly_mode');
     const escaping = this._state('binary_sensor.housefly_escaping');
     const goal = fly && fly.attributes.goal_entity;
-    const bits = [];
-    if (fly) bits.push(`The fly is <b>${fly.state}</b>`);
-    if (escaping && escaping.state === 'on') bits.push('<b>and bolting</b>');
-    else if (goal) bits.push(`heading for <b>${goal.split('.').pop().replace(/_/g, ' ')}</b>`);
+    // Each part is [plain text, emphasised text], built as nodes. The goal
+    // comes from card positions a browser reported, so it is never markup.
+    const parts = [];
+    if (fly) parts.push(['The fly is ', String(fly.state)]);
+    if (escaping && escaping.state === 'on') parts.push(['', 'and bolting']);
+    else if (goal) parts.push(['heading for ', String(goal).split('.').pop().replace(/_/g, ' ')]);
     const legend = this.shadowRoot.getElementById('legend');
-    if (legend) legend.innerHTML = bits.join(', ') || '';
+    if (!legend) return;
+    legend.replaceChildren();
+    parts.forEach(([plain, bold], i) => {
+      if (i) legend.append(', ');
+      if (plain) legend.append(plain);
+      const b = document.createElement('b');
+      b.textContent = bold;
+      legend.append(b);
+    });
   }
 }
 

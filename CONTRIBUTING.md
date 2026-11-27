@@ -244,7 +244,6 @@ HouseFly/
 │   ├── __init__.py          # Integration setup, services
 │   ├── config_flow.py       # UI configuration flow
 │   ├── coordinator.py       # Data update coordinator (+ state persistence)
-│   ├── brain.py             # Reservoir brain logic
 │   ├── sensor.py            # Sensor entities
 │   ├── binary_sensor.py     # Binary sensor entities
 │   ├── const.py             # Constants

@@ -1,5 +1,30 @@
 # Changelog
 
+## 2.24.1 — nothing it is told becomes markup
+
+A security fix, found in review for the Home Assistant Marketplace
+([hacs/default#14979](https://github.com/hacs/default/pull/14979)). Thanks to
+Frenck.
+
+The house card wrote two things into `innerHTML`: its own title, and the
+fly's goal. The goal is an entity named in the dashboard layout a browser
+reports to the fly, and any logged-in user can report one. So a layout naming
+an "entity" that was really markup would run as script in the browser of
+everyone with the house card on a dashboard. The card is loaded on every
+install, whether or not a dashboard uses it.
+
+- The server now drops any layout entity that is not an entity id, so the bad
+  value never reaches the fly's goal or its state attributes.
+- The house card puts its title and its legend in as text.
+- The brain card's legend, whose names can come from the downloaded data
+  pack, is built the same way.
+- Check 17 tests the server side with markup and with real entity ids. It
+  also scans every card for `innerHTML` built from anything but its own
+  literals; run on 2.24.0 it names all three places.
+
+`brain.py`, the version-1 reservoir that nothing imported and that could no
+longer be imported, is gone.
+
 ## 2.24.0 — it does not smell the machinery
 
 Scored on the Swarm over ten days, 2.23.0 kept the daily alarms away and heard
